@@ -17,7 +17,7 @@ class ExecuteRequest(BaseModel):
     code: str = Field(..., min_length=1, max_length=100_000, description="Code to execute")
     language: str = Field(default="python", description="Language identifier")
     stdin: Optional[str] = Field(None, description="Standard input to provide")
-    timeout_ms: int = Field(default=5000, ge=100, le=120000, description="Execution timeout in ms")
+    timeout_ms: int = Field(default=5000, ge=100, le=3600000, description="Execution timeout in ms")
     last_line_interactive: bool = Field(
         default=False,
         description="If true, auto-print the result of the last expression",

@@ -80,7 +80,11 @@ class ExecutionService:
                 files[f.path] = content
 
         # Enforce limits
-        timeout_ms = min(request.timeout_ms, self.settings.MAX_EXEC_TIMEOUT_MS)
+        # Enforce limits: cap at MAX_EXEC_TIMEOUT_MS unless sandbox limits are active or role is ADMIN
+        if request.memory_limit_mb is not None or request.caller_role == "ADMIN":
+            timeout_ms = request.timeout_ms
+        else:
+            timeout_ms = min(request.timeout_ms, self.settings.MAX_EXEC_TIMEOUT_MS)
 
         exec_req = ExecRequest(
             code=code,
