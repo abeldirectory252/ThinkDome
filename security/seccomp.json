@@ -1,0 +1,133 @@
+{
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "comment": "thinkBox strict seccomp profile — blocks dangerous syscalls for sandboxed code execution",
+  "syscalls": [
+    {
+      "comment": "Block mount/unmount — prevent filesystem namespace manipulation",
+      "names": ["mount", "umount2"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block system reboot/shutdown — prevent host disruption",
+      "names": ["reboot", "kexec_load", "kexec_file_load"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block process tracing — prevent debugging/injection attacks",
+      "names": ["ptrace", "process_vm_readv", "process_vm_writev"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block eBPF — prevent kernel-level manipulation",
+      "names": ["bpf"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block userfaultfd — prevent kernel exploit primitives",
+      "names": ["userfaultfd"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block io_uring — prevent async I/O kernel exploitation",
+      "names": ["io_uring_setup", "io_uring_enter", "io_uring_register"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block root filesystem pivot — prevent container escape",
+      "names": ["pivot_root", "chroot"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block namespace manipulation — prevent container escape",
+      "names": ["unshare", "setns"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block kernel module loading — prevent rootkit injection",
+      "names": ["init_module", "finit_module", "delete_module", "create_module"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block swap management — prevent host memory manipulation",
+      "names": ["swapon", "swapoff"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block system clock manipulation — prevent time-based attacks",
+      "names": ["clock_settime", "settimeofday", "adjtimex", "clock_adjtime"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block raw I/O port access — prevent hardware access",
+      "names": ["iopl", "ioperm"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block syslog access — prevent log manipulation/info leak",
+      "names": ["syslog"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block kernel key management — prevent credential theft",
+      "names": ["add_key", "request_key", "keyctl"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block personality changes — prevent execution mode bypass",
+      "names": ["personality"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1,
+      "args": [
+        {
+          "index": 0,
+          "value": 0,
+          "op": "SCMP_CMP_NE"
+        }
+      ]
+    },
+    {
+      "comment": "Block acct — prevent process accounting manipulation",
+      "names": ["acct"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block move_pages/mbind — prevent NUMA memory policy manipulation",
+      "names": ["move_pages", "mbind", "set_mempolicy"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block vhangup/nfsservctl — prevent tty/NFS exploits",
+      "names": ["vhangup", "nfsservctl"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block lookup_dcookie — prevent kernel memory info leak",
+      "names": ["lookup_dcookie"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    },
+    {
+      "comment": "Block perf_event_open — prevent performance counter abuse",
+      "names": ["perf_event_open"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    }
+  ]
+}

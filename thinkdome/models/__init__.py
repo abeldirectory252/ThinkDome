@@ -1,0 +1,1 @@
+﻿"""thinkBox - Pydantic Models."""

@@ -1,0 +1,261 @@
+# thinkBox API Usage Examples
+# Practical examples for LLM-like code execution scenarios
+
+## 1. BASIC CODE EXECUTION EXAMPLES
+
+### Example 1: Simple Python Hello World
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "print(\"Hello, World! Welcome to thinkBox!\")",
+    "language": "python"
+  }'
+
+
+  ─$ curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import time\nfor i in range(1, 11):\n    print(i)\n    time.sleep(1)",
+    "language": "python"
+  }'
+
+
+### Example 2: Mathematical Calculations
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import math\nresult = math.sqrt(144) + math.pi\nprint(f\"Result: {result:.2f}\")",
+    "language": "python"
+  }'
+
+### Example 3: List Comprehension and Data Processing
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\nsquares = [x**2 for x in numbers if x % 2 == 0]\nprint(f\"Even squares: {squares}\")\nprint(f\"Sum: {sum(squares)}\")",
+    "language": "python"
+  }'
+
+## 2. CSV DATASET GENERATION EXAMPLES
+
+### Example 4: Generate Sample Sales Data CSV
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import csv\nimport random\nfrom datetime import datetime, timedelta\n\n# Generate sample sales data\ndata = []\nproducts = [\"Laptop\", \"Phone\", \"Tablet\", \"Headphones\", \"Mouse\"]\nregions = [\"North\", \"South\", \"East\", \"West\"]\n\nfor i in range(100):\n    date = datetime.now() - timedelta(days=random.randint(0, 365))\n    row = {\n        \"date\": date.strftime(\"%Y-%m-%d\"),\n        \"product\": random.choice(products),\n        \"region\": random.choice(regions),\n        \"sales\": random.randint(100, 10000),\n        \"quantity\": random.randint(1, 50)\n    }\n    data.append(row)\n\n# Write to CSV\nwith open(\"sales_data.csv\", \"w\", newline=\"\") as f:\n    writer = csv.DictWriter(f, fieldnames=[\"date\", \"product\", \"region\", \"sales\", \"quantity\"])\n    writer.writeheader()\n    writer.writerows(data)\n\nprint(f\"Generated {len(data)} sales records in sales_data.csv\")",
+    "language": "python"
+  }'
+
+### Example 5: Generate Weather Data Dataset
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import csv\nimport random\nfrom datetime import datetime, timedelta\n\n# Generate weather data\ncities = [\"New York\", \"London\", \"Tokyo\", \"Sydney\", \"Paris\"]\ndata = []\n\nstart_date = datetime(2023, 1, 1)\nfor i in range(365):\n    for city in cities:\n        temp = random.randint(-10, 40) if \"London\" in city else random.randint(0, 35)\n        humidity = random.randint(30, 90)\n        rainfall = random.uniform(0, 20)\n        \n        row = {\n            \"date\": (start_date + timedelta(days=i)).strftime(\"%Y-%m-%d\"),\n            \"city\": city,\n            \"temperature_c\": temp,\n            \"humidity_percent\": humidity,\n            \"rainfall_mm\": round(rainfall, 2)\n        }\n        data.append(row)\n\n# Write to CSV\nwith open(\"weather_data.csv\", \"w\", newline=\"\") as f:\n    writer = csv.DictWriter(f, fieldnames=[\"date\", \"city\", \"temperature_c\", \"humidity_percent\", \"rainfall_mm\"])\n    writer.writeheader()\n    writer.writerows(data)\n\nprint(f\"Generated {len(data)} weather records in weather_data.csv\")",
+    "language": "python"
+  }'
+
+## 3. DATA ANALYSIS EXAMPLES
+
+### Example 6: Analyze CSV Data (Sales Analysis)
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import pandas as pd\nimport matplotlib.pyplot as plt\n\n# Read and analyze sales data\ndf = pd.read_csv(\"sales_data.csv\")\n\n# Basic statistics\nprint(\"=== SALES DATA ANALYSIS ===\")\nprint(f\"Total records: {len(df)}\")\nprint(f\"Total sales: ${df[\"sales\"].sum():,.2f}\")\nprint(f\"Average sale: ${df[\"sales\"].mean():.2f}\")\nprint(f\"Top product: {df.groupby(\"product\")[\"sales\"].sum().idxmax()}\")\nprint(f\"Best region: {df.groupby(\"region\")[\"sales\"].sum().idxmax()}\")\n\n# Monthly sales trend\nif \"date\" in df.columns:\n    df[\"date\"] = pd.to_datetime(df[\"date\"])\n    df[\"month\"] = df[\"date\"].dt.strftime(\"%Y-%m\")\n    monthly_sales = df.groupby(\"month\")[\"sales\"].sum()\n    print(\"\\n=== MONTHLY SALES TREND ===\")\n    for month, sales in monthly_sales.items():\n        print(f\"{month}: ${sales:,.2f}\")\n\nprint(\"\\nAnalysis complete!\")",
+    "language": "python"
+  }'
+
+### Example 7: Statistical Analysis with NumPy
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import numpy as np\nimport pandas as pd\n\n# Generate sample data\nnp.random.seed(42)\ndata = np.random.normal(100, 15, 1000)\n\nprint(\"=== STATISTICAL ANALYSIS ===\")\nprint(f\"Mean: {np.mean(data):.2f}\")\nprint(f\"Median: {np.median(data):.2f}\")\nprint(f\"Standard Deviation: {np.std(data):.2f}\")\nprint(f\"Min: {np.min(data):.2f}\")\nprint(f\"Max: {np.max(data):.2f}\")\nprint(f\"25th Percentile: {np.percentile(data, 25):.2f}\")\nprint(f\"75th Percentile: {np.percentile(data, 75):.2f}\")\n\n# Check for outliers\nq1, q3 = np.percentile(data, [25, 75])\niqr = q3 - q1\nlower_bound = q1 - 1.5 * iqr\nupper_bound = q3 + 1.5 * iqr\noutliers = data[(data < lower_bound) | (data > upper_bound)]\nprint(f\"Number of outliers: {len(outliers)}\")\n\nprint(\"\\nStatistical analysis complete!\")",
+    "language": "python"
+  }'
+
+## 4. DATA VISUALIZATION EXAMPLES
+
+### Example 8: Create Bar Chart Visualization
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import matplotlib.pyplot as plt\nimport pandas as pd\n\n# Read sales data and create visualization\ndf = pd.read_csv(\"sales_data.csv\")\n\n# Create bar chart of sales by product\nproduct_sales = df.groupby(\"product\")[\"sales\"].sum().sort_values(ascending=False)\n\nplt.figure(figsize=(10, 6))\nplt.bar(product_sales.index, product_sales.values)\nplt.title(\"Sales by Product\")\nplt.xlabel(\"Product\")\nplt.ylabel(\"Total Sales ($)\")\nplt.xticks(rotation=45)\nplt.tight_layout()\nplt.savefig(\"sales_by_product.png\", dpi=300, bbox_inches=\"tight\")\nplt.close()\n\nprint(\"Bar chart saved as sales_by_product.png\")\nprint(\"\\n=== SALES BY PRODUCT ===\")\nfor product, sales in product_sales.items():\n    print(f\"{product}: ${sales:,.2f}\")",
+    "language": "python"
+  }'
+
+### Example 9: Create Time Series Plot
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import matplotlib.pyplot as plt\nimport pandas as pd\n\n# Read sales data and create time series\ndf = pd.read_csv(\"sales_data.csv\")\ndf[\"date\"] = pd.to_datetime(df[\"date\"])\ndf[\"month\"] = df[\"date\"].dt.strftime(\"%Y-%m\")\n\n# Monthly sales trend\nmonthly_sales = df.groupby(\"month\")[\"sales\"].sum()\n\nplt.figure(figsize=(12, 6))\nplt.plot(monthly_sales.index, monthly_sales.values, marker=\"o\", linewidth=2)\nplt.title(\"Monthly Sales Trend\")\nplt.xlabel(\"Month\")\nplt.ylabel(\"Total Sales ($)\")\nplt.xticks(rotation=45)\nplt.grid(True, alpha=0.3)\nplt.tight_layout()\nplt.savefig(\"monthly_sales_trend.png\", dpi=300, bbox_inches=\"tight\")\nplt.close()\n\nprint(\"Time series plot saved as monthly_sales_trend.png\")\nprint(\"\\n=== MONTHLY SALES SUMMARY ===\")\nprint(f\"Best month: {monthly_sales.idxmax()} (${monthly_sales.max():,.2f})\")\nprint(f\"Worst month: {monthly_sales.idxmin()} (${monthly_sales.min():,.2f})\")\nprint(f\"Average monthly sales: ${monthly_sales.mean():,.2f}\")",
+    "language": "python"
+  }'
+
+### Example 10: Create Scatter Plot with Correlation
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\n# Read weather data and create scatter plot\ndf = pd.read_csv(\"weather_data.csv\")\n\n# Temperature vs Humidity scatter plot\nplt.figure(figsize=(10, 6))\n\n# Color by city\ncities = df[\"city\"].unique()\ncolors = plt.cm.tab10(np.linspace(0, 1, len(cities)))\n\nfor i, city in enumerate(cities):\n    city_data = df[df[\"city\"] == city]\n    plt.scatter(city_data[\"temperature_c\"], city_data[\"humidity_percent\"],\n               label=city, alpha=0.6, color=colors[i])\n\nplt.title(\"Temperature vs Humidity by City\")\nplt.xlabel(\"Temperature (°C)\")\nplt.ylabel(\"Humidity (%)\")\nplt.legend()\nplt.grid(True, alpha=0.3)\nplt.tight_layout()\nplt.savefig(\"temp_humidity_scatter.png\", dpi=300, bbox_inches=\"tight\")\nplt.close()\n\n# Calculate correlation\ncorrelation = df[\"temperature_c\"].corr(df[\"humidity_percent\"])\nprint(f\"Temperature-Humidity correlation: {correlation:.3f}\")\nprint(\"Scatter plot saved as temp_humidity_scatter.png\")",
+    "language": "python"
+  }'
+
+## 5. MACHINE LEARNING EXAMPLES
+
+### Example 11: Simple Linear Regression
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import numpy as np\nimport matplotlib.pyplot as plt\nfrom sklearn.linear_model import LinearRegression\nfrom sklearn.metrics import r2_score\n\n# Generate sample data\nnp.random.seed(42)\nX = np.random.rand(100, 1) * 10\ny = 2.5 * X.flatten() + np.random.randn(100) * 2 + 5\n\n# Train linear regression model\nmodel = LinearRegression()\nmodel.fit(X, y)\n\n# Make predictions\ny_pred = model.predict(X)\n\n# Calculate metrics\nr2 = r2_score(y, y_pred)\n\nprint(\"=== LINEAR REGRESSION RESULTS ===\")\nprint(f\"Slope (coefficient): {model.coef_[0]:.3f}\")\nprint(f\"Intercept: {model.intercept_:.3f}\")\nprint(f\"R² Score: {r2:.3f}\")\n\n# Create visualization\nplt.figure(figsize=(10, 6))\nplt.scatter(X, y, alpha=0.6, label=\"Actual data\")\nplt.plot(X, y_pred, color=\"red\", linewidth=2, label=\"Regression line\")\nplt.title(\"Linear Regression: X vs Y\")\nplt.xlabel(\"X\")\nplt.ylabel(\"Y\")\nplt.legend()\nplt.grid(True, alpha=0.3)\nplt.tight_layout()\nplt.savefig(\"linear_regression.png\", dpi=300, bbox_inches=\"tight\")\nplt.close()\n\nprint(\"\\nVisualization saved as linear_regression.png\")",
+    "language": "python"
+  }'
+
+### Example 12: K-Means Clustering
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import numpy as np\nimport matplotlib.pyplot as plt\nfrom sklearn.cluster import KMeans\nfrom sklearn.datasets import make_blobs\n\n# Generate sample data\nnp.random.seed(42)\nX, _ = make_blobs(n_samples=300, centers=4, cluster_std=0.60, random_state=0)\n\n# Perform K-means clustering\nkmeans = KMeans(n_clusters=4, random_state=42, n_init=10)\nclusters = kmeans.fit_predict(X)\n\n# Get cluster centers\ncenters = kmeans.cluster_centers_\n\nprint(\"=== K-MEANS CLUSTERING RESULTS ===\")\nprint(f\"Number of clusters: {len(np.unique(clusters))}\")\nprint(f\"Cluster centers:\")\nfor i, center in enumerate(centers):\n    print(f\"  Cluster {i}: ({center[0]:.2f}, {center[1]:.2f})\")\n\n# Create visualization\nplt.figure(figsize=(10, 6))\n\n# Plot data points colored by cluster\nfor i in range(4):\n    cluster_points = X[clusters == i]\n    plt.scatter(cluster_points[:, 0], cluster_points[:, 1], \n               label=f\"Cluster {i}\", alpha=0.6)\n\n# Plot cluster centers\nplt.scatter(centers[:, 0], centers[:, 1], \n           marker=\"x\", s=200, linewidths=3, \n           color=\"red\", label=\"Centroids\")\n\nplt.title(\"K-Means Clustering (k=4)\")\nplt.xlabel(\"Feature 1\")\nplt.ylabel(\"Feature 2\")\nplt.legend()\nplt.grid(True, alpha=0.3)\nplt.tight_layout()\nplt.savefig(\"kmeans_clustering.png\", dpi=300, bbox_inches=\"tight\")\nplt.close()\n\nprint(\"\\nVisualization saved as kmeans_clustering.png\")",
+    "language": "python"
+  }'
+
+## 6. FILE OPERATIONS AND UTILITIES
+
+### Example 13: Process Uploaded CSV and Generate Report
+curl -X POST http://localhost:8000/v1/files/upload \
+  -F "file=@data.csv" \
+  -o upload_response.json
+
+# Then analyze the uploaded file
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import pandas as pd\nimport json\n\n# Load upload response to get file ID\nwith open(\"upload_response.json\", \"r\") as f:\n    upload_data = json.load(f)\n\nfile_id = upload_data[\"file_id\"]\nprint(f\"Processing uploaded file: {file_id}\")\n\n# Read the uploaded file (assuming it'\''s accessible)\n# In practice, you would use the file service to read it\ndf = pd.read_csv(\"data.csv\")  # This assumes the file was saved locally\n\nprint(f\"Dataset shape: {df.shape}\")\nprint(f\"Columns: {list(df.columns)}\")\nprint(f\"Data types:\\n{df.dtypes}\")\nprint(f\"\\nMissing values:\\n{df.isnull().sum()}\")\nprint(f\"\\nBasic statistics:\\n{df.describe()}\")\n\n# Generate summary report\nwith open(\"data_report.txt\", \"w\") as f:\n    f.write(\"DATA ANALYSIS REPORT\\n\")\n    f.write(\"==================\\n\\n\")\n    f.write(f\"Total records: {len(df)}\\n\")\n    f.write(f\"Total columns: {len(df.columns)}\\n\")\n    f.write(f\"Columns: {', '.join(df.columns)}\\n\")\n    f.write(f\"\\nMissing data summary:\\n{df.isnull().sum()}\")\n\nprint(\"\\nReport generated: data_report.txt\")",
+    "language": "python"
+  }'
+
+### Example 14: Create Interactive Data Visualization
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import plotly.graph_objects as go\nimport pandas as pd\nimport json\n\n# Create sample data\ndata = {\n    \"x\": [1, 2, 3, 4, 5],\n    \"y1\": [10, 11, 12, 13, 14],\n    \"y2\": [20, 19, 18, 17, 16],\n    \"categories\": [\"A\", \"B\", \"C\", \"D\", \"E\"]\n}\n\ndf = pd.DataFrame(data)\n\n# Create interactive plot\nfig = go.Figure()\n\nfig.add_trace(go.Scatter(\n    x=df[\"x\"], y=df[\"y1\"],\n    mode=\"lines+markers\",\n    name=\"Series 1\",\n    line=dict(color=\"blue\", width=2)\n))\n\nfig.add_trace(go.Scatter(\n    x=df[\"x\"], y=df[\"y2\"],\n    mode=\"lines+markers\",\n    name=\"Series 2\",\n    line=dict(color=\"red\", width=2)\n))\n\nfig.update_layout(\n    title=\"Interactive Multi-Series Plot\",\n    xaxis_title=\"X Values\",\n    yaxis_title=\"Y Values\",\n    template=\"plotly_white\"\n)\n\n# Save as HTML\nfig.write_html(\"interactive_plot.html\")\nprint(\"Interactive plot saved as interactive_plot.html\")\n\n# Also create static version\nfig.write_image(\"static_plot.png\")\nprint(\"Static plot saved as static_plot.png\")",
+    "language": "python"
+  }'
+
+## 7. SESSION-BASED INTERACTIVE EXAMPLES
+
+### Example 15: Create and Use Execution Session
+# Create a session
+curl -X POST http://localhost:8000/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"language": "python"}'
+
+# Execute code in the session (replace SESSION_ID with actual ID)
+curl -X POST http://localhost:8000/v1/sessions/SESSION_ID/exec \
+  -H "Content-Type: application/json" \
+  -d '{"code": "x = 42"}'
+
+curl -X POST http://localhost:8000/v1/sessions/SESSION_ID/exec \
+  -H "Content-Type: application/json" \
+  -d '{"code": "y = x * 2\\nprint(f\"Result: {y}\")"}'
+
+# Clean up session
+curl -X DELETE http://localhost:8000/v1/sessions/SESSION_ID
+
+## 8. BATCH EXECUTION EXAMPLES
+
+### Example 16: Execute Multiple Code Blocks
+curl -X POST http://localhost:8000/v1/execute/batch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "executions": [
+      {
+        "code": "import math\nprint(f\"Pi: {math.pi:.4f}\")",
+        "language": "python"
+      },
+      {
+        "code": "data = [1, 2, 3, 4, 5]\nprint(f\"Sum: {sum(data)}, Mean: {sum(data)/len(data)}\")",
+        "language": "python"
+      },
+      {
+        "code": "import json\nresult = {\"status\": \"success\", \"timestamp\": \"2024-01-01\"}\nprint(json.dumps(result, indent=2))",
+        "language": "python"
+      }
+    ]
+  }'
+
+
+  {
+  "results": [
+    {
+      "stdout": "Pi: 3.1416",
+      "stderr": "",
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 24.6
+    },
+    {
+      "stdout": "Sum: 15, Mean: 3.0",
+      "stderr": "",
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 15.91
+    },
+    {
+      "stdout": "{\n  \"status\": \"success\",\n  \"timestamp\": \"2024-01-01\"\n}",
+      "stderr": "",
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 24.25
+    }
+  ],
+  "total_duration_ms": 65.48
+}
+
+## 9. STREAMING EXECUTION EXAMPLES
+
+### Example 17: Stream Long-Running Process Output
+curl -X POST http://localhost:8000/v1/execute/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import time\\nimport sys\\n\\nfor i in range(1, 11):\\n    print(f\"Processing step {i}/10...\", flush=True)\\n    time.sleep(0.5)\\n    if i % 3 == 0:\\n        print(f\"Checkpoint reached at step {i}\", file=sys.stderr, flush=True)\\n\\nprint(\"All steps completed successfully!\")",
+    "language": "python"
+  }'
+
+## 10. WORKSPACE MANAGEMENT EXAMPLES
+
+### Example 18: Create and Manage Workspace
+# Create workspace
+curl -X POST http://localhost:8000/v1/workspaces \
+  -H "Content-Type: application/json" \
+  -d '{"name": "data-analysis-workspace", "ttl_seconds": 3600}'
+
+# Use workspace for analysis (replace WS_ID with actual workspace ID)
+curl -X POST http://localhost:8000/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "import pandas as pd\\nimport numpy as np\\n\\n# Generate and save data in workspace\\ndf = pd.DataFrame({\\n    \"x\": np.random.randn(100),\\n    \"y\": np.random.randn(100) * 2 + 1\\n})\\ndf.to_csv(\"workspace_data.csv\", index=False)\\nprint(\"Data saved to workspace_data.csv\")\\nprint(f\"Generated {len(df)} data points\")",
+    "language": "python",
+    "workspace_id": "WS_ID"
+  }'
+
+# Create workspace snapshot
+curl -X POST http://localhost:8000/v1/workspaces/WS_ID/snapshot
+
+# List workspaces
+curl http://localhost:8000/v1/workspaces
+
+# Clean up workspace
+curl -X DELETE http://localhost:8000/v1/workspaces/WS_ID
+
+## SUMMARY
+
+These examples demonstrate thinkBox capabilities for:
+- ✅ Basic Python code execution
+- ✅ CSV dataset generation and analysis
+- ✅ Data visualization (matplotlib, plotly)
+- ✅ Machine learning (scikit-learn)
+- ✅ File operations and uploads
+- ✅ Interactive sessions
+- ✅ Batch processing
+- ✅ Streaming execution
+- ✅ Workspace management
+
+Each example includes the curl command to execute it via the thinkBox API.

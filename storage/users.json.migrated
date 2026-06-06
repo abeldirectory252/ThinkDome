@@ -1,0 +1,7 @@
+{
+  "admin": {
+    "username": "admin",
+    "hashed_password": "aa8253dc0dd93acd4dadf3eb19da743275d29874804786f90ab81df43cad5900",
+    "salt": "3ecccb121b3895575cc500404942a18d"
+  }
+}
