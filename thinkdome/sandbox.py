@@ -170,14 +170,46 @@ class Sandbox:
         self._executor = create_executor(settings, self.language)
         await self._executor.initialize()
 
+    def _run_sync(self, coro):
+        """Run an async coroutine synchronously, supporting running event loops (e.g. Jupyter)."""
+        import threading
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            result = []
+            exception = []
+            
+            def worker():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    res = new_loop.run_until_complete(coro)
+                    result.append(res)
+                except Exception as e:
+                    exception.append(e)
+                finally:
+                    new_loop.close()
+                    
+            t = threading.Thread(target=worker)
+            t.start()
+            t.join()
+            if exception:
+                raise exception[0]
+            return result[0]
+        else:
+            new_loop = asyncio.new_event_loop()
+            try:
+                return new_loop.run_until_complete(coro)
+            finally:
+                new_loop.close()
+
     def _get_executor_sync(self):
         """Lazily create and initialize the executor synchronously."""
         if self._executor is None:
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(self._async_init_executor())
-            finally:
-                loop.close()
+            self._run_sync(self._async_init_executor())
         return self._executor
 
     # ── Execution API ──
@@ -195,11 +227,7 @@ class Sandbox:
         if not self._initialized:
             self._setup()
 
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(self.arun(code, files=files))
-        finally:
-            loop.close()
+        return self._run_sync(self.arun(code, files=files))
 
     async def arun(self, code: str, files: Optional[dict] = None) -> SandboxResult:
         """Execute code asynchronously in the sandbox.
