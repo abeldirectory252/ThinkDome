@@ -4,6 +4,10 @@
 
 `thinkdome` is a production-grade execution sandbox and tool engine designed for LLMs, agentic workflows, and safe code execution. It can be used directly as a **Python SDK** or as a **FastAPI server** with a suite of 24 tools with native privilege checks and type-safe schemas.
 
+
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abeldirectory252/ThinkDome/blob/main/notebook/thinkdome_kaggle.ipynb)
 ---
 
 ## 🚀 Installation
