@@ -10,6 +10,7 @@
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abeldirectory252/ThinkDome/blob/main/notebook/thinkdome_kaggle.ipynb)
 ---
 
+
 ## 🚀 Installation
 
 You can install `thinkdome` directly from GitHub using `pip`:
