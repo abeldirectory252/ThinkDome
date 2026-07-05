@@ -1,0 +1,404 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: thinkdome
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: thinkdome-sandboxes
+---
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: thinkdome-api-sa
+  namespace: thinkdome
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: thinkdome-pod-manager
+  namespace: thinkdome-sandboxes
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/exec"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: thinkdome-pod-manager-binding
+  namespace: thinkdome-sandboxes
+subjects:
+- kind: ServiceAccount
+  name: thinkdome-api-sa
+  namespace: thinkdome
+roleRef:
+  kind: Role
+  name: thinkdome-pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: thinkdome-config
+  namespace: thinkdome
+data:
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  EXECUTOR_BACKEND: "docker"  # Can also be "kubernetes" or "hybrid"
+  EXECUTOR_IMAGE: "thinkdome-executor:latest"
+  DOCKER_HOST: "tcp://localhost:2376"
+  DOCKER_TLS_VERIFY: "true"
+  DOCKER_CERT_PATH: "/certs/client"
+  DATABASE_URL: "postgresql://thinkdome:thinkdome@thinkdome-postgres:5432/thinkdome"
+  RABBITMQ_URL: "amqp://guest:guest@thinkdome-rabbitmq:5672/"
+  REDIS_URL: "redis://thinkdome-redis:6379/0"
+  POOL_ENABLED: "true"
+  POOL_MIN_WARM: "5"
+  POOL_MAX_SIZE: "100"
+  MONITOR_POLL_INTERVAL_SEC: "2.0"
+  FILE_STORAGE_DIR: "/tmp/thinkdome-files"
+  VAULT_MASTER_KEY: "your-32-byte-base64-fernet-key-here"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: thinkdome
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: thinkdome
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thinkdome-postgres
+  namespace: thinkdome
+spec:
+  ports:
+    - port: 5432
+  selector:
+    app: thinkdome-postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thinkdome-postgres
+  namespace: thinkdome
+spec:
+  serviceName: thinkdome-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thinkdome-postgres
+  template:
+    metadata:
+      labels:
+        app: thinkdome-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - name: POSTGRES_DB
+          value: thinkdome
+        - name: POSTGRES_USER
+          value: thinkdome
+        - name: POSTGRES_PASSWORD
+          value: thinkdome
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thinkdome-rabbitmq
+  namespace: thinkdome
+spec:
+  ports:
+    - name: amqp
+      port: 5672
+    - name: management
+      port: 15672
+  selector:
+    app: thinkdome-rabbitmq
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thinkdome-rabbitmq
+  namespace: thinkdome
+spec:
+  serviceName: thinkdome-rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thinkdome-rabbitmq
+  template:
+    metadata:
+      labels:
+        app: thinkdome-rabbitmq
+    spec:
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3.13-management-alpine
+        ports:
+        - containerPort: 5672
+        - containerPort: 15672
+        volumeMounts:
+        - name: rabbitmq-data
+          mountPath: /var/lib/rabbitmq
+      volumes:
+      - name: rabbitmq-data
+        persistentVolumeClaim:
+          claimName: rabbitmq-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thinkdome-redis
+  namespace: thinkdome
+spec:
+  ports:
+    - port: 6379
+  selector:
+    app: thinkdome-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thinkdome-redis
+  namespace: thinkdome
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thinkdome-redis
+  template:
+    metadata:
+      labels:
+        app: thinkdome-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command: ["redis-server", "--appendonly", "yes"]
+        ports:
+        - containerPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thinkdome-api
+  namespace: thinkdome
+  labels:
+    app: thinkdome-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: thinkdome-api
+  template:
+    metadata:
+      labels:
+        app: thinkdome-api
+    spec:
+      serviceAccountName: thinkdome-api-sa
+      runtimeClassName: gvisor
+      containers:
+      - name: thinkdome-api
+        image: thinkdome-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: thinkdome-config
+        env:
+        - name: DOCKER_CERT_PATH
+          value: "/certs/client"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2000m"
+            memory: "2048Mi"
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: docker-certs
+          mountPath: /certs/client
+          readOnly: true
+        - name: workspace-storage
+          mountPath: /tmp/thinkdome-files
+      # Docker-in-Docker Sidecar Container
+      - name: dind
+        image: docker:dind
+        securityContext:
+          privileged: true  # Required for Docker-in-Docker to mount filesystems
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: "/certs"
+        volumeMounts:
+        - name: docker-certs
+          mountPath: /certs
+        - name: workspace-storage
+          mountPath: /tmp/thinkdome-files
+      volumes:
+      - name: docker-certs
+        emptyDir: {}
+      - name: workspace-storage
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thinkdome-worker
+  namespace: thinkdome
+  labels:
+    app: thinkdome-worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: thinkdome-worker
+  template:
+    metadata:
+      labels:
+        app: thinkdome-worker
+    spec:
+      serviceAccountName: thinkdome-api-sa
+      containers:
+      - name: thinkdome-worker
+        image: thinkdome-api:latest
+        command: ["python", "-m", "thinkdome.services.task_worker"]
+        envFrom:
+        - configMapRef:
+            name: thinkdome-config
+        env:
+        - name: DOCKER_CERT_PATH
+          value: "/certs/client"
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: docker-certs
+          mountPath: /certs/client
+          readOnly: true
+        - name: workspace-storage
+          mountPath: /tmp/thinkdome-files
+      - name: dind
+        image: docker:dind
+        securityContext:
+          privileged: true
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: "/certs"
+        volumeMounts:
+        - name: docker-certs
+          mountPath: /certs
+        - name: workspace-storage
+          mountPath: /tmp/thinkdome-files
+      volumes:
+      - name: docker-certs
+        emptyDir: {}
+      - name: workspace-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thinkdome-service
+  namespace: thinkdome
+spec:
+  selector:
+    app: thinkdome-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: thinkdome-ingress
+  namespace: thinkdome
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  rules:
+  - host: thinkdome.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: thinkdome-service
+            port:
+              number: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: thinkdome-hpa
+  namespace: thinkdome
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: thinkdome-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

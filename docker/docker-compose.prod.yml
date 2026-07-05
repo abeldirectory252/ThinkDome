@@ -1,0 +1,179 @@
+# ThinkDome Production Stack
+# Run: docker compose -f docker/docker-compose.prod.yml up -d
+#
+# Services:
+#   - thinkdome-api:    Stateless FastAPI (connects to DinD sidecar for Docker execution)
+#   - thinkdome-worker: RabbitMQ consumer (runs sandbox tasks)
+#   - postgres:         State store (users, sandboxes, audit logs)
+#   - rabbitmq:         Task queue (distributed execution orchestration)
+#   - redis:            Rate limiting, session cache
+#   - dind:             Docker-in-Docker for isolated container execution
+#   - otel-collector:   OpenTelemetry metrics/traces receiver
+
+version: "3.9"
+
+x-common-env: &common-env
+  DATABASE_URL: postgresql://thinkdome:thinkdome@postgres:5432/thinkdome
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  REDIS_URL: redis://redis:6379/0
+  DOCKER_HOST: tcp://dind:2376
+  DOCKER_TLS_VERIFY: "true"
+  DOCKER_CERT_PATH: /certs/client
+  EXECUTOR_BACKEND: docker
+  EXECUTOR_IMAGE: thinkdome-executor:latest
+  POOL_ENABLED: "true"
+  POOL_MIN_WARM: "3"
+  POOL_MAX_SIZE: "50"
+  FILE_STORAGE_DIR: /data/storage
+  OTEL_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: thinkdome
+
+services:
+  # ── Data Stores ────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: thinkdome
+      POSTGRES_USER: thinkdome
+      POSTGRES_PASSWORD: thinkdome
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thinkdome"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    volumes:
+      - rmqdata:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Docker-in-Docker ───────────────────────────────────────────────────────
+
+  dind:
+    image: docker:dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    volumes:
+      - dind-certs:/certs
+      - dind-storage:/var/lib/docker
+      - workspace:/data/storage
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Application ────────────────────────────────────────────────────────────
+
+  thinkdome-api:
+    build:
+      context: ..
+      dockerfile: docker/thinkdome/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    volumes:
+      - dind-certs:/certs:ro
+      - workspace:/data/storage
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dind:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  thinkdome-worker:
+    build:
+      context: ..
+      dockerfile: docker/thinkdome/Dockerfile
+    command: ["python", "-m", "thinkdome.services.task_worker"]
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      OTEL_SERVICE_NAME: thinkdome-worker
+    volumes:
+      - dind-certs:/certs:ro
+      - workspace:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      dind:
+        condition: service_healthy
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ── Observability ──────────────────────────────────────────────────────────
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+
+volumes:
+  pgdata:
+  rmqdata:
+  redisdata:
+  dind-certs:
+  dind-storage:
+  workspace:

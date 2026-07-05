@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  thinkdome-api:
+    build:
+      context: ..
+      dockerfile: docker/thinkdome/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - thinkdome-files:/tmp/thinkdome-files
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - EXECUTOR_BACKEND=docker
+      - EXECUTOR_IMAGE=thinkdome-executor:latest
+      - MAX_EXEC_TIMEOUT_MS=10000
+      - CPU_TIME_LIMIT_SEC=5
+      - MEMORY_LIMIT_MB=128
+      - MAX_OUTPUT_BYTES=1048576
+      - MAX_FILE_SIZE_MB=10
+      - FILE_STORAGE_DIR=/tmp/thinkdome-files
+    user: root
+    restart: unless-stopped
+
+volumes:
+  thinkdome-files:

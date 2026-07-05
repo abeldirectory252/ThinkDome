@@ -1,0 +1,767 @@
+// static/js/dashboard.js
+
+/* =================== CORE THEMING (Auto detection) =================== */
+function initTheme() {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (prefersDark) {
+        document.documentElement.classList.add('dark');
+        state.theme = 'dark';
+    } else {
+        document.documentElement.classList.remove('dark');
+        state.theme = 'light';
+    }
+    if (typeof editorInstance !== 'undefined' && editorInstance) {
+        monaco.editor.setTheme(state.theme === 'dark' ? 'vs-dark' : 'vs');
+    }
+}
+initTheme();
+
+function toggleTheme() {
+    if (document.documentElement.classList.contains('dark')) {
+        document.documentElement.classList.remove('dark');
+        state.theme = 'light';
+    } else {
+        document.documentElement.classList.add('dark');
+        state.theme = 'dark';
+    }
+    if (typeof editorInstance !== 'undefined' && editorInstance) {
+        monaco.editor.setTheme(state.theme === 'dark' ? 'vs-dark' : 'vs');
+    }
+}
+
+/* =================== SKELETON RENDERERS =================== */
+function getTableSkeletonHTML(colCount, rowCount = 4) {
+    let rowsHTML = '';
+    for (let r = 0; r < rowCount; r++) {
+        rowsHTML += `<tr>`;
+        for (let c = 0; c < colCount; c++) {
+            rowsHTML += `<td><span class="skeleton skeleton-table-cell"></span></td>`;
+        }
+        rowsHTML += `</tr>`;
+    }
+    return rowsHTML;
+}
+
+function showStatsSkeletons() {
+    const ids = ['statCumulativeCalls', 'statNodesCount', 'statKeysCount', 'statCurrentSpend'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.innerText = '—';
+        }
+    });
+    const subEl = document.getElementById('statCurrentSpendSub');
+    if (subEl) {
+        subEl.innerText = '—';
+    }
+}
+
+/* =================== AUDITING & RECENT RUNS =================== */
+function addAuditEvent(detail) {
+    const timeStr = new Date().toTimeString().split(' ')[0];
+    state.auditEvents.unshift({ ts: timeStr, actor: 'admin', detail: detail });
+}
+
+async function refreshDash(btn) {
+    if (btn) {
+        btn.style.opacity = '0.5';
+        btn.disabled = true;
+    }
+
+    if (typeof addLogLine === 'function') {
+        addLogLine('SYS', 'Refreshing workspace registry matrices...');
+    }
+
+    // Trigger dynamic fetch
+    await fetchDashboardData();
+
+    if (btn) {
+        btn.style.opacity = '1';
+        btn.disabled = false;
+    }
+    if (typeof addLogLine === 'function') {
+        addLogLine('SUCCESS', 'Workspace registry matrices refreshed.');
+    }
+}
+
+async function fetchDashboardData() {
+    const token = localStorage.getItem('thinkdome_token');
+
+    // Show loading skeletons
+    showStatsSkeletons();
+    
+    const execBody = document.getElementById('execBody');
+    const auditBody = document.getElementById('auditBody');
+    const auditFullBody = document.getElementById('auditFullBody');
+
+    if (execBody) execBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--fg-subtle)">Loading executions...</td></tr>';
+    if (auditBody) auditBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--fg-subtle)">Loading audits...</td></tr>';
+    if (auditFullBody) auditFullBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--fg-subtle)">Loading audit trail...</td></tr>';
+
+    try {
+        if (!window.API || !token) {
+            throw new Error("Offline or Unauthorized");
+        }
+
+        // Fetch concurrently
+        const [sandboxesRes, keysRes, logsRes, auditRes] = await Promise.all([
+            window.API.getSandboxes(token),
+            window.API.getApiKeys(token),
+            window.API.getRequestLogs(token, 20),
+            window.API.getAuditLogs(token, 50)
+        ]);
+
+        // Process Sandboxes
+        if (sandboxesRes.data) {
+            const fetchedSbx = {};
+            sandboxesRes.data.forEach(sb => {
+                const ramVal = sb.memory_mb >= 1024 ? `${(sb.memory_mb/1024).toFixed(0)} GB` : `${sb.memory_mb} MB`;
+                fetchedSbx[sb.name] = {
+                    id: sb.sandbox_id,
+                    name: sb.name,
+                    runtime: sb.runtime || 'python:3.12',
+                    cores: sb.cpu_cores,
+                    ram: ramVal,
+                    region: sb.region || 'us-east-1',
+                    uptime: sb.status === 'running' ? '1h' : '—',
+                    spend: 0,
+                    rate: sb.cost_per_hour || 0.08,
+                    ramUsage: sb.status === 'running' ? 45 : 0,
+                    status: sb.status,
+                    executions: '0',
+                    subtotal: 0
+                };
+            });
+            state.sandboxes = fetchedSbx;
+        }
+
+        // Process API Keys
+        if (keysRes.data) {
+            state.apiKeys = keysRes.data.map(k => ({
+                name: k.display_name,
+                token: k.masked_token || k.token,
+                type: k.token_type,
+                status: k.status,
+                key_id: k.key_id
+            }));
+        }
+
+        // Update stats dashboard
+        const statCumulativeCalls = document.getElementById('statCumulativeCalls');
+        const statNodesCount = document.getElementById('statNodesCount');
+        const statKeysCount = document.getElementById('statKeysCount');
+
+        if (statCumulativeCalls) {
+            statCumulativeCalls.innerText = logsRes.data ? logsRes.data.length : '0';
+        }
+        if (statNodesCount) {
+            const total = Object.keys(state.sandboxes).length;
+            const active = Object.values(state.sandboxes).filter(s => s.status === 'running').length;
+            statNodesCount.innerText = `${active} / ${total}`;
+        }
+        if (statKeysCount) {
+            statKeysCount.innerText = state.apiKeys.length;
+        }
+
+        // Render Recent Runs table
+        if (execBody && logsRes.data) {
+            if (logsRes.data.length === 0) {
+                execBody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--fg-subtle)">No executions recorded</td></tr>`;
+            } else {
+                execBody.innerHTML = logsRes.data.slice(0, 5).map(log => {
+                    const timeStr = log.timestamp ? log.timestamp.split('T')[1].split('.')[0] : '—';
+                    const cmdText = log.tool_name + ' ' + (typeof log.request_payload === 'object' ? JSON.stringify(log.request_payload) : log.request_payload);
+                    const displayCmd = cmdText.length > 50 ? cmdText.substring(0, 50) + '...' : cmdText;
+                    return `
+                        <tr>
+                          <td class="time">${timeStr}</td>
+                          <td><span class="action-tag">${log.display_name || 'LLM'}</span></td>
+                          <td class="mono" style="font-size:12.5px;" title="${cmdText}">${displayCmd}</td>
+                          <td><span class="status-tag ${log.status === 'success' ? 'success' : 'error'}">${log.status.toUpperCase()}</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        // Render Recent Audits
+        if (auditBody && auditRes.data) {
+            if (auditRes.data.length === 0) {
+                auditBody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--fg-subtle)">No recent audit logs</td></tr>`;
+            } else {
+                auditBody.innerHTML = auditRes.data.slice(0, 5).map(ev => {
+                    const timeStr = ev.timestamp ? ev.timestamp.split('T')[1].split('.')[0] : '—';
+                    return `
+                        <tr onclick="openAuditDetailModal(${ev.id})" title="Click to view details">
+                          <td class="time">${timeStr}</td>
+                          <td><span class="action-tag" style="background:var(--accent-subtle);color:var(--accent)">${ev.actor}</span></td>
+                          <td style="font-size:13px;font-weight:500;">${ev.action}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        // Render Full Audit Screen
+        if (auditFullBody && auditRes.data) {
+            if (auditRes.data.length === 0) {
+                auditFullBody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--fg-subtle)">No audit logs recorded</td></tr>`;
+            } else {
+                auditFullBody.innerHTML = auditRes.data.map(ev => {
+                    const dateStr = ev.timestamp ? ev.timestamp.replace('T', ' ').substring(0, 19) : '—';
+                    return `
+                        <tr onclick="openAuditDetailModal(${ev.id})" title="Click to view details">
+                          <td class="time">${dateStr}</td>
+                          <td><span class="action-tag">${ev.ip_address || '127.0.0.1'}</span></td>
+                          <td class="mono">${ev.action}</td>
+                          <td><span class="status-tag success">AUDIT_OK</span></td>
+                          <td><span class="action-tag" style="background:var(--accent-subtle);color:var(--accent)">${ev.actor}</span></td>
+                          <td style="font-weight:500;">${ev.details ? (typeof ev.details === 'object' ? JSON.stringify(ev.details) : ev.details) : ''}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        // Render tables for keys and sandboxes
+        renderApiKeysHTMLOnly();
+        if (typeof renderSandboxNodesTable === 'function') renderSandboxNodesTable();
+        if (typeof updateSandboxCardsHTML === 'function') updateSandboxCardsHTML();
+        if (typeof renderBillingReport === 'function') renderBillingReport();
+
+    } catch (err) {
+        console.warn("Dashboard using offline fallback mode:", err);
+        
+        const statCumulativeCalls = document.getElementById('statCumulativeCalls');
+        const statNodesCount = document.getElementById('statNodesCount');
+        const statKeysCount = document.getElementById('statKeysCount');
+
+        if (statCumulativeCalls) statCumulativeCalls.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
+        if (statNodesCount) statNodesCount.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
+        if (statKeysCount) statKeysCount.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
+
+        if (execBody) execBody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
+        if (auditBody) auditBody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
+        if (auditFullBody) auditFullBody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
+        
+        const keysTableBody = document.getElementById('apiKeysTableBody');
+        if (keysTableBody) keysTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
+    }
+}
+
+function renderDashboardRecentTables() {
+    fetchDashboardData();
+}
+
+/* =================== AUDIT DETAIL MODAL =================== */
+
+function openAuditDetailModal(auditId) {
+    const modal = document.getElementById('auditDetailModal');
+    const content = document.getElementById('auditDetailContent');
+    if (!modal || !content) return;
+
+    // Show modal with loading state
+    content.innerHTML = `
+        <div style="text-align:center;padding:60px 0;">
+            <div style="display:inline-block;width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+            <div style="margin-top:12px;color:var(--fg-subtle);font-size:13px;">Loading audit event details...</div>
+        </div>
+    `;
+    modal.classList.add('active');
+
+    // Fetch detail
+    const token = localStorage.getItem('thinkdome_token');
+    if (!window.API || !token) {
+        content.innerHTML = `<div style="text-align:center;color:var(--danger);padding:40px 0;">Authentication required</div>`;
+        return;
+    }
+
+    window.API.getAuditDetail(token, auditId).then(res => {
+        if (res.error || !res.data) {
+            content.innerHTML = `<div style="text-align:center;color:var(--danger);padding:40px 0;">Failed to load audit details: ${res.error || 'Unknown error'}</div>`;
+            return;
+        }
+        renderAuditDetailContent(res.data);
+    }).catch(err => {
+        content.innerHTML = `<div style="text-align:center;color:var(--danger);padding:40px 0;">Error: ${err.message}</div>`;
+    });
+}
+
+function closeAuditDetailModal() {
+    const modal = document.getElementById('auditDetailModal');
+    if (modal) modal.classList.remove('active');
+}
+
+function renderAuditDetailContent(data) {
+    const content = document.getElementById('auditDetailContent');
+    if (!content) return;
+
+    const timestamp = data.timestamp ? data.timestamp.replace('T', ' ').substring(0, 19) : '—';
+    const exec = data.related_execution;
+
+    // Format details object nicely
+    let detailsStr = '';
+    if (data.details && typeof data.details === 'object') {
+        detailsStr = JSON.stringify(data.details, null, 2);
+    } else if (data.details) {
+        detailsStr = String(data.details);
+    }
+
+    // Build latency section
+    let latencyHTML = '';
+    if (exec && exec.duration_ms !== undefined) {
+        const durationMs = exec.duration_ms;
+        const durationSec = (durationMs / 1000).toFixed(2);
+        // Compute a visual bar width (cap at 100% = 10 seconds)
+        const barPct = Math.min((durationMs / 10000) * 100, 100);
+        const barColor = durationMs < 1000 ? 'var(--success)' : durationMs < 5000 ? 'var(--warn)' : 'var(--danger)';
+
+        latencyHTML = `
+            <div class="audit-detail-section">
+                <div class="audit-detail-section-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Performance Metrics
+                </div>
+                <div class="audit-latency-row">
+                    <div class="audit-latency-stat">
+                        <span class="label">Latency</span>
+                        <span class="value">${durationMs.toFixed(0)}</span>
+                        <span class="unit">ms</span>
+                    </div>
+                    <div class="audit-latency-stat">
+                        <span class="label">Duration</span>
+                        <span class="value">${durationSec}</span>
+                        <span class="unit">seconds</span>
+                    </div>
+                    <div class="audit-latency-stat">
+                        <span class="label">Status</span>
+                        <span class="value" style="font-size:14px;">
+                            <span class="status-tag ${exec.status === 'success' ? 'success' : 'error'}">${(exec.status || 'unknown').toUpperCase()}</span>
+                        </span>
+                        <span class="unit">&nbsp;</span>
+                    </div>
+                </div>
+                <div class="audit-latency-bar">
+                    <i style="width:${barPct}%;background:${barColor};"></i>
+                </div>
+            </div>
+        `;
+    }
+
+    // Build input/output payload section
+    let payloadHTML = '';
+    if (exec) {
+        const inputStr = exec.request_payload
+            ? (typeof exec.request_payload === 'object' ? JSON.stringify(exec.request_payload, null, 2) : String(exec.request_payload))
+            : '—';
+        const outputStr = exec.response_payload
+            ? (typeof exec.response_payload === 'object' ? JSON.stringify(exec.response_payload, null, 2) : String(exec.response_payload))
+            : '—';
+
+        payloadHTML = `
+            <div class="audit-detail-section">
+                <div class="audit-detail-section-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+                    Execution Input / Output
+                </div>
+                <div class="audit-payload-block">
+                    <div class="audit-payload-label">
+                        <span class="direction-badge input">▶ INPUT</span>
+                        Request Payload
+                    </div>
+                    <pre class="audit-payload-code">${escapeHtml(inputStr)}</pre>
+                </div>
+                <div class="audit-payload-block">
+                    <div class="audit-payload-label">
+                        <span class="direction-badge output">◀ OUTPUT</span>
+                        Response Payload
+                    </div>
+                    <pre class="audit-payload-code">${escapeHtml(outputStr)}</pre>
+                </div>
+            </div>
+        `;
+    } else {
+        payloadHTML = `
+            <div class="audit-detail-section">
+                <div class="audit-detail-section-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+                    Execution Data
+                </div>
+                <div class="audit-no-exec">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+                    <span>No related execution log found for this audit event</span>
+                </div>
+            </div>
+        `;
+    }
+
+    content.innerHTML = `
+        <!-- Meta Information -->
+        <div class="audit-detail-section">
+            <div class="audit-detail-section-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+                Event Information
+            </div>
+            <div class="audit-meta-grid">
+                <div class="audit-meta-item">
+                    <span class="audit-meta-label">Timestamp</span>
+                    <span class="audit-meta-value mono" style="font-size:13px;">${timestamp}</span>
+                </div>
+                <div class="audit-meta-item">
+                    <span class="audit-meta-label">Actor</span>
+                    <span class="audit-meta-value"><span class="action-tag" style="background:var(--accent-subtle);color:var(--accent)">${data.actor || '—'}</span></span>
+                </div>
+                <div class="audit-meta-item">
+                    <span class="audit-meta-label">Action</span>
+                    <span class="audit-meta-value" style="font-weight:600;">${data.action || '—'}</span>
+                </div>
+                <div class="audit-meta-item">
+                    <span class="audit-meta-label">IP Address</span>
+                    <span class="audit-meta-value mono" style="font-size:13px;">${data.ip_address || '—'}</span>
+                </div>
+                <div class="audit-meta-item" style="grid-column: 1 / -1;">
+                    <span class="audit-meta-label">Event ID</span>
+                    <span class="audit-meta-value mono" style="font-size:12px;color:var(--fg-muted);">#${data.id}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details JSON -->
+        ${detailsStr ? `
+        <div class="audit-detail-section">
+            <div class="audit-detail-section-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Event Details
+            </div>
+            <pre class="audit-payload-code">${escapeHtml(detailsStr)}</pre>
+        </div>
+        ` : ''}
+
+        <!-- Latency Metrics -->
+        ${latencyHTML}
+
+        <!-- Input / Output -->
+        ${payloadHTML}
+    `;
+
+    // Animate latency bar after render
+    if (exec && exec.duration_ms !== undefined) {
+        setTimeout(() => {
+            const bar = content.querySelector('.audit-latency-bar i');
+            if (bar) {
+                const target = bar.style.width;
+                bar.style.width = '0%';
+                requestAnimationFrame(() => {
+                    bar.style.width = target;
+                });
+            }
+        }, 50);
+    }
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+
+/* =================== BILLING REPORT CONTROLLER =================== */
+let activeCycleKey = 'this';
+
+function filterBillingCycle(cycle, btn) {
+    activeCycleKey = cycle;
+    document.querySelectorAll('.seg button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderBillingReport();
+}
+
+async function renderBillingReport() {
+    // Set loading placeholders for billing summary fields (no skeletons)
+    const summaryIds = [
+        'billCycleLabel', 'billTotalDue', 'billProjected', 'billExecCount',
+        'breakdownCompute', 'breakdownAPI', 'breakdownStorage', 'breakdownNetwork', 'breakdownTotal',
+        'statCurrentSpend', 'statCurrentSpendSub', 'billBudgetSub', 'billProjectedSub'
+    ];
+    summaryIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = '—';
+    });
+
+    const barEl = document.getElementById('budgetBar');
+    if (barEl) barEl.style.width = '0%';
+
+    const tbody = document.getElementById('billingSandboxTable');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--fg-subtle)">Loading sandbox run costs...</td></tr>';
+
+    try {
+        if (!window.API || typeof window.API.getBillingData !== 'function') {
+            throw new Error("API unavailable");
+        }
+        const res = await window.API.getBillingData(activeCycleKey);
+        if (res.error) throw new Error(res.error);
+        const data = res.data;
+        if (!data) throw new Error("No billing data returned");
+
+        const labelEl = document.getElementById('billCycleLabel');
+        if (labelEl) labelEl.innerText = data.label || '—';
+        
+        const dueEl = document.getElementById('billTotalDue');
+        if (dueEl) dueEl.innerText = data.total || '$0.00';
+        
+        const spendEl = document.getElementById('statCurrentSpend');
+        if (spendEl) spendEl.innerText = data.total || '$0.00';
+        
+        const spendSubEl = document.getElementById('statCurrentSpendSub');
+        const budgetSubEl = document.getElementById('billBudgetSub');
+        const budgetText = `${data.budgetPct || 0}% of ${data.budgetLimit || '$600.00'} budget limit`;
+        if (spendSubEl) spendSubEl.innerText = budgetText;
+        if (budgetSubEl) budgetSubEl.innerText = budgetText;
+
+        const projEl = document.getElementById('billProjected');
+        if (projEl) projEl.innerText = data.projected || '$0.00';
+        
+        const projSubEl = document.getElementById('billProjectedSub');
+        if (projSubEl) {
+            if (data.overBudget) {
+                projSubEl.innerText = `+${data.overPct || 0}% over budget limit`;
+                projSubEl.style.color = 'var(--danger)';
+                projSubEl.style.fontWeight = '600';
+            } else {
+                projSubEl.innerText = 'Under budget limit';
+                projSubEl.style.color = 'var(--success)';
+                projSubEl.style.fontWeight = '600';
+            }
+        }
+
+        const execEl = document.getElementById('billExecCount');
+        if (execEl) execEl.innerText = data.execs || '0';
+
+        const bcEl = document.getElementById('breakdownCompute');
+        if (bcEl) bcEl.innerText = data.compute || '$0.00';
+        
+        const baEl = document.getElementById('breakdownAPI');
+        if (baEl) baEl.innerText = data.api || '$0.00';
+        
+        const bsEl = document.getElementById('breakdownStorage');
+        if (bsEl) bsEl.innerText = data.storage || '$0.00';
+        
+        const bnEl = document.getElementById('breakdownNetwork');
+        if (bnEl) bnEl.innerText = data.network || '$0.00';
+        
+        const btEl = document.getElementById('breakdownTotal');
+        if (btEl) btEl.innerText = data.total || '$0.00';
+
+        const pct = parseFloat(data.budgetPct) || 0;
+        if (barEl) barEl.style.width = pct + '%';
+
+        if (tbody && data.sandboxes) {
+            const allSandboxKeys = new Set([...Object.keys(data.sandboxes), ...Object.keys(state.sandboxes)]);
+            if (allSandboxKeys.size === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--fg-subtle)">No sandbox billing data available</td></tr>`;
+            } else {
+                tbody.innerHTML = Array.from(allSandboxKeys).map(key => {
+                    const item = data.sandboxes[key] || { uptime: '—', rate: '—', compute: '—', execs: '—', subtotal: '—' };
+                    const runtime = state.sandboxes[key] ? state.sandboxes[key].runtime : '—';
+                    return `
+                      <tr>
+                        <td style="font-weight: 600;">${key}</td>
+                        <td class="mono">${runtime}</td>
+                        <td class="mono">${item.uptime}</td>
+                        <td class="mono">${item.rate}</td>
+                        <td class="mono">${item.compute}</td>
+                        <td class="mono">${item.execs}</td>
+                        <td class="mono" style="font-weight: 700; color:var(--fg);">${item.subtotal}</td>
+                      </tr>
+                    `;
+                }).join('');
+            }
+        } else if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--fg-subtle)">No sandbox billing data available</td></tr>`;
+        }
+
+        const chart = document.getElementById('spendChartContainer');
+        if (chart) {
+            chart.style.opacity = '0.5';
+            setTimeout(() => { chart.style.opacity = '1'; }, 150);
+        }
+    } catch (err) {
+        console.warn("Billing report offline:", err);
+        summaryIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
+        });
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to load billing data</td></tr>`;
+    }
+}
+
+async function downloadInvoice() {
+    const token = localStorage.getItem('thinkdome_token');
+    try {
+        if (!window.API || !token) throw new Error("API Offline");
+        const res = await window.API.downloadInvoice(activeCycleKey, token);
+        if (res.error) throw new Error(res.error);
+        const invoiceId = res.data?.invoice_id || 'unknown';
+        const downloadUrl = res.data?.download_url || `/v1/admin/billing/invoice/download/${invoiceId}`;
+        
+        // Initiate actual browser download
+        const a = document.createElement('a');
+        a.href = `${downloadUrl}?token=${encodeURIComponent(token)}`;
+        a.download = `invoice-${invoiceId}.pdf`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        await showCustomAlert("Invoice Compiled", `Invoice #${invoiceId} compiled and download initiated.`);
+        addAuditEvent(`Invoice #${invoiceId} downloaded`);
+    } catch (err) {
+        await showCustomAlert("Invoice Download Failed", `Failed to compile invoice: ${err.message || err}`);
+    }
+}
+
+/* =================== API KEYS CONTROLLER =================== */
+function maskToken(token) {
+    if (!token) return '';
+    if (token.length <= 12) return '••••••••';
+    const prefix = token.substring(0, 8);
+    const suffix = token.substring(token.length - 4);
+    return `${prefix}••••••••${suffix}`;
+}
+
+function renderApiKeysHTMLOnly() {
+    const tbody = document.getElementById('apiKeysTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = state.apiKeys.map((k, index) => {
+        const nameVal = k.name || k.display_name;
+        const tokVal = k.masked_token || k.token;
+        const typeVal = k.token_type || k.type;
+        const statusVal = k.status;
+        const isRevoked = statusVal === 'REVOKED' || statusVal === 'revoked';
+        const displayStatus = isRevoked ? 'REVOKED' : 'ACTIVE';
+        return `
+            <tr>
+              <td style="font-weight:600;">${nameVal}</td>
+              <td class="mono" style="font-size: 13px;">${maskToken(tokVal)}</td>
+              <td><span class="action-tag" style="background:var(--accent-subtle);color:var(--accent);">${typeVal} Token</span></td>
+              <td><span class="status-tag ${displayStatus === 'ACTIVE' ? 'success' : 'error'}">${displayStatus}</span></td>
+              <td>
+                ${displayStatus === 'ACTIVE' ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger); border-color:var(--danger-subtle);" onclick="revokeKey('${k.key_id || index}', ${index})">Revoke</button>` : `<span class="faint" style="font-size:12px;color:var(--fg-subtle)">Revoked</span>`}
+              </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function renderApiKeys() {
+    const tbody = document.getElementById('apiKeysTableBody');
+    if (tbody) tbody.innerHTML = getTableSkeletonHTML(5, 3);
+
+    const token = localStorage.getItem('thinkdome_token');
+    try {
+        if (!window.API || !token) throw new Error("Offline");
+        const { data, error } = await window.API.getApiKeys(token);
+        if (error) throw new Error(error);
+
+        if (data) {
+            state.apiKeys = data.map(k => ({
+                name: k.display_name,
+                token: k.masked_token || k.token,
+                type: k.token_type,
+                status: k.status,
+                key_id: k.key_id
+            }));
+        }
+        renderApiKeysHTMLOnly();
+    } catch {
+        renderApiKeysHTMLOnly();
+    }
+}
+
+async function generateNewKey(e) {
+    e.preventDefault();
+    const nameInput = document.getElementById('keyName');
+    const typeInput = document.getElementById('keyType');
+    if (!nameInput || !typeInput) return;
+
+    const name = nameInput.value.trim();
+    const type = typeInput.value;
+    if (!name) return;
+
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalBtn = btn ? btn.innerText : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Creating...';
+    }
+
+    const token = localStorage.getItem('thinkdome_token');
+    try {
+        if (!window.API || !token) throw new Error("API Offline");
+        const { data, error } = await window.API.createApiKey({
+            display_name: name,
+            token_type: type,
+            expires_at: null
+        }, token);
+
+        if (error) throw new Error(error);
+
+        nameInput.value = '';
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = originalBtn;
+        }
+
+        const rawToken = data.token;
+        try {
+            await navigator.clipboard.writeText(rawToken);
+        } catch {}
+
+        if (typeof addLogLine === 'function') {
+            addLogLine('SYS', `Created new secure API token: ${name}`);
+        }
+        addAuditEvent(`Generated API Key: ${name}`);
+
+        await renderApiKeys();
+
+        await showCustomAlert("Secure API Key Generated", `
+          <span style="display:block; margin-bottom:12px; font-size:13.5px; color:var(--fg-muted);">Here is your new API key. We have copied it to your clipboard automatically.</span>
+          <div style="background:var(--surface-raised); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; font-family:var(--font-mono); color:var(--accent); font-weight:600; text-align:center; word-break:break-all; font-size:13.5px; margin-bottom:12px; user-select:all;">
+            ${rawToken}
+          </div>
+          <button class="btn btn-ghost" id="btn-copy-modal-key" style="width:100%; margin-bottom:12px; border-color:var(--accent-subtle); color:var(--accent); font-size:12.5px;" onclick="navigator.clipboard.writeText('${rawToken}').then(() => { const el = document.getElementById('btn-copy-modal-key'); el.innerHTML = '✓ Copied!'; setTimeout(() => el.innerHTML = 'Copy Key to Clipboard', 2000); })">
+            Copy Key to Clipboard
+          </button>
+          <span style="color:var(--danger); font-size:12px; font-weight:600; display:block;">⚠️ Save this key securely. For security reasons, you will not be able to view it again.</span>
+        `);
+
+    } catch (err) {
+        nameInput.value = '';
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = originalBtn;
+        }
+        await showCustomAlert("Failed to Generate Key", `Error generating API Key: ${err.message || err}`);
+    }
+}
+
+async function revokeKey(keyId, index) {
+    const keyItem = state.apiKeys.find(k => k.key_id === keyId) || state.apiKeys[index];
+    const keyName = keyItem ? keyItem.name : "this key";
+    const ok = await showCustomConfirm("Revoke API Key Credentials", `Are you sure you want to permanently revoke credentials for "${keyName}"?`);
+    if (ok) {
+        const token = localStorage.getItem('thinkdome_token');
+        try {
+            if (!window.API || !token) throw new Error("Offline or Unauthorized");
+            const { error } = await window.API.revokeApiKey(keyId, token);
+            if (error) throw new Error(error);
+            
+            if (typeof addLogLine === 'function') {
+                addLogLine('SYS', `Revoked token authentication key: ${keyName}`);
+            }
+            addAuditEvent(`Revoked API Key: ${keyName}`);
+            await renderApiKeys();
+        } catch (err) {
+            await showCustomAlert("Revocation Failed", `Failed to revoke API key: ${err.message || err}`);
+        }
+    }
+}

@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-sandbox-egress
+  namespace: thinkdome-sandboxes
+spec:
+  podSelector:
+    matchLabels:
+      role: sandbox
+  policyTypes:
+  - Egress
+  egress:
+  # Allow only DNS lookup to CoreDNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-infra
+  namespace: thinkdome
+spec:
+  podSelector:
+    matchLabels:
+      app: thinkdome-api
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app: ingress-nginx
+  egress:
+  # Allow connection to PostgreSQL, RabbitMQ, Redis in the same namespace
+  - to:
+    - podSelector:
+        matchLabels:
+          app: thinkdome-postgres
+    - podSelector:
+        matchLabels:
+          app: thinkdome-rabbitmq
+    - podSelector:
+        matchLabels:
+          app: thinkdome-redis

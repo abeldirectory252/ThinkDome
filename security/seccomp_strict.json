@@ -1,0 +1,53 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "comment": "thinkBox production default-deny strict seccomp profile — allow list pattern",
+  "architectures": [
+    "SCMP_ARCH_X86_64",
+    "SCMP_ARCH_X86",
+    "SCMP_ARCH_X32"
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "read", "write", "open", "openat", "close", "stat", "fstat", "lstat",
+        "poll", "lseek", "mmap", "mprotect", "munmap", "brk", "rt_sigaction",
+        "rt_sigprocmask", "rt_sigreturn", "ioctl", "pread64", "pwrite64",
+        "readv", "writev", "access", "pipe", "pipe2", "select", "sched_yield",
+        "mremap", "dup", "dup2", "dup3", "fcntl", "getpid", "getuid", "getgid",
+        "geteuid", "getegid", "getppid", "gettid", "socket", "connect", "accept",
+        "sendto", "recvfrom", "sendmsg", "recvmsg", "shutdown", "bind", "listen",
+        "getsockname", "getpeername", "socketpair", "setsockopt", "getsockopt",
+        "exit", "exit_group", "wait4", "uname", "semget", "semop", "semctl",
+        "shmget", "shmat", "shmdt", "shmctl", "sysinfo", "times", "futex",
+        "set_tid_address", "clock_gettime", "clock_getres", "clock_nanosleep",
+        "getrlimit", "setrlimit", "getcwd", "chdir", "fchdir", "rename",
+        "renameat", "mkdir", "mkdirat", "rmdir", "unlink", "unlinkat",
+        "readlink", "readlinkat", "chmod", "fchmod", "fchmodat", "chown",
+        "fchown", "fchownat", "lchown", "utime", "utimes", "futimesat",
+        "utimensat", "prctl", "arch_prctl", "getdents", "getdents64",
+        "getrandom", "statfs", "fstatfs", "nanosleep", "capget", "capset",
+        "setuid", "setgid", "setreuid", "setregid", "setresuid", "setresgid",
+        "newfstatat", "eventfd", "eventfd2", "epoll_create", "epoll_create1",
+        "epoll_ctl", "epoll_wait", "epoll_pwait", "fcntl64", "stat64", "fstat64",
+        "lstat64", "tgkill", "kill", "tkill", "rt_sigsuspend", "rt_sigpending",
+        "rt_sigtimedwait", "rt_sigqueueinfo", "prlimit64", "time", "gettimeofday",
+        "execve", "execveat", "waitid", "socketcall"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Allow clone/clone3 only without CLONE_NEWUSER (268435456), CLONE_NEWNS (131072), CLONE_NEWPID (536870912), CLONE_NEWNET (1073741824) to prevent container escape namespace manipulation",
+      "names": ["clone", "clone3"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 1980222464,
+          "op": "SCMP_CMP_MASKED_EQ",
+          "valueTwo": 0,
+          "action": "SCMP_ACT_ERRNO"
+        }
+      ]
+    }
+  ]
+}

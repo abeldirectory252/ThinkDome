@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="ThinkDome Secure LLM Sandbox Orchestrator and Professional IDE Dashboard" />
+  <title>ThinkDome — Secure LLM Sandbox & IDE</title>
+  <!-- Google Fonts Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap"
+    rel="stylesheet">
+
+  <link rel="stylesheet" href="static/css/styles.css">
+  <!-- RequireJS for loading Monaco Editor from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+</head>
+
+<body>
+
+  <!-- ============ LOGIN VIEW ============ -->
+  <div id="loginView" class="login-wrap">
+    <div class="login-theme-toggle">
+      <button class="icon-btn" onclick="toggleTheme()" aria-label="Toggle theme">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </svg>
+      </button>
+    </div>
+    <div class="login-card">
+      <div class="brand">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)">
+          <path d="m21 16-9 5-9-5V8l9-5 9 5v8Z" />
+          <path d="m3.3 7 8.7 5 8.7-5" />
+          <path d="M12 22V12" />
+        </svg>
+        <span>Think<span class="dome">Dome</span></span>
+      </div>
+      <h1>Welcome back</h1>
+      <p class="sub">Secure autonomous LLM sandbox orchestrator</p>
+
+      <div class="tabs">
+        <button class="tab active" id="tabLogin" onclick="setAuthTab('login')">LOGIN</button>
+        <button class="tab" id="tabRegister" onclick="setAuthTab('register')">REGISTER ADMIN</button>
+      </div>
+
+      <form onsubmit="enterApp(event)">
+        <div class="field">
+          <label for="username">Username</label>
+          <div class="input-shell">
+            <input id="username" type="text" value="admin" autocomplete="username" />
+            <span class="field-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="input-shell">
+            <input id="password" type="password" value="password" autocomplete="current-password" />
+            <span class="field-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </span>
+          </div>
+        </div>
+        <button class="submit-btn" type="submit">
+          Access Sandbox Workspace
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14" />
+            <path d="m12 5 7 7-7 7" />
+          </svg>
+        </button>
+      </form>
+      <p class="login-note">Mockup environment — default credentials work.</p>
+    </div>
+  </div>
+
+
+
+  <script src="static/js/state.js"></script>
+  <script src="static/js/auth.js"></script>
+  <script src="static/js/dashboard.js"></script>
+  <script src="static/js/sandboxes.js"></script>
+  <script src="static/js/editor.js"></script>
+  <script src="static/js/terminal.js"></script>
+  <script src="static/js/app.js"></script>
+</body>
+
+</html>
