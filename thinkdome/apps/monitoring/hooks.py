@@ -1,0 +1,3 @@
+"""Monitoring app hooks."""
+
+hooks = {}

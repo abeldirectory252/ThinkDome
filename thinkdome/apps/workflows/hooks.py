@@ -1,0 +1,3 @@
+"""Workflows app hooks."""
+
+hooks = {}

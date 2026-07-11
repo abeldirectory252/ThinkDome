@@ -1,0 +1,6 @@
+{
+    "name": "monitoring",
+    "description": "Real-time resource monitoring, health checks, and metrics collection",
+    "version": "0.1.0",
+    "models": ["ResourceMetric"]
+}

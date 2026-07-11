@@ -1,0 +1,6 @@
+{
+    "name": "marketplace",
+    "description": "App for managing pluggable application extensions, templates, and integration plugins",
+    "version": "0.1.0",
+    "models": ["AppExtension"]
+}

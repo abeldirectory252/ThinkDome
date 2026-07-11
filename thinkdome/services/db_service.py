@@ -199,7 +199,24 @@ class DatabaseService:
 
         # Determine backend engine
         dsn = settings.DATABASE_URL
+        try:
+            from thinkdome.core.kernel.kernel import Kernel
+            kernel = Kernel.current()
+            if kernel and kernel.initialized:
+                db_url = kernel.config.get("db_url", "")
+                if db_url:
+                    dsn = db_url
+        except Exception:
+            pass
+
         self.is_postgres = dsn.startswith("postgres://") or dsn.startswith("postgresql://")
+        if not self.is_postgres:
+            if dsn.startswith("sqlite:///"):
+                self.db_path = Path(dsn[10:])
+            else:
+                self.db_path = self.storage_dir / "thinkbox.db"
+        else:
+            self.db_path = self.storage_dir / "thinkbox.db"
 
         self._pool: Optional[asyncpg.Pool] = None
         self._loop_thread: Optional[AsyncLoopThread] = None

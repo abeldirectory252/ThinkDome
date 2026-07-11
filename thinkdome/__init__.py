@@ -1,4 +1,4 @@
-"""ThinkDome - Secure code execution sandbox for AI agents.
+"""ThinkDome — Secure LLM Sandbox Orchestrator & Application Framework.
 
 Basic usage::
 

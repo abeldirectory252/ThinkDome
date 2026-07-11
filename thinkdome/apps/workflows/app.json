@@ -1,0 +1,6 @@
+{
+    "name": "workflows",
+    "description": "Visual automation engine with node graphs, conditions, and human approvals",
+    "version": "0.1.0",
+    "models": ["Workflow", "WorkflowExecution"]
+}

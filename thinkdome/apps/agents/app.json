@@ -1,0 +1,8 @@
+{
+    "name": "agents",
+    "description": "App for AI agent management, tool executions, and state orchestration",
+    "version": "0.1.0",
+    "models": [
+        "Agent"
+    ]
+}

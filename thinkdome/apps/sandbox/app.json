@@ -1,0 +1,8 @@
+{
+    "name": "sandbox",
+    "description": "App for container orchestration and isolated code execution",
+    "version": "0.1.0",
+    "models": [
+        "Sandbox"
+    ]
+}

@@ -52,6 +52,7 @@ Issues = "https://github.com/abeldirectory252/ThinkDome/issues"
 
 [project.scripts]
 thinkdome = "thinkdome.cli:main"
+think = "thinkdome.core.cli.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["thinkdome"]

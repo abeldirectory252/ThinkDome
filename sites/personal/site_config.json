@@ -1,0 +1,11 @@
+{
+    "db_url": "sqlite:////home/sandbox/ThinkDome/sites/personal/db.sqlite",
+    "installed_apps": [
+        "sandbox",
+        "agents",
+        "workflows",
+        "monitoring"
+    ],
+    "site_name": "personal",
+    "created_at": "2026-07-11T12:14:30.921580+00:00"
+}

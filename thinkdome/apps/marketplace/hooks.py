@@ -1,0 +1,3 @@
+"""Marketplace app hooks."""
+
+hooks = {}
