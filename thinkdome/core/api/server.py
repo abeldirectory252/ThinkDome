@@ -39,16 +39,16 @@ from thinkdome.api.orchestrator import router as orchestrator_router
 from thinkdome.api.monitor import router as monitor_router
 
 # ── Original Service Imports ──────────────────────────────────────────────────
-from thinkdome.services.execution_service import ExecutionService
-from thinkdome.services.file_service import FileService
-from thinkdome.services.workspace_service import WorkspaceService
-from thinkdome.services.session_service import SessionService
-from thinkdome.services.db_service import DatabaseService
-from thinkdome.services.auth_service import AuthService
-from thinkdome.services.search_service import SearchService
-from thinkdome.services.orchestrator_service import OrchestratorService
-from thinkdome.services.request_log_service import RequestLogService
-from thinkdome.services.billing_service import BillingService
+from thinkdome.modules.execution.execution_service import ExecutionService
+from thinkdome.modules.storage.file_service import FileService
+from thinkdome.modules.storage.workspace_service import WorkspaceService
+from thinkdome.modules.session.session_service import SessionService
+from thinkdome.modules.database.db_service import DatabaseService
+from thinkdome.modules.auth.auth_service import AuthService
+from thinkdome.modules.search.search_service import SearchService
+from thinkdome.modules.orchestrator.orchestrator_service import OrchestratorService
+from thinkdome.modules.orchestrator.request_log_service import RequestLogService
+from thinkdome.modules.billing.billing_service import BillingService
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ async def serve_login():
 
 @app.get("/orchestrator_schema.json")
 async def serve_schema():
-    from thinkdome.models.orchestrator import ToolUseRequest
+    from thinkdome.modules.orchestrator.orchestrator_models import ToolUseRequest
     return JSONResponse(content=ToolUseRequest.model_json_schema())
 
 
@@ -145,7 +145,7 @@ async def startup_event() -> None:
     await app.state.db_service.initialize()
 
     # 4. Initialize TaskBroker for RabbitMQ tasks
-    from thinkdome.services.rabbitmq import TaskBroker
+    from thinkdome.modules.tasks.rabbitmq import TaskBroker
     app.state.task_broker = TaskBroker(settings.RABBITMQ_URL)
     try:
         await app.state.task_broker.start()
@@ -168,10 +168,10 @@ async def startup_event() -> None:
     app.state.billing_service = BillingService(app.state.db_service)
 
     # 6. Initialize original PoolManager and Monitoring services
-    from thinkdome.services.pool_manager import PoolManager
-    from thinkdome.services.security_scanner import SecurityScanner
-    from thinkdome.services.monitor_service import MonitorService
-    from thinkdome.services.credential_vault import CredentialVault
+    from thinkdome.modules.execution.pool_manager import PoolManager
+    from thinkdome.modules.security.security_scanner import SecurityScanner
+    from thinkdome.modules.monitoring.monitor_service import MonitorService
+    from thinkdome.modules.auth.credential_vault import CredentialVault
 
     docker_client = None
     if settings.EXECUTOR_BACKEND.lower() in ("docker", "hybrid"):
@@ -202,8 +202,8 @@ async def startup_event() -> None:
     app.state.credential_vault = CredentialVault(settings, app.state.db_service)
 
     # 7. Initialize OpenAI & Anthropic Containment components
-    from thinkdome.services.egress_proxy import EgressProxy
-    from thinkdome.services.scheduler import Scheduler as LegacyScheduler
+    from thinkdome.modules.execution.egress_proxy import EgressProxy
+    from thinkdome.modules.tasks.scheduler import Scheduler as LegacyScheduler
     from thinkdome.harness.harness import Harness
 
     app.state.egress_proxy = EgressProxy()

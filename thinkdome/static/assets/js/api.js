@@ -375,3 +375,12 @@ export async function getBillingData(cycleKey) {
 export async function downloadInvoice(cycleKey, token) {
     return apiFetch(`/v1/admin/billing/invoice?cycle=${encodeURIComponent(cycleKey)}`, { method: "POST" }, token);
 }
+
+/**
+ * Fetch all registered tools and their metadata.
+ * @param {string} token
+ * @returns {Promise<{ data: Array, error }>}
+ */
+export async function getTools(token) {
+    return apiFetch("/v1/tools", { method: "GET" }, token);
+}

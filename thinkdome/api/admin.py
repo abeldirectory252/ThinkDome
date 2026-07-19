@@ -14,9 +14,9 @@ from thinkdome.api.dependencies import (
     get_current_user,
     get_billing_service
 )
-from thinkdome.services.auth_service import AuthService
-from thinkdome.services.request_log_service import RequestLogService
-from thinkdome.services.billing_service import BillingService
+from thinkdome.modules.auth.auth_service import AuthService
+from thinkdome.modules.orchestrator.request_log_service import RequestLogService
+from thinkdome.modules.billing.billing_service import BillingService
 
 router = APIRouter(tags=["admin"])
 

@@ -12,8 +12,8 @@ from thinkdome.api.dependencies import (
     get_current_user,
     get_request_log_service
 )
-from thinkdome.services.orchestrator_service import OrchestratorService
-from thinkdome.services.request_log_service import RequestLogService
+from thinkdome.modules.orchestrator.orchestrator_service import OrchestratorService
+from thinkdome.modules.orchestrator.request_log_service import RequestLogService
 
 router = APIRouter(tags=["orchestrator"])
 
@@ -162,5 +162,38 @@ async def orchestrate_tool(
         duration_ms = (time.perf_counter() - start_time) * 1000.0
         log_svc.log_request(client_ip, current_user, data, mock_result, duration_ms, sandbox_id=selected_sandbox.get("sandbox_id"))
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=error_res)
+
+
+@router.get("/tools")
+async def list_tools(
+    current_user: dict = Depends(get_current_user)
+):
+    """Retrieve all registered tools and their metadata."""
+    import os
+    from thinkdome.core.tools import registry
+    tools = registry.list_all_tools()
+    
+    site_name = os.environ.get("THINKDOME_SITE", "personal")
+    active_tools = registry.get_active_tools(site_name)
+    active_names = {t.name for t in active_tools}
+    
+    response = []
+    for t in tools:
+        schema = None
+        if t.input_schema is not None:
+            if hasattr(t.input_schema, "model_json_schema"):
+                schema = t.input_schema.model_json_schema()
+            else:
+                schema = t.input_schema
+
+        response.append({
+            "name": t.name,
+            "description": t.description,
+            "required_scope": t.required_scope,
+            "app_name": t.app_name,
+            "is_active": t.name in active_names or t.app_name == "core",
+            "input_schema": schema
+        })
+    return response
 
 

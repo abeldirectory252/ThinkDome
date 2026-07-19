@@ -1,0 +1,123 @@
+[
+  {
+    "name": "Application of Funds (Assets)",
+    "account_type": "Asset",
+    "root_type": "Asset",
+    "is_group": true
+  },
+  {
+    "name": "Current Assets",
+    "account_type": "Asset",
+    "root_type": "Asset",
+    "parent_account": "Application of Funds (Assets)",
+    "is_group": true
+  },
+  {
+    "name": "Cash & Bank",
+    "account_type": "Asset",
+    "root_type": "Asset",
+    "parent_account": "Current Assets",
+    "is_group": true
+  },
+  {
+    "name": "Operating Bank Account",
+    "account_type": "Bank",
+    "root_type": "Asset",
+    "parent_account": "Cash & Bank",
+    "is_group": false
+  },
+  {
+    "name": "Accounts Receivable",
+    "account_type": "Receivable",
+    "root_type": "Asset",
+    "parent_account": "Current Assets",
+    "is_group": false
+  },
+  {
+    "name": "Purchase Tax Receivable",
+    "account_type": "Tax",
+    "root_type": "Asset",
+    "parent_account": "Current Assets",
+    "is_group": false
+  },
+  {
+    "name": "Source of Funds (Liabilities)",
+    "account_type": "Liability",
+    "root_type": "Liability",
+    "is_group": true
+  },
+  {
+    "name": "Current Liabilities",
+    "account_type": "Liability",
+    "root_type": "Liability",
+    "parent_account": "Source of Funds (Liabilities)",
+    "is_group": true
+  },
+  {
+    "name": "Accounts Payable",
+    "account_type": "Payable",
+    "root_type": "Liability",
+    "parent_account": "Current Liabilities",
+    "is_group": false
+  },
+  {
+    "name": "Sales Tax Payable",
+    "account_type": "Tax",
+    "root_type": "Liability",
+    "parent_account": "Current Liabilities",
+    "is_group": false
+  },
+  {
+    "name": "Equity Division",
+    "account_type": "Equity",
+    "root_type": "Equity",
+    "is_group": true
+  },
+  {
+    "name": "Share Capital",
+    "account_type": "Equity",
+    "root_type": "Equity",
+    "parent_account": "Equity Division",
+    "is_group": false
+  },
+  {
+    "name": "Income Account Group",
+    "account_type": "Revenue",
+    "root_type": "Revenue",
+    "is_group": true
+  },
+  {
+    "name": "Sales Revenue",
+    "account_type": "Revenue",
+    "root_type": "Revenue",
+    "parent_account": "Income Account Group",
+    "is_group": false
+  },
+  {
+    "name": "Expense Account Group",
+    "account_type": "Expense",
+    "root_type": "Expense",
+    "is_group": true
+  },
+  {
+    "name": "Cost of Goods Sold",
+    "account_type": "Cost of Goods Sold",
+    "root_type": "Expense",
+    "parent_account": "Expense Account Group",
+    "is_group": false
+  },
+  {
+    "name": "Office Supplies Expense",
+    "account_type": "Expense",
+    "root_type": "Expense",
+    "parent_account": "Expense Account Group",
+    "is_group": false
+  },
+  {
+    "name": "Depreciation Expense",
+    "account_type": "Depreciation",
+    "root_type": "Expense",
+    "parent_account": "Expense Account Group",
+    "is_group": false
+  }
+]

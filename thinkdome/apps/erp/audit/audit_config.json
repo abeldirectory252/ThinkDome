@@ -1,0 +1,79 @@
+{
+    "materiality": {
+        "percentage_of_revenue": 0.01,
+        "percentage_of_assets": 0.005,
+        "minimum_threshold": 1000,
+        "round_number_threshold": 100
+    },
+    "business_hours": {
+        "start": "09:00",
+        "end": "18:00",
+        "timezone": "UTC",
+        "weekend_days": [5, 6]
+    },
+    "thresholds": {
+        "large_transaction_multiplier": 3.0,
+        "duplicate_date_window_days": 30,
+        "stale_reconciliation_days": 90,
+        "backdated_entry_days": 30,
+        "year_end_days": 15,
+        "benford_chi_squared_critical": 15.507,
+        "negative_stock_tolerance": 0.001
+    },
+    "sampling": {
+        "default_sample_size": 25,
+        "max_sample_size": 100,
+        "confidence_level": 0.95,
+        "expected_error_rate": 0.01
+    },
+    "sod_conflict_matrix": [
+        {
+            "role_a": "Purchase User",
+            "role_b": "Accounts User",
+            "conflict": "Can create purchase invoice and approve payment",
+            "risk": "HIGH"
+        },
+        {
+            "role_a": "Sales User",
+            "role_b": "Accounts User",
+            "conflict": "Can create sales invoice and approve credit note",
+            "risk": "HIGH"
+        },
+        {
+            "role_a": "HR User",
+            "role_b": "Accounts User",
+            "conflict": "Can create employee and process payroll",
+            "risk": "MEDIUM"
+        },
+        {
+            "role_a": "Stock User",
+            "role_b": "Accounts User",
+            "conflict": "Can adjust inventory and post journal entries",
+            "risk": "HIGH"
+        },
+        {
+            "role_a": "Purchase User",
+            "role_b": "Stock User",
+            "conflict": "Can create purchase order and receive goods",
+            "risk": "MEDIUM"
+        },
+        {
+            "role_a": "Accounts User",
+            "role_b": "Accounts Manager",
+            "conflict": "Can create and approve journal entries",
+            "risk": "HIGH"
+        },
+        {
+            "role_a": "Purchase User",
+            "role_b": "Purchase Manager",
+            "conflict": "Can create and approve purchase orders",
+            "risk": "HIGH"
+        },
+        {
+            "role_a": "Sales User",
+            "role_b": "Sales Manager",
+            "conflict": "Can create and approve sales orders",
+            "risk": "MEDIUM"
+        }
+    ]
+}

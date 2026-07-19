@@ -30,8 +30,14 @@ function idePaneMode(pane, btn) {
 
     const editorPane = document.getElementById('editorPane');
     const toolusePane = document.getElementById('toolusePane');
+    const mcpPane = document.getElementById('mcpPane');
     if (editorPane) editorPane.classList.toggle('hidden', pane !== 'editor');
     if (toolusePane) toolusePane.classList.toggle('hidden', pane !== 'tooluse');
+    if (mcpPane) mcpPane.classList.toggle('hidden', pane !== 'mcp');
+
+    if (pane === 'mcp') {
+        renderIdeMcpTools();
+    }
 
     if (pane === 'editor') {
         if (typeof syncGutter === 'function') syncGutter();
@@ -913,6 +919,96 @@ window.addEventListener('keydown', (e) => {
         }
     }
 });
+
+async function renderIdeMcpTools() {
+    const list = document.getElementById('ideMcpToolsList');
+    if (!list) return;
+    list.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--fg-muted); padding: 40px 0;"><span class="spinner" style="display:inline-block; margin-right:6px;"></span> Loading registered tools...</div>`;
+
+    const token = localStorage.getItem('thinkdome_token');
+    try {
+        if (!window.API || !token) throw new Error("Offline");
+        const { data, error } = await window.API.getTools(token);
+        if (error) throw new Error(error);
+
+        if (data && Array.isArray(data)) {
+            let html = "";
+            data.forEach(t => {
+                const statusDot = t.is_active 
+                    ? `<span style="display:inline-block; width:8px; height:8px; background:#10b981; border-radius:50%; margin-right:6px;"></span>`
+                    : `<span style="display:inline-block; width:8px; height:8px; background:#ef4444; border-radius:50%; margin-right:6px;"></span>`;
+                
+                html += `
+                    <div class="card" style="padding: 12px; cursor: pointer; border: 1px solid var(--border); transition: border-color 0.2s;" 
+                         onclick="loadMcpPresetInIde('${t.name}')" 
+                         onmouseover="this.style.borderColor='var(--accent)'" 
+                         onmouseout="this.style.borderColor='var(--border)'">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-family: monospace; font-weight: 600; color: var(--text-heading); font-size: 13px;">${t.name}</span>
+                            <span style="font-size: 11px; display: flex; align-items: center;">${statusDot} ${t.is_active ? 'Active' : 'Disabled'}</span>
+                        </div>
+                        <div class="faint" style="font-size: 12px; line-height: 1.4; height: 34px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+                            ${t.description}
+                        </div>
+                    </div>
+                `;
+            });
+            list.innerHTML = html || `<div style="grid-column: 1/-1; text-align: center; color: var(--fg-muted); padding: 40px 0;">No tools found in registry.</div>`;
+        }
+    } catch (err) {
+        list.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--danger); padding: 40px 0;">Failed to load tools: ${err.message}</div>`;
+    }
+}
+
+function loadMcpPresetInIde(toolName) {
+    const sb = state.sandboxes[state.activeSbx];
+    const sbxId = sb ? sb.id : '';
+    
+    const templates = {
+        run_code: { sandbox: sbxId, language: "python", code: "print('Hello from MCP')" },
+        read_file: { sandbox: sbxId, path: "README.md" },
+        write_file: { sandbox: sbxId, path: "new_file.txt", content: "File content here" },
+        list_dir: { sandbox: sbxId, path: "." },
+        file_exists: { sandbox: sbxId, path: "README.md" },
+        make_dir: { sandbox: sbxId, path: "new_folder" },
+        remove_file: { sandbox: sbxId, path: "file_to_delete.txt" },
+        remove_dir: { sandbox: sbxId, path: "folder_to_delete" },
+        move_file: { sandbox: sbxId, src: "old.txt", dest: "new.txt" },
+        copy_file: { sandbox: sbxId, src: "source.txt", dest: "dest.txt" },
+        grep_search: { sandbox: sbxId, pattern: "TODO", path: "." },
+        find_files: { sandbox: sbxId, pattern: "*.py", path: "." },
+        get_file_info: { sandbox: sbxId, path: "README.md" },
+        hash_file: { sandbox: sbxId, path: "README.md", algorithm: "sha256" },
+        web_search: { sandbox: sbxId, query: "Google DeepMind" },
+        http_request: { sandbox: sbxId, url: "https://httpbin.org/get", method: "GET" },
+        memory_store: { sandbox: sbxId, key: "my_key", content: "my_value" },
+        memory_retrieve: { sandbox: sbxId, key: "my_key" },
+        memory_search: { sandbox: sbxId, query: "my_value" },
+        memory_delete: { sandbox: sbxId, key: "my_key" },
+        memory_list: { sandbox: sbxId, tags: [] },
+        shell_exec: { sandbox: sbxId, command: "ls -la" },
+        send_email: { sandbox: sbxId, to: "user@example.com", subject: "Hello", body: "World" },
+        send_telegram: { sandbox: sbxId, chat_id: "123456", message: "Hello World" }
+    };
+    
+    const input = templates[toolName] || { sandbox: sbxId };
+    const payload = {
+        type: "tool_use",
+        id: "toolu_" + Math.random().toString(36).substring(2, 9),
+        name: toolName,
+        input: input
+    };
+    
+    const textInput = document.getElementById('toolCallJsonInput');
+    if (textInput) {
+        textInput.value = JSON.stringify(payload, null, 2);
+    }
+    
+    const segButtons = document.querySelectorAll('#idePaneSelectorSeg button');
+    if (segButtons.length >= 2) {
+        idePaneMode('tooluse', segButtons[1]); // Tool JSON is at index 1, Editor at 0, MCP Tools at 2
+    }
+}
 
 
 

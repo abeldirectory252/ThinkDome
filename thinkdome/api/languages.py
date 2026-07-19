@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from thinkdome.models.languages import LanguageInfo, PackageInfo, RuntimeInfo
+from thinkdome.modules.execution.language_models import LanguageInfo, PackageInfo, RuntimeInfo
 
 router = APIRouter(tags=["languages"])
 

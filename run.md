@@ -1,0 +1,1 @@
+venv/bin/python think serve --port 8000 2>&1

@@ -3,13 +3,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from thinkdome.api.dependencies import get_session_service
-from thinkdome.models.sessions import (
+from thinkdome.modules.session.session_models import (
     CreateSessionRequest,
     SessionInfo,
     SessionExecRequest,
     SessionExecResponse,
 )
-from thinkdome.services.session_service import SessionService
+from thinkdome.modules.session.session_service import SessionService
 
 router = APIRouter(tags=["sessions"])
 

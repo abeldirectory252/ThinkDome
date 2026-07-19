@@ -1,4 +1,4 @@
-﻿"""MCP Tool: web_search â€” Search the web with pluggable providers.
+"""MCP Tool: web_search â€” Search the web with pluggable providers.
 
 Supports DuckDuckGo (default, no API key), Tavily, and Serper.
 Rate-limited, sanitized, and audit-logged. Returns structured
@@ -14,9 +14,9 @@ from typing import Any
 from mcp.types import Tool
 
 from thinkdome.mcp_tools.base import MCPToolBase
-from thinkdome.models.search import SearchRequest
-from thinkdome.services.search_service import SearchService
-from thinkdome.services.audit_service import AuditService
+from thinkdome.modules.search.search_models import SearchRequest
+from thinkdome.modules.search.search_service import SearchService
+# AuditService was never implemented — audit logging is a no-op
 from thinkdome.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -32,7 +32,7 @@ class WebSearchTool(MCPToolBase):
     def __init__(
         self,
         search_service: SearchService,
-        audit_service: AuditService,
+        audit_service=None,
     ) -> None:
         self._search_service = search_service
         self._audit_service = audit_service

@@ -765,3 +765,46 @@ async function revokeKey(keyId, index) {
         }
     }
 }
+
+async function loadMcpTools() {
+    const tbody = document.getElementById('mcpToolsTableBody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading tools from registry...</td></tr>`;
+
+    const token = localStorage.getItem('thinkdome_token');
+    try {
+        if (!window.API || !token) throw new Error("Offline");
+        const { data, error } = await window.API.getTools(token);
+        if (error) throw new Error(error);
+
+        if (data && Array.isArray(data)) {
+            let html = "";
+            data.forEach(t => {
+                const statusBadge = t.is_active 
+                    ? `<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.1); color: rgb(16, 185, 129); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Active</span>`
+                    : `<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.1); color: rgb(239, 68, 68); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Inactive</span>`;
+                
+                html += `
+                    <tr>
+                        <td style="font-weight: 600; color: var(--text-heading); font-family: monospace;">${t.name}</td>
+                        <td><span style="background: var(--bg-surface); padding: 4px 8px; border-radius: 4px; font-size: 12px; border: 1px solid var(--border);">${t.app_name}</span></td>
+                        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${t.required_scope || 'None'}</td>
+                        <td>${statusBadge}</td>
+                        <td style="color: var(--text-muted); font-size: 13px;">${t.description}</td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html || `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">No tools found in registry.</td></tr>`;
+        }
+    } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger); padding: 20px;">Failed to load tools: ${err.message}</td></tr>`;
+    }
+}
+
+function copyMcpConfig() {
+    const code = document.getElementById('mcpConfigCode').innerText;
+    navigator.clipboard.writeText(code).then(() => {
+        alert("MCP Configuration copied to clipboard!");
+    }).catch(err => {
+        console.error("Failed to copy text: ", err);
+    });
+}

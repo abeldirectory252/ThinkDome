@@ -177,6 +177,14 @@
             API Keys
           </button>
 
+          <button class="nav-item" data-page="mcp" onclick="navTo('mcp')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+            </svg>
+            MCP Server
+          </button>
+
           <div class="nav-group-label">DEVELOPMENT</div>
           <button class="nav-item" data-page="console" onclick="navTo('console')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -619,6 +627,111 @@
           </div>
         </section>
 
+        <!-- MCP SERVER VIEW -->
+        <section class="page hidden" id="page-mcp">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;">
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                </svg>
+              </span>
+              <div>
+                <h2>Model Context Protocol (MCP) Server</h2>
+                <p class="subtitle">Connect Claude Desktop, Cursor, or Cline to ThinkDome dynamic sandbox tools.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-2col">
+            <!-- Left Panel: Connection Config -->
+            <div class="card">
+              <div class="card-title">
+                <h3>Claude Desktop Integration</h3>
+              </div>
+              <p>Add the following configuration to your <code>claude_desktop_config.json</code> file to expose ThinkDome's dynamic tool registry directly into your Claude app:</p>
+              
+              <div class="code-container" style="position: relative; margin: 15px 0;">
+                <pre style="background: var(--bg-surface); padding: 14px; border-radius: 6px; border: 1px solid var(--border); font-family: monospace; font-size: 13px; color: var(--text-heading); overflow-x: auto; white-space: pre-wrap; word-break: break-all;"><code id="mcpConfigCode">{
+  "mcpServers": {
+    "thinkdome": {
+      "command": "/home/sandbox/ThinkDome/venv/bin/python",
+      "args": [
+        "/home/sandbox/ThinkDome/think",
+        "mcp",
+        "--site",
+        "personal"
+      ]
+    }
+  }
+}</code></pre>
+                <button class="btn btn-ghost btn-sm" onclick="copyMcpConfig()" style="position: absolute; right: 10px; top: 10px;">Copy JSON</button>
+              </div>
+              
+              <div class="nav-group-label" style="margin-top: 20px;">HOW TO CONNECT</div>
+              <ol style="margin-left: 20px; color: var(--text-muted); line-height: 1.6;">
+                <li>Locate your Claude config file at:
+                  <ul style="margin-left: 15px; font-family: monospace; font-size: 12px; margin-top: 5px; list-style-type: square;">
+                    <li>macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></li>
+                    <li>Windows: <code>%APPDATA%\Claude\claude_desktop_config.json</code></li>
+                  </ul>
+                </li>
+                <li style="margin-top: 5px;">Paste the configuration block above into the config file.</li>
+                <li style="margin-top: 5px;">Restart the Claude Desktop app.</li>
+              </ol>
+            </div>
+
+            <!-- Right Panel: Connection Status & Quick CLI -->
+            <div class="card">
+              <div class="card-title">
+                <h3>Connection Status</h3>
+              </div>
+              
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+                <div class="status-indicator active"></div>
+                <div>
+                  <div style="font-weight: 600; color: var(--text-heading);">Server Status: Online</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">Listening on standard I/O (stdio) transport channel</div>
+                </div>
+              </div>
+
+              <div class="nav-group-label">CLI RUN COMMAND</div>
+              <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">To start the server manually in standard stdio mode:</p>
+              <div class="code-container" style="position: relative;">
+                <pre style="background: var(--bg-surface); padding: 14px; border-radius: 6px; border: 1px solid var(--border); font-family: monospace; font-size: 13px; color: var(--text-heading); overflow-x: auto; white-space: pre-wrap;"><code>python think mcp --site personal</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Panel: Dynamic Tools Table -->
+          <div class="card" style="margin-top: 20px;">
+            <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3>Dynamic Registered Tools</h3>
+                <p style="font-size: 13px; color: var(--text-muted);">List of tools automatically exposed through the MCP registry</p>
+              </div>
+              <button class="btn btn-primary" onclick="loadMcpTools()">Refresh Tools</button>
+            </div>
+
+            <table class="table" style="margin-top: 15px;">
+              <thead>
+                <tr>
+                  <th>Tool Name</th>
+                  <th>Domain / App</th>
+                  <th>Required Scope</th>
+                  <th>Status</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody id="mcpToolsTableBody">
+                <tr>
+                  <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading tools from registry...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- 5. CONSOLE & IDE VIEW -->
         <section class="page hidden" id="page-console" style="max-width: 100%;">
           <!-- Page Header tabs to toggle between console modes -->
@@ -653,9 +766,10 @@
                 Run
               </button>
 
-              <div class="seg">
+              <div class="seg" id="idePaneSelectorSeg">
                 <button class="active" onclick="idePaneMode('editor',this)">Editor</button>
                 <button onclick="idePaneMode('tooluse',this)">Tool JSON</button>
+                <button onclick="idePaneMode('mcp',this)">MCP Tools</button>
               </div>
 
               <div class="status-divider" style="width:1px;height:16px;background:var(--border);margin:0 4px;"></div>
@@ -837,6 +951,17 @@
                       <path d="M22 2L11 13"></path>
                       <path d="M22 2l-7 20-4-9-9-4 20-7z"></path>
                     </svg>Execute Call</button>
+                </div>
+
+                <!-- MCP Tool List Pane -->
+                <div id="mcpPane" class="hidden"
+                  style="flex:1;display:flex;flex-direction:column;padding:14px;overflow:auto;gap:10px;">
+                  <div class="faint" style="font-size:12px; margin-bottom: 5px;">
+                    Select an active MCP tool to load its template into the Tool JSON orchestrator interface.
+                  </div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; align-content: start;" id="ideMcpToolsList">
+                    <div style="grid-column: 1/-1; text-align: center; color: var(--fg-muted); padding: 40px 0;">Loading tools...</div>
+                  </div>
                 </div>
 
                 <!-- Status Bar (VS Code style) -->

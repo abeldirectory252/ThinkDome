@@ -18,16 +18,16 @@ from thinkdome.api.auth import router as auth_router
 from thinkdome.api.orchestrator import router as orchestrator_router
 from thinkdome.api.monitor import router as monitor_router
 
-from thinkdome.services.execution_service import ExecutionService
-from thinkdome.services.file_service import FileService
-from thinkdome.services.workspace_service import WorkspaceService
-from thinkdome.services.session_service import SessionService
-from thinkdome.services.db_service import DatabaseService
-from thinkdome.services.auth_service import AuthService
-from thinkdome.services.search_service import SearchService
-from thinkdome.services.orchestrator_service import OrchestratorService
-from thinkdome.services.request_log_service import RequestLogService
-from thinkdome.services.billing_service import BillingService
+from thinkdome.modules.execution.execution_service import ExecutionService
+from thinkdome.modules.storage.file_service import FileService
+from thinkdome.modules.storage.workspace_service import WorkspaceService
+from thinkdome.modules.session.session_service import SessionService
+from thinkdome.modules.database.db_service import DatabaseService
+from thinkdome.modules.auth.auth_service import AuthService
+from thinkdome.modules.search.search_service import SearchService
+from thinkdome.modules.orchestrator.orchestrator_service import OrchestratorService
+from thinkdome.modules.orchestrator.request_log_service import RequestLogService
+from thinkdome.modules.billing.billing_service import BillingService
 
 
 @asynccontextmanager
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     await app.state.db_service.initialize()
 
     # Initialize TaskBroker for RabbitMQ tasks
-    from thinkdome.services.rabbitmq import TaskBroker
+    from thinkdome.modules.tasks.rabbitmq import TaskBroker
     app.state.task_broker = TaskBroker(settings.RABBITMQ_URL)
     try:
         await app.state.task_broker.start()
@@ -66,10 +66,10 @@ async def lifespan(app: FastAPI):
     app.state.billing_service = BillingService(app.state.db_service)
 
     # Initialize PoolManager, MonitorService, SecurityScanner, CredentialVault
-    from thinkdome.services.pool_manager import PoolManager
-    from thinkdome.services.security_scanner import SecurityScanner
-    from thinkdome.services.monitor_service import MonitorService
-    from thinkdome.services.credential_vault import CredentialVault
+    from thinkdome.modules.execution.pool_manager import PoolManager
+    from thinkdome.modules.security.security_scanner import SecurityScanner
+    from thinkdome.modules.monitoring.monitor_service import MonitorService
+    from thinkdome.modules.auth.credential_vault import CredentialVault
 
     docker_client = None
     if settings.EXECUTOR_BACKEND.lower() in ("docker", "hybrid"):
@@ -103,8 +103,8 @@ async def lifespan(app: FastAPI):
     app.state.credential_vault = CredentialVault(settings, app.state.db_service)
 
     # Initialize OpenAI & Anthropic Containment components
-    from thinkdome.services.egress_proxy import EgressProxy
-    from thinkdome.services.scheduler import Scheduler
+    from thinkdome.modules.execution.egress_proxy import EgressProxy
+    from thinkdome.modules.tasks.scheduler import Scheduler
     from thinkdome.harness.harness import Harness
 
     app.state.egress_proxy = EgressProxy()
@@ -241,7 +241,7 @@ def create_app() -> FastAPI:
     @app.get("/orchestrator_schema.json")
     async def serve_schema():
         from fastapi.responses import JSONResponse
-        from thinkdome.models.orchestrator import ToolUseRequest
+        from thinkdome.modules.orchestrator.orchestrator_models import ToolUseRequest
         return JSONResponse(content=ToolUseRequest.model_json_schema())
 
     return app

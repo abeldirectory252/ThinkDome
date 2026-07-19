@@ -3,7 +3,7 @@
 import pytest
 import asyncio
 import time
-from thinkdome.services.pool_manager import PoolManager, ContainerState
+from thinkdome.modules.execution.pool_manager import PoolManager, ContainerState
 from thinkdome.core.config import Settings
 
 

@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from thinkdome.api.dependencies import get_execution_service
-from thinkdome.models.execution import (
+from thinkdome.modules.execution.execution_models import (
     ExecuteRequest,
     ExecuteResponse,
     BatchExecuteRequest,
     BatchExecuteResponse,
 )
-from thinkdome.services.execution_service import ExecutionService
+from thinkdome.modules.execution.execution_service import ExecutionService
 
 router = APIRouter(tags=["execution"])
 

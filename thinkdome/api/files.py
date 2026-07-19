@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import Response
 
 from thinkdome.api.dependencies import get_file_service
-from thinkdome.models.files import (
+from thinkdome.modules.storage.file_models import (
     FileMetadata,
     FileListResponse,
     FileCopyRequest,
@@ -14,7 +14,7 @@ from thinkdome.models.files import (
     BatchFileOperation,
     BatchOperationResponse,
 )
-from thinkdome.services.file_service import FileService
+from thinkdome.modules.storage.file_service import FileService
 
 router = APIRouter(tags=["files"])
 

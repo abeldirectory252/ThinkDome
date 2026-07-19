@@ -5,12 +5,12 @@ import asyncio
 import time
 from unittest.mock import MagicMock
 
-from thinkdome.models.manifest import SandboxManifest, GitRepositoryImport, MountSpec, CredentialExclusions
+from thinkdome.modules.execution.manifest_models import SandboxManifest, GitRepositoryImport, MountSpec, CredentialExclusions
 from thinkdome.harness.harness import Harness, AuditRecord
-from thinkdome.services.egress_proxy import EgressProxy, EgressRule, EgressDecision
-from thinkdome.services.scheduler import Scheduler, ScheduledTask
+from thinkdome.modules.execution.egress_proxy import EgressProxy, EgressRule, EgressDecision
+from thinkdome.modules.tasks.scheduler import Scheduler, ScheduledTask
 from thinkdome.executors.bubblewrap import BubblewrapExecutor, ExecRequest, ExecResult
-from thinkdome.services.credential_vault import SandboxCredentials
+from thinkdome.modules.auth.credential_vault import SandboxCredentials
 from thinkdome.core.config import Settings
 
 

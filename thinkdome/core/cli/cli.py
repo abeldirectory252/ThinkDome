@@ -89,6 +89,8 @@ def main() -> None:
     subparsers.add_parser("scheduler", help="Start cron scheduler process")
     subparsers.add_parser("shell", help="Open an interactive Python shell pre-loaded with site context")
     subparsers.add_parser("test", help="Run framework test suite")
+    subparsers.add_parser("list-tools", help="List all registered tools and their active status")
+    subparsers.add_parser("mcp", help="Start the Model Context Protocol (MCP) stdio server")
 
     args = parser.parse_args()
 
@@ -135,6 +137,10 @@ def main() -> None:
             handle_shell(args.site)
         elif args.command == "test":
             handle_test()
+        elif args.command == "list-tools":
+            handle_list_tools(args.site)
+        elif args.command == "mcp":
+            handle_mcp(args.site)
         else:
             parser.print_help()
     except Exception as e:
@@ -418,6 +424,7 @@ def handle_serve(host: str, port: int, reload: bool) -> None:
         host=host,
         port=port,
         reload=reload,
+        reload_dirs=["thinkdome"] if reload else None,
     )
 
 
@@ -462,6 +469,39 @@ def handle_test() -> None:
     """Run the framework's test suite via pytest."""
     import subprocess
     subprocess.run(["pytest", str(WORKSPACE_ROOT / "tests")], check=True)
+
+
+def handle_list_tools(site_name: str) -> None:
+    """List all registered tools, their app source, description, scope, and status."""
+    from thinkdome.core.tools import registry
+    from thinkdome.core.kernel.kernel import Kernel
+
+    # Initialize kernel to load apps and register tools
+    kernel = Kernel.get_instance(site_name)
+    kernel.initialize()
+
+    active_tools = registry.get_active_tools(site_name)
+    active_names = {t.name for t in active_tools}
+
+    all_tools = registry.list_all_tools()
+    
+    if not all_tools:
+        print("No tools registered.")
+        return
+
+    print(f"Registered Tools (Site Context: {site_name})")
+    print("-" * 120)
+    print(f"{'Tool Name':<20} | {'App / Source':<15} | {'Scope':<20} | {'Status':<10} | {'Description'}")
+    print("-" * 120)
+    for tool in sorted(all_tools, key=lambda t: t.name):
+        status_str = "Active" if tool.name in active_names else "Inactive"
+        print(f"{tool.name:<20} | {tool.app_name:<15} | {tool.required_scope:<20} | {status_str:<10} | {tool.description}")
+
+
+def handle_mcp(site_name: str) -> None:
+    """Start the Model Context Protocol (MCP) stdio server."""
+    from thinkdome.mcp import run_mcp_server
+    run_mcp_server(site_name)
 
 
 def time_now_iso() -> str:

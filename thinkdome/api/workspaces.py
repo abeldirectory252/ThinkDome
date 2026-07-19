@@ -3,14 +3,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from thinkdome.api.dependencies import get_workspace_service
-from thinkdome.models.workspaces import (
+from thinkdome.modules.storage.workspace_models import (
     CreateWorkspaceRequest,
     WorkspaceInfo,
     WorkspaceListResponse,
     UpdateWorkspaceRequest,
     SnapshotResponse,
 )
-from thinkdome.services.workspace_service import WorkspaceService
+from thinkdome.modules.storage.workspace_service import WorkspaceService
 
 router = APIRouter(tags=["workspaces"])
 

@@ -1,0 +1,42 @@
+{
+    "name": "erp",
+    "description": "Full ERP expert MCP module — Frappe/ERPNext bridge with deep accounting, data explainability, query engine, and privilege-controlled CRUD. Decision support system for company management.",
+    "version": "0.1.0",
+    "models": [
+        "Account",
+        "JournalEntry",
+        "JournalEntryLine",
+        "FiscalYear",
+        "CostCenter",
+        "SalesInvoice",
+        "PurchaseInvoice",
+        "Payment",
+        "BankAccount",
+        "CashFlowEntry",
+        "BankReconciliation",
+        "Budget",
+        "BudgetLine",
+        "TaxRate",
+        "PaymentTerm",
+        "Asset",
+        "AssetDepreciation",
+        "CreditNote",
+        "DebitNote",
+        "ExchangeRate",
+        "ChequeEntry",
+        "Subscription",
+        "RecurringEntry",
+        "CreditLimit",
+        "DunningNotice",
+        "PeriodClosing",
+        "AuditLog"
+    ],
+    "domains": {
+        "accounting": "complete",
+        "hr": "todo",
+        "inventory": "todo",
+        "crm": "todo",
+        "projects": "todo",
+        "assets": "todo"
+    }
+}

@@ -4,7 +4,8 @@
         "sandbox",
         "agents",
         "workflows",
-        "monitoring"
+        "monitoring",
+        "erp"
     ],
     "site_name": "personal",
     "created_at": "2026-07-11T12:14:30.921580+00:00"

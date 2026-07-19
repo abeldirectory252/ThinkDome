@@ -2,14 +2,14 @@
 
 from fastapi import Request, Depends
 
-from thinkdome.services.execution_service import ExecutionService
-from thinkdome.services.file_service import FileService
-from thinkdome.services.workspace_service import WorkspaceService
-from thinkdome.services.session_service import SessionService
-from thinkdome.services.auth_service import AuthService
-from thinkdome.services.orchestrator_service import OrchestratorService
-from thinkdome.services.request_log_service import RequestLogService
-from thinkdome.services.billing_service import BillingService
+from thinkdome.modules.execution.execution_service import ExecutionService
+from thinkdome.modules.storage.file_service import FileService
+from thinkdome.modules.storage.workspace_service import WorkspaceService
+from thinkdome.modules.session.session_service import SessionService
+from thinkdome.modules.auth.auth_service import AuthService
+from thinkdome.modules.orchestrator.orchestrator_service import OrchestratorService
+from thinkdome.modules.orchestrator.request_log_service import RequestLogService
+from thinkdome.modules.billing.billing_service import BillingService
 
 
 def get_execution_service(request: Request) -> ExecutionService:

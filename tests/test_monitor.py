@@ -2,7 +2,7 @@
 
 import pytest
 import asyncio
-from thinkdome.services.monitor_service import MonitorService, AlertRule, SandboxMetrics
+from thinkdome.modules.monitoring.monitor_service import MonitorService, AlertRule, SandboxMetrics
 from thinkdome.core.config import Settings
 
 

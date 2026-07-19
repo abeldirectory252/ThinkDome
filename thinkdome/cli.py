@@ -61,6 +61,7 @@ def _serve(args) -> None:
         host=args.host,
         port=args.port,
         reload=args.reload,
+        reload_dirs=["thinkdome"] if args.reload else None,
         workers=args.workers,
     )
 

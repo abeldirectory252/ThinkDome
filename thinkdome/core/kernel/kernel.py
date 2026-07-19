@@ -132,6 +132,13 @@ class Kernel:
             except ModuleNotFoundError:
                 pass  # App has no custom hooks
 
+            # Load tools
+            try:
+                importlib.import_module(f"thinkdome.apps.{app_name}.tools")
+                logger.info(f"Successfully loaded tools for app '{app_name}'")
+            except ModuleNotFoundError:
+                pass  # App has no tools.py
+
     def _register_hooks(self, app_hooks: Dict[str, Any]) -> None:
         """Merge app-defined hook listeners into kernel registry."""
         for hook_name, callback in app_hooks.items():

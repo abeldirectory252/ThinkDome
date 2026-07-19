@@ -27,6 +27,10 @@ function navTo(pageId) {
         if (typeof focusTerminalInput === 'function') {
             focusTerminalInput();
         }
+    } else if (pageId === 'mcp') {
+        if (typeof loadMcpTools === 'function') {
+            loadMcpTools();
+        }
     }
 }
 

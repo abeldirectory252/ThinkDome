@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
 from pydantic import BaseModel, Field
 
 from thinkdome.api.dependencies import get_auth_service
-from thinkdome.services.auth_service import AuthService
+from thinkdome.modules.auth.auth_service import AuthService
 
 router = APIRouter(tags=["auth"])
 
