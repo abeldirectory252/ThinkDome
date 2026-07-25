@@ -925,13 +925,15 @@ async function renderIdeMcpTools() {
     if (!list) return;
     list.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--fg-muted); padding: 40px 0;"><span class="spinner" style="display:inline-block; margin-right:6px;"></span> Loading registered tools...</div>`;
 
-    const token = localStorage.getItem('thinkdome_token');
+    const token = localStorage.getItem('thinkdome_token') || "";
     try {
-        if (!window.API || !token) throw new Error("Offline");
+        if (!window.API) return;
         const { data, error } = await window.API.getTools(token);
         if (error) throw new Error(error);
 
         if (data && Array.isArray(data)) {
+            if (!window.state) window.state = typeof state !== 'undefined' ? state : {};
+            window.state.allMcpTools = data;
             let html = "";
             data.forEach(t => {
                 const statusDot = t.is_active 
@@ -961,10 +963,11 @@ async function renderIdeMcpTools() {
 }
 
 function loadMcpPresetInIde(toolName) {
-    const sb = state.sandboxes[state.activeSbx];
-    const sbxId = sb ? sb.id : '';
+    const activeSbxState = (window.state || (typeof state !== 'undefined' ? state : null));
+    const sb = activeSbxState && activeSbxState.sandboxes && activeSbxState.activeSbx ? activeSbxState.sandboxes[activeSbxState.activeSbx] : null;
+    const sbxId = sb ? sb.id : (localStorage.getItem('thinkdome_sandbox_id') || '');
     
-    const templates = {
+    const staticTemplates = {
         run_code: { sandbox: sbxId, language: "python", code: "print('Hello from MCP')" },
         read_file: { sandbox: sbxId, path: "README.md" },
         write_file: { sandbox: sbxId, path: "new_file.txt", content: "File content here" },
@@ -991,7 +994,27 @@ function loadMcpPresetInIde(toolName) {
         send_telegram: { sandbox: sbxId, chat_id: "123456", message: "Hello World" }
     };
     
-    const input = templates[toolName] || { sandbox: sbxId };
+    let input = staticTemplates[toolName];
+    if (!input) {
+        input = { sandbox: sbxId };
+        const allTools = (window.state && window.state.allMcpTools) || (typeof state !== 'undefined' && state.allMcpTools) || [];
+        const toolObj = allTools.find(t => t.name === toolName);
+        if (toolObj && toolObj.input_schema && toolObj.input_schema.properties) {
+            Object.keys(toolObj.input_schema.properties).forEach(prop => {
+                if (prop === "sandbox") {
+                    input[prop] = sbxId;
+                } else {
+                    const propType = toolObj.input_schema.properties[prop].type || "string";
+                    if (propType === "integer" || propType === "number") input[prop] = 0;
+                    else if (propType === "boolean") input[prop] = false;
+                    else if (propType === "array") input[prop] = [];
+                    else if (propType === "object") input[prop] = {};
+                    else input[prop] = `sample_${prop}`;
+                }
+            });
+        }
+    }
+    
     const payload = {
         type: "tool_use",
         id: "toolu_" + Math.random().toString(36).substring(2, 9),
@@ -1006,7 +1029,7 @@ function loadMcpPresetInIde(toolName) {
     
     const segButtons = document.querySelectorAll('#idePaneSelectorSeg button');
     if (segButtons.length >= 2) {
-        idePaneMode('tooluse', segButtons[1]); // Tool JSON is at index 1, Editor at 0, MCP Tools at 2
+        idePaneMode('tooluse', segButtons[1]);
     }
 }
 

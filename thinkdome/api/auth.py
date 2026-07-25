@@ -1,4 +1,4 @@
-﻿"""Authentication and session management router."""
+"""Authentication and session management router."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ router = APIRouter(tags=["auth"])
 class UserCredentials(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6, max_length=100)
+    role: Optional[str] = Field(default="AGENT_STANDARD")
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -30,6 +31,7 @@ async def register(
     success = auth_svc.register(
         credentials.username, 
         credentials.password,
+        role=credentials.role or "AGENT_STANDARD",
         actor_ip=request.client.host if request.client else "unknown"
     )
     if not success:

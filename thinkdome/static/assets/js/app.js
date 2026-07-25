@@ -49,14 +49,69 @@ function renderAllViews() {
     if (typeof updateTerminalPromptPath === 'function') updateTerminalPromptPath();
     if (typeof renderProjectDropdown === 'function') renderProjectDropdown();
     if (typeof renderSbxDropdowns === 'function') renderSbxDropdowns();
+    if (typeof loadMcpTools === 'function') loadMcpTools();
+}
+
+/* =================== ROLE-BASED UI ADAPTATION ENGINE =================== */
+function applyRoleBasedUINavigation(role, username) {
+    const activeRole = (role || localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD').toUpperCase();
+    const activeUser = username || localStorage.getItem('thinkdome_username') || 'User';
+
+    // Update Profile Footer
+    const profileNameEl = document.querySelector('.profile-name');
+    const profileBadgeEl = document.querySelector('.profile-badge');
+    const profileAvatarEl = document.querySelector('.profile-avatar');
+
+    if (profileNameEl) profileNameEl.innerText = activeUser;
+    if (profileBadgeEl) profileBadgeEl.innerText = activeRole;
+    if (profileAvatarEl) profileAvatarEl.innerText = activeUser.substring(0, 2).toUpperCase();
+
+    // Show/Hide Nav Buttons according to Role Privileges
+    const isAdmin = activeRole.includes('ADMIN') || activeRole === 'SUPER_ADMIN';
+    const isAuditor = activeRole.includes('AUDIT');
+    const isFinance = activeRole.includes('FINANCE');
+
+    document.querySelectorAll('.nav-item').forEach(btn => {
+        const page = btn.dataset.page;
+        if (page === 'roles' || page === 'apikeys' || page === 'billing') {
+            btn.style.display = (isAdmin || isFinance) ? 'flex' : 'none';
+        } else if (page === 'audit') {
+            btn.style.display = (isAdmin || isAuditor) ? 'flex' : 'none';
+        } else {
+            btn.style.display = 'flex';
+        }
+    });
+}
+
+async function submitUserRoleAssignment() {
+    const userId = document.getElementById('rbacAssignUserId')?.value.trim();
+    const roleId = document.getElementById('rbacAssignRoleSelect')?.value;
+    const token = localStorage.getItem('thinkdome_token');
+
+    if (!userId || !roleId) {
+        alert("Please enter a User ID and select a Role.");
+        return;
+    }
+
+    if (window.API && typeof window.API.assignUserRole === 'function') {
+        const { data, error } = await window.API.assignUserRole(userId, roleId, token);
+        if (error) {
+            alert("Role assignment failed: " + error);
+        } else {
+            alert(`Successfully assigned role '${roleId}' to user '${userId}'!`);
+        }
+    }
 }
 
 /* =================== AUTO RUN LOAD ON READY =================== */
 window.addEventListener('DOMContentLoaded', () => {
-    // Only initialize workspace if the user is verified to be logged in and appView is present
     const appView = document.getElementById('appView');
     const isLoggedIn = localStorage.getItem('thinkdome_logged_in') === 'true';
     if (appView && isLoggedIn) {
+        const role = localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD';
+        const user = localStorage.getItem('thinkdome_username') || 'User';
+        applyRoleBasedUINavigation(role, user);
+
         if (typeof switchProject === 'function') {
             switchProject('demo');
         }

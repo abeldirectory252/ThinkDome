@@ -438,18 +438,26 @@ class DatabaseService:
         existing = self.get_sandbox(sandbox_id)
         if existing:
             self.execute(
-                "UPDATE sandboxes SET name=?, owner=?, memory_mb=?, cpu_cores=?, gpu_count=?, timeout_sec=?, network_enabled=?, cost_per_hour=?, backend_type=? WHERE sandbox_id=?",
+                "UPDATE sandboxes SET name=?, owner=?, status='active', memory_mb=?, cpu_cores=?, gpu_count=?, timeout_sec=?, network_enabled=?, cost_per_hour=?, backend_type=? WHERE sandbox_id=?",
                 (name, owner, memory_mb, cpu_cores, gpu_count, timeout_sec, bool(network_enabled), cost_per_hour, backend_type, sandbox_id)
             )
         else:
             self.execute(
-                "INSERT INTO sandboxes (sandbox_id, name, owner, memory_mb, cpu_cores, gpu_count, timeout_sec, network_enabled, cost_per_hour, backend_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO sandboxes (sandbox_id, name, owner, status, memory_mb, cpu_cores, gpu_count, timeout_sec, network_enabled, cost_per_hour, backend_type) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)",
                 (sandbox_id, name, owner, memory_mb, cpu_cores, gpu_count, timeout_sec, bool(network_enabled), cost_per_hour, backend_type)
             )
         return self.get_sandbox(sandbox_id)
 
     def get_sandbox(self, sandbox_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch a single sandbox by ID."""
+        """Fetch a single sandbox by ID using ThinkDome Sandbox ORM Model."""
+        from thinkdome.apps.sandbox.models import Sandbox
+        sb = Sandbox.query().filter(id=sandbox_id).first()
+        if not sb:
+            sb = Sandbox.query().filter(name=sandbox_id).first()
+        if sb:
+            d = sb.to_dict()
+            d["sandbox_id"] = d.get("id")
+            return d
         row = self.fetch_one("SELECT * FROM sandboxes WHERE sandbox_id = ?", (sandbox_id,))
         if row:
             row = dict(row)
@@ -457,7 +465,21 @@ class DatabaseService:
         return row
 
     def list_sandboxes(self, owner: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List active sandboxes."""
+        """List active sandboxes using ThinkDome Sandbox ORM Model."""
+        from thinkdome.apps.sandbox.models import Sandbox
+        if owner:
+            sbs = Sandbox.query().filter(owner=owner).all()
+        else:
+            sbs = Sandbox.query().all()
+
+        if sbs:
+            results = []
+            for sb in sbs:
+                d = sb.to_dict()
+                d["sandbox_id"] = d.get("id")
+                results.append(d)
+            return results
+
         if owner:
             rows = self.fetch_all("SELECT * FROM sandboxes WHERE owner = ? ORDER BY created_at DESC", (owner,))
         else:

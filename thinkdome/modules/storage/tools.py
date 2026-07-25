@@ -3,24 +3,11 @@ import json
 from pathlib import Path
 from typing import Any
 from thinkdome.core.tools import BaseTool, register_tool, get_context
+from thinkdome.core.path_utils import resolve_safe_path
 from thinkdome.modules.orchestrator.orchestrator_models import (
     ReadFileInput, WriteFileInput, ListDirInput, FileExistsInput, MakeDirInput,
     RemoveFileInput, RemoveDirInput, MoveFileInput, CopyFileInput
 )
-
-def resolve_safe_path(path_str: str, workspace_root: Path) -> Path:
-    """Resolve path and ensure it remains within the workspace directory."""
-    cleaned = path_str.lstrip("/\\")
-    if ":" in cleaned:
-        cleaned = cleaned.split(":", 1)[1].lstrip("/\\")
-    
-    target_path = Path(os.path.abspath(workspace_root / cleaned)).resolve()
-    resolved_root = workspace_root.resolve()
-    try:
-        target_path.relative_to(resolved_root)
-    except ValueError:
-        raise PermissionError(f"Access denied: path '{path_str}' escapes workspace boundaries.")
-    return target_path
 
 
 @register_tool

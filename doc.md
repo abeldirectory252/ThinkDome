@@ -121,7 +121,9 @@ Acts as a lightweight orchestrator:
 
 ---
 
-## MCP Server integration
+## MCP Server Integration
+
+### Local Claude Desktop Config (Stdio)
 
 Start the stdio-based MCP server using the CLI:
 
@@ -129,7 +131,7 @@ Start the stdio-based MCP server using the CLI:
 python think mcp --site personal
 ```
 
-Configure Claude Desktop:
+Configure local Claude Desktop (in `claude_desktop_config.json`):
 
 ```json
 {
@@ -146,3 +148,50 @@ Configure Claude Desktop:
   }
 }
 ```
+
+---
+
+### Remote Claude Desktop Config (Access from another machine)
+
+To connect from another Claude machine to this host (`192.168.150.91`), you can use one of the two options below:
+
+#### Option A: SSH Tunneling (Secure & Stdio)
+
+Run standard stdio protocol over a secure SSH connection. Ensure the remote machine has passwordless SSH login configured to your machine (using `ssh-copy-id` or adding public keys to `~/.ssh/authorized_keys`).
+
+Configure Claude Desktop on the remote machine:
+
+```json
+{
+  "mcpServers": {
+    "thinkdome-remote-ssh": {
+      "command": "ssh",
+      "args": [
+        "sandbox@192.168.150.91",
+        "/home/sandbox/ThinkDome/venv/bin/python /home/sandbox/ThinkDome/think mcp --site personal"
+      ]
+    }
+  }
+}
+```
+
+#### Option B: Server-Sent Events (HTTP / SSE)
+
+Expose the MCP server via HTTP/SSE. 
+
+1. Start the ThinkDome server on your host (`192.168.150.91`) binding to all network interfaces:
+   ```bash
+   python think serve --host 0.0.0.0 --port 8000
+   ```
+
+2. Configure Claude Desktop on the remote machine to connect to the SSE endpoint:
+   ```json
+   {
+     "mcpServers": {
+       "thinkdome-remote-sse": {
+         "url": "http://192.168.150.91:8000/mcp/sse"
+       }
+     }
+   }
+   ```
+

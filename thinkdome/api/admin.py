@@ -114,24 +114,23 @@ async def get_audits(
     _admin: dict = Depends(get_current_admin)
 ):
     """Retrieve system audit trails."""
-    return auth_svc.db_service.fetch_all(
-        "SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?", (limit,)
-    )
+    from thinkdome.models.rbac_models import RbacAuditLog
+    logs = RbacAuditLog.query().limit(limit).all()
+    return [l.to_dict() for l in logs]
 
 @router.get("/audits/{audit_id}")
 async def get_audit_detail(
-    audit_id: int,
+    audit_id: str,
     auth_svc: AuthService = Depends(get_auth_service),
     _admin: dict = Depends(get_current_admin)
 ):
     """Retrieve a single audit log entry with parsed details."""
     import json as _json
-    row = auth_svc.db_service.fetch_one(
-        "SELECT * FROM audit_logs WHERE id = ?", (audit_id,)
-    )
-    if not row:
+    from thinkdome.models.rbac_models import RbacAuditLog
+    log_model = RbacAuditLog.get(audit_id)
+    if not log_model:
         raise HTTPException(status_code=404, detail="Audit log entry not found.")
-    entry = dict(row)
+    entry = log_model.to_dict()
     # Parse details JSON string into object
     try:
         entry["details"] = _json.loads(entry["details"]) if isinstance(entry["details"], str) else entry["details"]
@@ -225,7 +224,9 @@ async def list_sandboxes(
     user: dict = Depends(get_current_user)
 ):
     """List sandboxes. Admins see all; users see their own."""
-    owner = None if user.get("role") == "ADMIN" else user.get("username")
+    from thinkdome.core.security import UserIdentity
+    identity = UserIdentity.from_dict(user)
+    owner = None if identity.is_admin() else identity.username
     return auth_svc.db_service.list_sandboxes(owner=owner)
 
 @router.post("/sandboxes", status_code=201)

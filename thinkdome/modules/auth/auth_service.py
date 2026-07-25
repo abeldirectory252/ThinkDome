@@ -112,7 +112,7 @@ class AuthService:
     def _hash_password(self, password: str, salt: str) -> str:
         return hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
 
-    def register(self, username: str, password: str, actor_ip: str = "system") -> bool:
+    def register(self, username: str, password: str, role: str = "AGENT_STANDARD", actor_ip: str = "system") -> bool:
         """Register a new user in the SQLite database and log the audit trail."""
         username = username.strip().lower()
         if not username or not password:
@@ -135,14 +135,34 @@ class AuthService:
                 (username, hashed_password, salt, created_at)
             )
             
+            # Sync with RBAC UserRepository & UserRole if available
+            try:
+                from thinkdome.services.rbac_services import UserService
+                from thinkdome.repositories.role_repository import RoleRepository
+                user_svc = UserService()
+                user = user_svc.user_repo.find_by_username(username)
+                if not user:
+                    user = user_svc.create_user(
+                        username=username,
+                        email=f"{username}@enterprise.com",
+                        password=password,
+                        actor=username
+                    )
+                role_repo = RoleRepository()
+                target_role = role_repo.find_by_name(role)
+                if target_role and user:
+                    user_svc.assign_role_to_user(user.id, target_role.id, actor=username)
+            except Exception as re:
+                logger.warning(f"RBAC user sync note for '{username}': {re}")
+
             # Log audit trail
             self.db_service.log_audit(
                 actor=username,
                 action="register",
                 ip_address=actor_ip,
-                details={"username": username, "status": "success"}
+                details={"username": username, "role": role, "status": "success"}
             )
-            logger.info(f"User registered in DB: {username}")
+            logger.info(f"User registered in DB: {username} with role {role}")
             return True
         except Exception as e:
             logger.error(f"DB registration error for user {username}: {e}")
@@ -292,8 +312,9 @@ class AuthService:
         display_name = display_name.strip()[:50] or "Unnamed API Key"
         
         token_type = token_type.upper()
-        # Map ADMIN to ORCH for backwards compatibility with tests
-        if token_type == "ADMIN":
+        # Map legacy ADMIN token string to ORCH orchestrator token type using framework security constant
+        from thinkdome.core.security import ROLE_ADMIN, Role
+        if token_type == ROLE_ADMIN or token_type == Role.SUPER_ADMIN.value:
             token_type = "ORCH"
             
         allowed_types = {"LLM", "WEB", "SDK", "CURL", "ORCH", "IDE"}

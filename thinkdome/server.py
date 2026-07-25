@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import thinkdome.core.tools  # Trigger tool imports and class-based tool registration
 from thinkdome.core.config import get_settings
 from thinkdome.core.logging import setup_logging
 from thinkdome.api.health import router as health_router
@@ -206,9 +207,27 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from thinkdome.api.rbac.auth_router import router as rbac_auth_router
+    from thinkdome.api.rbac.users_router import router as rbac_users_router
+    from thinkdome.api.rbac.roles_router import router as rbac_roles_router
+    from thinkdome.api.rbac.permissions_router import router as rbac_permissions_router
+    from thinkdome.api.rbac.audit_router import router as rbac_audit_router
+    from thinkdome.database.rbac_schema import initialize_rbac_schema
+
+    try:
+        initialize_rbac_schema(app.state.db_service)
+    except Exception as ie:
+        import logging
+        logging.getLogger(__name__).warning(f"RBAC Schema init note: {ie}")
+
     # Register routers
     app.include_router(health_router)
     app.include_router(auth_router, prefix="/v1")
+    app.include_router(rbac_auth_router)
+    app.include_router(rbac_users_router)
+    app.include_router(rbac_roles_router)
+    app.include_router(rbac_permissions_router)
+    app.include_router(rbac_audit_router)
     app.include_router(orchestrator_router, prefix="/v1")
     app.include_router(execute_router, prefix="/v1")
     app.include_router(files_router, prefix="/v1")
@@ -243,5 +262,50 @@ def create_app() -> FastAPI:
         from fastapi.responses import JSONResponse
         from thinkdome.modules.orchestrator.orchestrator_models import ToolUseRequest
         return JSONResponse(content=ToolUseRequest.model_json_schema())
+
+    # ── MCP SSE Transport Endpoints ──────────────────────────────────────────────
+    from fastapi import Request
+    from mcp.server.sse import SseServerTransport
+    from thinkdome.mcp import get_mcp_server
+
+    sse = SseServerTransport("/mcp/messages")
+
+    @app.get("/mcp/sse")
+    async def handle_sse(request: Request):
+        """Establish SSE stream connection for MCP with authentication propagation."""
+        from thinkdome.core.kernel.kernel import Kernel
+        kernel = Kernel.current()
+        db_service = request.app.state.db_service
+        orchestrator = request.app.state.orchestrator_service
+
+        from thinkdome.core.security import ROLE_ADMIN, UserIdentity
+
+        client_ip = request.client.host if request.client else "127.0.0.1"
+        caller_role = request.headers.get("X-User-Role", ROLE_ADMIN)
+        username = request.headers.get("X-Username", "anonymous")
+        tenant_id = request.headers.get("X-Tenant-Id", kernel.site_name)
+
+        identity = UserIdentity.from_dict({
+            "username": username,
+            "role": caller_role,
+            "tenant_id": tenant_id,
+        })
+
+        mcp_server = get_mcp_server(
+            kernel.site_name,
+            db_service,
+            orchestrator,
+            client_ip=client_ip,
+            identity=identity,
+        )
+
+        async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+            await mcp_server.run(
+                read_stream,
+                write_stream,
+                mcp_server.create_initialization_options(),
+            )
+
+    app.mount("/mcp/messages", sse.handle_post_message)
 
     return app

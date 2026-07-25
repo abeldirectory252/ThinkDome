@@ -5,11 +5,11 @@ import hashlib
 from pathlib import Path
 from typing import Any
 from thinkdome.core.tools import BaseTool, register_tool, get_context
+from thinkdome.core.path_utils import resolve_safe_path
 from thinkdome.modules.search.search_models import SearchRequest
 from thinkdome.modules.orchestrator.orchestrator_models import (
     WebSearchInput, GrepSearchInput, FindFilesInput, GetFileInfoInput, HashFileInput
 )
-from thinkdome.modules.storage.tools import resolve_safe_path
 
 @register_tool
 class WebSearchTool(BaseTool):

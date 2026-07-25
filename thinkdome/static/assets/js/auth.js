@@ -7,14 +7,17 @@ function setAuthTab(mode) {
     authMode = mode;
     const loginTab = document.getElementById('tabLogin');
     const registerTab = document.getElementById('tabRegister');
+    const roleField = document.getElementById('roleField');
+
     if (loginTab) loginTab.classList.toggle('active', mode === 'login');
     if (registerTab) registerTab.classList.toggle('active', mode === 'register');
+    if (roleField) roleField.style.display = mode === 'register' ? 'block' : 'none';
 
     const btn = document.querySelector('.submit-btn');
     if (btn) {
         if (mode === 'register') {
             btn.innerHTML = `
-              Register Admin
+              Create Account
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M5 12h14" />
                 <path d="m12 5 7 7-7 7" />
@@ -38,10 +41,12 @@ async function enterApp(e) {
 
     const usernameInput = document.getElementById('username');
     const passwordInput = document.getElementById('password');
+    const roleInput = document.getElementById('userRole');
     if (!usernameInput || !passwordInput) return;
 
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
+    const selectedRole = roleInput ? roleInput.value : 'AGENT_STANDARD';
 
     if (!username || !password) {
         if (typeof showCustomAlert === 'function') {
@@ -65,14 +70,15 @@ async function enterApp(e) {
         }
 
         if (authMode === 'register') {
-            const { data, error } = await window.API.register(username, password);
+            const { data, error } = await window.API.register(username, password, selectedRole);
             if (error) {
                 throw new Error(error);
             }
+            localStorage.setItem('thinkdome_user_role', selectedRole);
             if (typeof showCustomAlert === 'function') {
-                await showCustomAlert("Registration Success", "Account generated successfully! You can now log in.");
+                await showCustomAlert("Registration Success", `Account registered with role '${selectedRole}'! You can now log in.`);
             } else {
-                alert("Account generated successfully! You can now log in.");
+                alert(`Account registered with role '${selectedRole}'! You can now log in.`);
             }
             setAuthTab('login');
         } else {
@@ -83,9 +89,17 @@ async function enterApp(e) {
             
             // Set logged in session flags in local storage
             localStorage.setItem('thinkdome_logged_in', 'true');
+            const assignedRole = (data && data.user && data.user.role) || (data && data.role) || (username.toLowerCase().includes('admin') ? 'SUPER_ADMIN' : 'AGENT_STANDARD');
+            localStorage.setItem('thinkdome_user_role', assignedRole);
+
             if (data && data.access_token) {
                 localStorage.setItem('thinkdome_token', data.access_token);
                 localStorage.setItem('thinkdome_username', data.username || username);
+            }
+
+            // Adapt navigation UI based on logged-in role
+            if (typeof applyRoleBasedUINavigation === 'function') {
+                applyRoleBasedUINavigation(assignedRole, username);
             }
 
             const loginView = document.getElementById('loginView');

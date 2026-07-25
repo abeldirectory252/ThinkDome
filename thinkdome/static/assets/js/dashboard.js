@@ -87,22 +87,11 @@ async function refreshDash(btn) {
 async function fetchDashboardData() {
     const token = localStorage.getItem('thinkdome_token');
 
-    // Show loading skeletons
-    showStatsSkeletons();
-    
-    const execBody = document.getElementById('execBody');
-    const auditBody = document.getElementById('auditBody');
-    const auditFullBody = document.getElementById('auditFullBody');
-
-    if (execBody) execBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--fg-subtle)">Loading executions...</td></tr>';
-    if (auditBody) auditBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--fg-subtle)">Loading audits...</td></tr>';
-    if (auditFullBody) auditFullBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--fg-subtle)">Loading audit trail...</td></tr>';
+    if (!window.API || !token) {
+        return;
+    }
 
     try {
-        if (!window.API || !token) {
-            throw new Error("Offline or Unauthorized");
-        }
-
         // Fetch concurrently
         const [sandboxesRes, keysRes, logsRes, auditRes] = await Promise.all([
             window.API.getSandboxes(token),
@@ -493,6 +482,9 @@ async function renderBillingReport() {
     const tbody = document.getElementById('billingSandboxTable');
     if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--fg-subtle)">Loading sandbox run costs...</td></tr>';
 
+    const token = localStorage.getItem('thinkdome_token');
+    if (!token) return;
+
     try {
         if (!window.API || typeof window.API.getBillingData !== 'function') {
             throw new Error("API unavailable");
@@ -768,35 +760,101 @@ async function revokeKey(keyId, index) {
 
 async function loadMcpTools() {
     const tbody = document.getElementById('mcpToolsTableBody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading tools from registry...</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading tools from registry...</td></tr>`;
 
-    const token = localStorage.getItem('thinkdome_token');
+    const token = localStorage.getItem('thinkdome_token') || "";
     try {
-        if (!window.API || !token) throw new Error("Offline");
+        if (!window.API) return;
         const { data, error } = await window.API.getTools(token);
         if (error) throw new Error(error);
 
         if (data && Array.isArray(data)) {
-            let html = "";
-            data.forEach(t => {
-                const statusBadge = t.is_active 
-                    ? `<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.1); color: rgb(16, 185, 129); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Active</span>`
-                    : `<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.1); color: rgb(239, 68, 68); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Inactive</span>`;
-                
-                html += `
-                    <tr>
-                        <td style="font-weight: 600; color: var(--text-heading); font-family: monospace;">${t.name}</td>
-                        <td><span style="background: var(--bg-surface); padding: 4px 8px; border-radius: 4px; font-size: 12px; border: 1px solid var(--border);">${t.app_name}</span></td>
-                        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${t.required_scope || 'None'}</td>
-                        <td>${statusBadge}</td>
-                        <td style="color: var(--text-muted); font-size: 13px;">${t.description}</td>
-                    </tr>
-                `;
-            });
-            tbody.innerHTML = html || `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">No tools found in registry.</td></tr>`;
+            if (!window.state) window.state = typeof state !== 'undefined' ? state : {};
+            window.state.allMcpTools = data;
+            renderMcpToolsTable(data);
         }
     } catch (err) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger); padding: 20px;">Failed to load tools: ${err.message}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 20px;">Failed to load tools: ${err.message}</td></tr>`;
+    }
+}
+
+function renderMcpToolsTable(tools) {
+    const tbody = document.getElementById('mcpToolsTableBody');
+    if (!tbody) return;
+
+    if (!tools || tools.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No tools found in registry.</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    tools.forEach(t => {
+        const statusBadge = t.is_active 
+            ? `<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.1); color: rgb(16, 185, 129); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Active</span>`
+            : `<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.1); color: rgb(239, 68, 68); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Inactive</span>`;
+        
+        html += `
+            <tr>
+                <td style="font-weight: 600; color: var(--text-heading); font-family: monospace;">${t.name}</td>
+                <td><span style="background: var(--bg-surface); padding: 4px 8px; border-radius: 4px; font-size: 12px; border: 1px solid var(--border);">${t.app_name}</span></td>
+                <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${t.required_scope || 'None'}</td>
+                <td>${statusBadge}</td>
+                <td style="color: var(--text-muted); font-size: 13px;">${t.description}</td>
+                <td>
+                    <button class="btn btn-ghost btn-sm" onclick="testMcpTool('${t.name}')" style="padding: 4px 10px; font-size: 12px;">Test Tool</button>
+                </td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+}
+
+function filterMcpToolsTable() {
+    const term = (document.getElementById('mcpSearchInput')?.value || '').toLowerCase();
+    const allTools = (window.state && window.state.allMcpTools) || (typeof state !== 'undefined' && state.allMcpTools) || [];
+    if (!term) {
+        renderMcpToolsTable(allTools);
+        return;
+    }
+    const filtered = allTools.filter(t => 
+        t.name.toLowerCase().includes(term) || 
+        t.description.toLowerCase().includes(term) ||
+        t.app_name.toLowerCase().includes(term)
+    );
+    renderMcpToolsTable(filtered);
+}
+
+async function testMcpTool(toolName) {
+    const token = localStorage.getItem('thinkdome_token');
+    const inputStr = prompt(`Execute test for tool '${toolName}'\n\nEnter JSON arguments (or leave blank for defaults):`, '{}');
+    if (inputStr === null) return;
+
+    let toolInput = {};
+    try {
+        toolInput = inputStr.trim() ? JSON.parse(inputStr) : {};
+    } catch {
+        alert("Invalid JSON format for tool arguments.");
+        return;
+    }
+
+    try {
+        const payload = {
+            type: "tool_use",
+            id: `toolu_test_${Date.now()}`,
+            name: toolName,
+            input: toolInput
+        };
+
+        if (window.API && typeof window.API.orchestrate === 'function') {
+            const res = await window.API.orchestrate(payload, token);
+            if (res.error) {
+                alert(`Tool execution failed:\n${res.error}`);
+            } else {
+                alert(`Tool '${toolName}' executed successfully!\n\nResult:\n${JSON.stringify(res.data, null, 2)}`);
+            }
+        }
+    } catch (e) {
+        alert(`Execution error: ${e.message}`);
     }
 }
 

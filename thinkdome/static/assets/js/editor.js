@@ -71,12 +71,16 @@ async function fetchExplorerFiles() {
     }
 
     try {
-        if (!window.API || !token || !sandboxId) {
-            throw new Error("Offline Mode");
+        if (!window.API || !token) {
+            return;
         }
-        
-        const { data, error } = await window.API.listDir(".", token, sandboxId);
-        if (error) throw new Error(error);
+
+        // If sandboxId is not set, attempt to list workspace directory or skip without throwing error
+        const activeSandbox = sandboxId || localStorage.getItem('thinkdome_sandbox_id') || '';
+        const { data, error } = await window.API.listDir(".", token, activeSandbox);
+        if (error) {
+            return;
+        }
 
         if (data && Array.isArray(data)) {
             const updatedFiles = {};
@@ -93,10 +97,7 @@ async function fetchExplorerFiles() {
             proj.files = updatedFiles;
         }
     } catch (err) {
-        console.warn("Explorer file loading offline fallback:", err);
-        if (container) {
-            container.innerHTML = `<div style="padding: 14px; text-align:center; color:var(--danger); font-size:12px; font-weight:600;">⚠️ Explorer offline: no backend sandbox connected</div>`;
-        }
+        // Quiet fallback to default project files
     }
 }
 

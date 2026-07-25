@@ -9,7 +9,7 @@ from __future__ import annotations
 import inspect
 import logging
 import contextvars
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Any, Optional, Dict, List
 
@@ -23,7 +23,7 @@ current_tool_context: contextvars.ContextVar[Optional[ToolContext]] = contextvar
 
 @dataclass
 class ToolContext:
-    """Carries the execution pipeline, active workspace path, and sandbox limits."""
+    """Carries the execution pipeline, active workspace path, sandbox limits, and enterprise identity."""
 
     username: str
     sandbox_id: Optional[str]
@@ -35,6 +35,26 @@ class ToolContext:
     sandbox_limits: Optional[dict] = None
     credential_vault: Any = None
     security_scanner: Any = None
+    services: Dict[str, Any] = field(default_factory=dict)
+    identity: Optional[Any] = None
+
+    def get_identity(self) -> Any:
+        """Retrieve strongly-typed UserIdentity, building dynamically if not set."""
+        if self.identity is not None:
+            return self.identity
+        from thinkdome.core.security import UserIdentity
+        return UserIdentity.from_dict({
+            "username": self.username,
+            "caller_role": self.caller_role,
+        })
+
+    def get_service(self, name: str) -> Optional[Any]:
+        """Retrieve a contextually bound service instance."""
+        return self.services.get(name)
+
+    def set_service(self, name: str, service: Any) -> None:
+        """Register a contextual service instance."""
+        self.services[name] = service
 
     async def execute_code(self, code: str, language: str = "python") -> dict:
         """Execute a code block inside the sandbox execution pipeline."""
@@ -92,12 +112,17 @@ class RegisteredTool:
         func: Callable,
         required_scope: Optional[str] = None,
         input_schema: Optional[Any] = None,
+        category: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ):
         self.name = name
         self.description = description
         self.func = func
         self.required_scope = required_scope or f"tool:{name}"
         self.app_name = self._determine_app(func)
+        self.category = category or "general"
+        self.tags = tags or []
+
         if input_schema is not None:
             if hasattr(input_schema, "model_json_schema"):
                 self.input_schema = input_schema.model_json_schema()
@@ -156,6 +181,7 @@ class RegisteredTool:
 
 
 from abc import ABC, abstractmethod
+from dataclasses import field
 from pydantic import BaseModel
 from typing import Type
 
@@ -165,6 +191,8 @@ class BaseTool(ABC):
     description: str
     required_scope: str
     input_schema: Optional[Type[BaseModel]] = None
+    category: Optional[str] = "general"
+    tags: Optional[list[str]] = None
 
     @abstractmethod
     async def execute(self, tool_input: dict[str, Any]) -> str:
@@ -184,6 +212,8 @@ class ToolRegistry:
         description: str,
         required_scope: Optional[str] = None,
         input_schema: Optional[dict] = None,
+        category: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> Callable:
         """Register a function as a dynamic tool."""
         def decorator(func: Callable) -> Callable:
@@ -193,6 +223,8 @@ class ToolRegistry:
                 func=func,
                 required_scope=required_scope,
                 input_schema=input_schema,
+                category=category,
+                tags=tags,
             )
             self._tools[name] = tool
             return func
@@ -206,6 +238,8 @@ class ToolRegistry:
             func=tool.execute,
             required_scope=tool.required_scope,
             input_schema=tool.input_schema,
+            category=getattr(tool, "category", "general"),
+            tags=getattr(tool, "tags", []),
         )
         self._tools[tool.name] = registered
 
@@ -217,8 +251,13 @@ class ToolRegistry:
         """Retrieve all tools currently loaded in the registry."""
         return list(self._tools.values())
 
-    def get_active_tools(self, site_name: str = "personal") -> list[RegisteredTool]:
-        """Filter registered tools to return only those belonging to core or active apps."""
+    def get_active_tools(
+        self,
+        site_name: str = "personal",
+        category: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> list[RegisteredTool]:
+        """Filter registered tools to return only those belonging to active apps, with optional category/search filters."""
         from thinkdome.core.kernel.kernel import Kernel
 
         # Safely fetch active apps from the kernel config context
@@ -229,13 +268,24 @@ class ToolRegistry:
             active_apps = set(kernel.get_installed_apps())
         except Exception as e:
             logger.warning(f"Failed to fetch active apps from kernel: {e}. Returning all core tools.")
-            # Fallback: return all core tools (safe default)
-            return [t for t in self._tools.values() if t.app_name == "core"]
+            active_apps = set()
 
         active_tools = []
         for tool in self._tools.values():
-            if tool.app_name == "core" or tool.app_name in active_apps:
-                active_tools.append(tool)
+            if active_apps and tool.app_name != "core" and tool.app_name not in active_apps:
+                continue
+
+            # Category filter
+            if category and tool.category.lower() != category.lower():
+                continue
+
+            # Search term filter
+            if search:
+                term = search.lower()
+                if term not in tool.name.lower() and term not in tool.description.lower():
+                    continue
+
+            active_tools.append(tool)
         return active_tools
 
 

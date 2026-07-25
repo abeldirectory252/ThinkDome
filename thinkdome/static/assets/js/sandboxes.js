@@ -51,11 +51,11 @@ async function fetchSandboxesData() {
     if (grid) grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding: 24px; color:var(--fg-subtle);">Loading sandbox nodes...</div>';
     if (container) container.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--fg-subtle)">Loading registry list...</td></tr>';
 
-    try {
-        if (!window.API || !token) {
-            throw new Error("Offline or Unauthorized");
-        }
+    if (!window.API || !token) {
+        return;
+    }
 
+    try {
         const { data, error } = await window.API.getSandboxes(token);
         if (error) throw new Error(error);
 

@@ -21,6 +21,8 @@ from thinkdome.modules.execution.execution_models import (
 from thinkdome.modules.execution.execution_utils import wrap_last_expression
 from thinkdome.modules.storage.storage_utils import decode_base64
 
+from thinkdome.core.security import UserIdentity
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,9 +98,9 @@ class ExecutionService:
             if content is not None:
                 files[f.path] = content
 
-        # Enforce limits
-        # Enforce limits: cap at MAX_EXEC_TIMEOUT_MS unless sandbox limits are active or role is ADMIN
-        if request.memory_limit_mb is not None or request.caller_role == "ADMIN":
+        # Enforce limits: cap at MAX_EXEC_TIMEOUT_MS unless sandbox limits are active or user is admin
+        is_admin_caller = UserIdentity.from_dict({"role": request.caller_role}).is_admin() if request.caller_role else False
+        if request.memory_limit_mb is not None or is_admin_caller:
             timeout_ms = request.timeout_ms
         else:
             timeout_ms = min(request.timeout_ms, self.settings.MAX_EXEC_TIMEOUT_MS)
@@ -184,7 +186,8 @@ class ExecutionService:
                 files[f.path] = content
 
         # Enforce limits
-        if request.memory_limit_mb is not None or request.caller_role == "ADMIN":
+        is_admin_caller = UserIdentity.from_dict({"role": request.caller_role}).is_admin() if request.caller_role else False
+        if request.memory_limit_mb is not None or is_admin_caller:
             timeout_ms = request.timeout_ms
         else:
             timeout_ms = min(request.timeout_ms, self.settings.MAX_EXEC_TIMEOUT_MS)

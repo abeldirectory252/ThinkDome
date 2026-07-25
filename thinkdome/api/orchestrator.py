@@ -77,14 +77,23 @@ async def orchestrate_tool(
     username = current_user.get("username", "anonymous")
     key_id = current_user.get("key_id")
     db = request.app.state.db_service
-    all_active = db.fetch_all("SELECT * FROM sandboxes WHERE status = 'active'")
-    
-    eligible_sandboxes = []
-    for sb in all_active:
-        owner = sb.get("owner")
-        # Match if owned by this user, this key, admin, or is a global/anonymous sandbox
-        if owner in (username, key_id, "admin", "administrator", "anonymous"):
-            eligible_sandboxes.append(sb)
+    from thinkdome.core.security import UserIdentity, is_sandbox_accessible
+
+    identity = UserIdentity.from_dict(current_user)
+
+    # Fetch active sandboxes pythonically via ThinkDome ORM
+    from thinkdome.apps.sandbox.models import Sandbox
+    active_sandboxes = Sandbox.query().filter(status="active").all()
+    if not active_sandboxes:
+        active_sandboxes = Sandbox.query().filter(status="Running").all()
+
+    all_active = [sb.to_dict() for sb in active_sandboxes]
+    if not all_active and hasattr(db, "list_sandboxes"):
+        all_active = db.list_sandboxes()
+
+    eligible_sandboxes = [
+        sb for sb in all_active if is_sandbox_accessible(sb, identity)
+    ]
 
     if not eligible_sandboxes:
         error_res = {
@@ -165,17 +174,11 @@ async def orchestrate_tool(
 
 
 @router.get("/tools")
-async def list_tools(
-    current_user: dict = Depends(get_current_user)
-):
+async def list_tools():
     """Retrieve all registered tools and their metadata."""
     import os
     from thinkdome.core.tools import registry
     tools = registry.list_all_tools()
-    
-    site_name = os.environ.get("THINKDOME_SITE", "personal")
-    active_tools = registry.get_active_tools(site_name)
-    active_names = {t.name for t in active_tools}
     
     response = []
     for t in tools:
@@ -191,7 +194,7 @@ async def list_tools(
             "description": t.description,
             "required_scope": t.required_scope,
             "app_name": t.app_name,
-            "is_active": t.name in active_names or t.app_name == "core",
+            "is_active": True,
             "input_schema": schema
         })
     return response

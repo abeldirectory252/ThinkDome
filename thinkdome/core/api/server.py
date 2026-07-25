@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # ── New Framework Imports ─────────────────────────────────────────────────────
+import thinkdome.core.tools  # Trigger tool imports and class-based tool registration
 from thinkdome.core.api.router import router as api_router
 from thinkdome.core.events.events import bus as event_bus
 from thinkdome.core.kernel.kernel import Kernel
@@ -104,6 +105,12 @@ async def serve_login():
 async def serve_schema():
     from thinkdome.modules.orchestrator.orchestrator_models import ToolUseRequest
     return JSONResponse(content=ToolUseRequest.model_json_schema())
+
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    from fastapi import Response
+    return Response(status_code=204)
 
 
 # ── WebSocket Broadcast Registry ──────────────────────────────────────────────
@@ -254,3 +261,32 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except WebSocketDisconnect:
         active_connections.discard(websocket)
         logger.info(f"WebSocket client {client_id} disconnected.")
+
+
+# ── MCP SSE Transport Endpoints ──────────────────────────────────────────────
+from mcp.server.sse import SseServerTransport
+from thinkdome.mcp import get_mcp_server
+
+# Initialize SSE Transport
+sse = SseServerTransport("/mcp/messages")
+
+@app.get("/mcp/sse")
+async def handle_sse(request: Request):
+    """Establish SSE stream connection for MCP."""
+    kernel = Kernel.current()
+    db_service = request.app.state.db_service
+    orchestrator = request.app.state.orchestrator_service
+
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    mcp_server = get_mcp_server(kernel.site_name, db_service, orchestrator, client_ip=client_ip)
+
+    async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+        await mcp_server.run(
+            read_stream,
+            write_stream,
+            mcp_server.create_initialization_options(),
+        )
+
+# Mount POST message endpoint
+app.mount("/mcp/messages", sse.handle_post_message)
+

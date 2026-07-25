@@ -33,6 +33,8 @@ const state = {
     auditEvents: []
 };
 
+window.state = state;
+
 // Preset configurations for original LLM Orchestration Console
 // Sandbox IDs are dynamically resolved from state.activeSbx at invocation time
 function getPresetsOrch() {

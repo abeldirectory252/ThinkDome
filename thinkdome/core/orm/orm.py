@@ -92,6 +92,14 @@ class UUIDField(Field):
         super().__init__(**kwargs)
 
 
+def _get_active_db():
+    from thinkdome.core.kernel.kernel import Kernel
+    kernel = Kernel.current()
+    if not kernel.initialized:
+        kernel.initialize()
+    return kernel.db
+
+
 # ── Query Builder ─────────────────────────────────────────────────────────────
 
 class Query:
@@ -120,8 +128,7 @@ class Query:
 
     def all(self) -> List[Model]:
         """Fetch all records matching filters."""
-        from thinkdome.core.kernel.kernel import Kernel
-        kernel = Kernel.current()
+        db = _get_active_db()
         
         table = self.model_class._table
         stmt = select(table)
@@ -139,7 +146,7 @@ class Query:
         if self._offset is not None:
             stmt = stmt.offset(self._offset)
 
-        results = kernel.db.execute(stmt).all()
+        results = db.execute(stmt).all()
         models = []
         for row in results:
             # Map row mappings back to model values
@@ -252,8 +259,7 @@ class Model(metaclass=ModelMetaclass):
 
     def save(self) -> None:
         """Persist current model state (inserts or updates record in DB)."""
-        from thinkdome.core.kernel.kernel import Kernel
-        kernel = Kernel.current()
+        db = _get_active_db()
 
         # Run before_validate and after_validate hooks
         self._run_hook("before_validate")
@@ -265,21 +271,20 @@ class Model(metaclass=ModelMetaclass):
         if not self._loaded:
             self._run_hook("before_create")
             stmt = insert(table).values(**self._values)
-            kernel.db.execute(stmt)
-            kernel.db.commit()
+            db.execute(stmt)
+            db.commit()
             self._loaded = True
             self._run_hook("after_create")
         else:
             self._run_hook("before_update")
             stmt = update(table).where(table.c.id == self.id).values(**self._values)
-            kernel.db.execute(stmt)
-            kernel.db.commit()
+            db.execute(stmt)
+            db.commit()
             self._run_hook("after_update")
 
     def delete(self, soft: bool = True) -> None:
         """Remove record from database. Performs soft-deletion by default."""
-        from thinkdome.core.kernel.kernel import Kernel
-        kernel = Kernel.current()
+        db = _get_active_db()
 
         self._run_hook("before_delete")
         table = self._table
@@ -287,12 +292,12 @@ class Model(metaclass=ModelMetaclass):
         if soft:
             self._values["is_deleted"] = True
             stmt = update(table).where(table.c.id == self.id).values(is_deleted=True)
-            kernel.db.execute(stmt)
+            db.execute(stmt)
         else:
             stmt = delete(table).where(table.c.id == self.id)
-            kernel.db.execute(stmt)
+            db.execute(stmt)
 
-        kernel.db.commit()
+        db.commit()
         self._run_hook("after_delete")
 
     def validate(self) -> None:

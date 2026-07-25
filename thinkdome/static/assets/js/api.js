@@ -81,14 +81,41 @@ export async function login(username, password) {
 }
 
 /**
- * Register a new user account.
+ * Register a new user account with an assigned enterprise role.
  * @returns {Promise<{ data: any, error }>}
  */
-export async function register(username, password) {
+export async function register(username, password, role = "AGENT_STANDARD") {
     return apiFetch("/v1/auth/register", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, role }),
     });
+}
+
+/**
+ * Fetch dynamic roles catalog.
+ */
+export async function getRoles(token) {
+    return apiFetch("/v1/roles", { method: "GET" }, token);
+}
+
+/**
+ * Dynamically create a new role.
+ */
+export async function createRole(roleData, token) {
+    return apiFetch("/v1/roles", {
+        method: "POST",
+        body: JSON.stringify(roleData),
+    }, token);
+}
+
+/**
+ * Assign role to user.
+ */
+export async function assignUserRole(userId, roleId, token) {
+    return apiFetch(`/v1/users/${userId}/roles`, {
+        method: "POST",
+        body: JSON.stringify({ role_id: roleId }),
+    }, token);
 }
 
 /**

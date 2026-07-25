@@ -145,6 +145,14 @@
             Dashboard
           </button>
 
+          <button class="nav-item" data-page="roles" onclick="navTo('roles')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            Roles &amp; RBAC
+          </button>
+
           <button class="nav-item" data-page="audit" onclick="navTo('audit')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
               stroke-linejoin="round">
@@ -570,6 +578,65 @@
           </div>
         </section>
 
+        <!-- ROLES & RBAC MANAGEMENT VIEW -->
+        <section class="page hidden" id="page-roles">
+          <div class="page-title-wrap">
+            <div>
+              <h2 class="page-title">Enterprise Dynamic Roles &amp; Permissions</h2>
+              <p class="page-sub">Manage role hierarchies, dynamic permissions, and user role assignments with instant zero-downtime cache invalidation.</p>
+            </div>
+          </div>
+
+          <!-- Dynamic Role Catalog Grid -->
+          <div class="grid-3" id="rbacRolesContainer">
+            <div class="card">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span class="badge badge-success">SUPER_ADMIN</span>
+                <small style="color:var(--text-subtle)">System Built-in</small>
+              </div>
+              <h3 style="margin:0 0 6px 0; font-size:16px;">Super Administrator</h3>
+              <p style="font-size:13px; color:var(--text-subtle); margin-bottom:12px;">Unrestricted wildcard (*) permissions across all system modules, tools, and sandboxes.</p>
+              <div style="font-size:12px; font-family:var(--font-mono); color:var(--accent);">Scope: * (Full Access)</div>
+            </div>
+
+            <div class="card">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span class="badge badge-info">FINANCE_MANAGER</span>
+                <small style="color:var(--text-subtle)">Finance Scope</small>
+              </div>
+              <h3 style="margin:0 0 6px 0; font-size:16px;">Finance Manager</h3>
+              <p style="font-size:13px; color:var(--text-subtle); margin-bottom:12px;">Chart of accounts, general ledger posting, invoicing, and budget management.</p>
+              <div style="font-size:12px; font-family:var(--font-mono); color:var(--accent);">Scope: erp:finance:*</div>
+            </div>
+
+            <div class="card">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span class="badge badge-warning">AUDITOR</span>
+                <small style="color:var(--text-subtle)">Compliance Scope</small>
+              </div>
+              <h3 style="margin:0 0 6px 0; font-size:16px;">Compliance Auditor</h3>
+              <p style="font-size:13px; color:var(--text-subtle); margin-bottom:12px;">Read-only inspection of audit logs, compliance sampling, and SOD rules.</p>
+              <div style="font-size:12px; font-family:var(--font-mono); color:var(--accent);">Scope: erp:audit:read</div>
+            </div>
+          </div>
+
+          <!-- User Role Assignment Panel -->
+          <h3 class="panel-title" style="margin-top:24px;">Assign Role to User Account</h3>
+          <div class="card" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+            <input id="rbacAssignUserId" type="text" placeholder="User ID or Username" style="flex:1; min-width:200px; padding:10px; background:var(--bg-card); color:var(--text-primary); border:1px solid var(--border); border-radius:6px;" />
+            <select id="rbacAssignRoleSelect" style="flex:1; min-width:200px; padding:10px; background:var(--bg-card); color:var(--text-primary); border:1px solid var(--border); border-radius:6px;">
+              <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+              <option value="ENTERPRISE_ADMIN">ENTERPRISE_ADMIN</option>
+              <option value="FINANCE_MANAGER">FINANCE_MANAGER</option>
+              <option value="AUDITOR">AUDITOR</option>
+              <option value="SALES_USER">SALES_USER</option>
+              <option value="AGENT_STANDARD">AGENT_STANDARD</option>
+              <option value="LLM">LLM</option>
+            </select>
+            <button class="btn btn-primary" onclick="submitUserRoleAssignment()">Assign Role</button>
+          </div>
+        </section>
+
         <!-- 4. API KEYS VIEW -->
         <section class="page hidden" id="page-apikeys">
           <div class="page-head">
@@ -704,31 +771,37 @@
           </div>
 
           <!-- Bottom Panel: Dynamic Tools Table -->
-          <div class="card" style="margin-top: 20px;">
-            <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="card" style="margin-top: 20px; overflow-x: auto;">
+            <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; min-width: 600px;">
               <div>
                 <h3>Dynamic Registered Tools</h3>
                 <p style="font-size: 13px; color: var(--text-muted);">List of tools automatically exposed through the MCP registry</p>
               </div>
-              <button class="btn btn-primary" onclick="loadMcpTools()">Refresh Tools</button>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="mcpSearchInput" placeholder="Filter tools..." oninput="filterMcpToolsTable()" style="padding: 6px 12px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none;" />
+                <button class="btn btn-primary" onclick="loadMcpTools()">Refresh Tools</button>
+              </div>
             </div>
 
-            <table class="table" style="margin-top: 15px;">
-              <thead>
-                <tr>
-                  <th>Tool Name</th>
-                  <th>Domain / App</th>
-                  <th>Required Scope</th>
-                  <th>Status</th>
-                  <th>Description</th>
-                </tr>
-              </thead>
-              <tbody id="mcpToolsTableBody">
-                <tr>
-                  <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading tools from registry...</td>
-                </tr>
-              </tbody>
-            </table>
+            <div style="overflow-x: auto; width: 100%;">
+              <table class="table" style="margin-top: 15px; min-width: 850px; width: 100%;">
+                <thead>
+                  <tr>
+                    <th>Tool Name</th>
+                    <th>Domain / App</th>
+                    <th>Required Scope</th>
+                    <th>Status</th>
+                    <th>Description</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="mcpToolsTableBody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading tools from registry...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -1352,17 +1425,17 @@
 
 
   <script type="module">
-    import * as API from './assets/js/api.js';
+    import * as API from './assets/js/api.js?v=5';
     window.API = API;
   </script>
-  <script src="assets/js/plugin.js"></script>
-  <script src="assets/js/state.js"></script>
-  <script src="assets/js/auth.js"></script>
-  <script src="assets/js/dashboard.js"></script>
-  <script src="assets/js/sandboxes.js"></script>
-  <script src="assets/js/editor.js"></script>
-  <script src="assets/js/terminal.js"></script>
-  <script src="assets/js/app.js"></script>
+  <script src="assets/js/plugin.js?v=5"></script>
+  <script src="assets/js/state.js?v=5"></script>
+  <script src="assets/js/auth.js?v=5"></script>
+  <script src="assets/js/dashboard.js?v=5"></script>
+  <script src="assets/js/sandboxes.js?v=5"></script>
+  <script src="assets/js/editor.js?v=5"></script>
+  <script src="assets/js/terminal.js?v=5"></script>
+  <script src="assets/js/app.js?v=5"></script>
 </body>
 
 </html>
