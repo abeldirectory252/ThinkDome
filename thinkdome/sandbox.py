@@ -77,16 +77,27 @@ class Sandbox:
         network_allowed: bool = False,
         backend: str = "auto",
         workspace: Optional[str] = None,
+        sandbox_id: Optional[str] = None,
     ) -> None:
+        import uuid
         self.language = language
         self.timeout = timeout
         self.memory_limit = memory_limit
         self.network_allowed = network_allowed
         self.backend = backend
+        self.sandbox_id = sandbox_id or f"sb_{uuid.uuid4().hex[:8]}"
         self._workspace = workspace
         self._temp_dir: Optional[tempfile.TemporaryDirectory] = None
         self._executor = None
         self._initialized = False
+        self._snapshot_service = None
+
+    @property
+    def snapshot_service(self):
+        if self._snapshot_service is None:
+            from thinkdome.snapshots.service import SnapshotService
+            self._snapshot_service = SnapshotService()
+        return self._snapshot_service
 
     @property
     def workspace(self) -> Path:
@@ -139,19 +150,37 @@ class Sandbox:
         self._initialized = False
 
     def _resolve_backend(self) -> None:
-        """Resolve the backend to use ('docker' or 'subprocess')."""
+        """Resolve the backend to use ('microvm', 'docker', or 'subprocess').
+
+        Auto-detection priority:
+          1. MicroVM — requires /dev/kvm + cloud-hypervisor binary
+          2. Docker  — requires Docker daemon accessible
+          3. subprocess — always available (least isolation)
+        """
         if self.backend == "auto":
+            # 1. Try MicroVM (hardware-isolated)
+            import shutil
+            if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.R_OK | os.W_OK) and shutil.which("cloud-hypervisor"):
+                self.backend = "microvm"
+                logger.info("ThinkDome: Using MicroVM executor backend (KVM + Cloud Hypervisor).")
+                return
+
+            # 2. Try Docker (container-isolated)
             try:
                 import docker
                 client = docker.from_env()
                 client.ping()
                 self.backend = "docker"
                 logger.info("ThinkDome: Using Docker executor backend.")
+                return
             except Exception:
-                self.backend = "subprocess"
-                logger.info("ThinkDome: Docker unavailable, using subprocess backend.")
-        elif self.backend not in ("docker", "subprocess"):
-            raise ValueError(f"Unknown backend: {self.backend!r}. Use 'auto', 'docker', or 'subprocess'.")
+                pass
+
+            # 3. Fallback to subprocess (least isolation)
+            self.backend = "subprocess"
+            logger.info("ThinkDome: No MicroVM or Docker available, using subprocess backend.")
+        elif self.backend not in ("docker", "subprocess", "microvm", "hybrid", "kubernetes"):
+            raise ValueError(f"Unknown backend: {self.backend!r}. Use 'auto', 'microvm', 'docker', 'subprocess', 'hybrid', or 'kubernetes'.")
 
     async def _async_init_executor(self) -> None:
         """Initialize the executor asynchronously."""
@@ -336,3 +365,39 @@ class Sandbox:
         if not full_path.exists():
             return []
         return [str(p.relative_to(full_path)) for p in full_path.rglob("*") if p.is_file()]
+
+    # ── Snapshot & Backtrack SDK API ──
+
+    def snapshot(self, tag: Optional[str] = None, description: str = "") -> str:
+        """Create a point-in-time snapshot checkpoint of the sandbox state and workspace."""
+        if not self._initialized:
+            self._setup()
+        meta = self.snapshot_service.create_snapshot(
+            sandbox_id=self.sandbox_id,
+            tag=tag,
+            description=description,
+            workspace_path=str(self.workspace),
+        )
+        return meta["snapshot_id"]
+
+    def restore(self, snapshot_id: str) -> bool:
+        """Restore the sandbox state back to a specific snapshot checkpoint."""
+        res = self.snapshot_service.restore_snapshot(
+            sandbox_id=self.sandbox_id,
+            snapshot_id=snapshot_id,
+            workspace_path=str(self.workspace),
+        )
+        return res["success"]
+
+    def list_snapshots(self) -> List[dict]:
+        """List all snapshot checkpoints for this sandbox."""
+        return self.snapshot_service.list_snapshots(sandbox_id=self.sandbox_id)
+
+    def backtrack(self) -> bool:
+        """Backtrack the sandbox to its most recent snapshot checkpoint."""
+        res = self.snapshot_service.backtrack_to_last(
+            sandbox_id=self.sandbox_id,
+            workspace_path=str(self.workspace),
+        )
+        return res["success"]
+

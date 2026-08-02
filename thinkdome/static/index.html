@@ -213,6 +213,23 @@
             Sandbox Nodes
           </button>
 
+          <button class="nav-item" data-page="microvm" onclick="navTo('microvm')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+            </svg>
+            MicroVM Isolation
+          </button>
+
+          <button class="nav-item" data-page="snapshots" onclick="navTo('snapshots')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
+            </svg>
+            Agent Backtrack &amp; Snapshots
+          </button>
+
         </div>
 
         <!-- User profile section (matches requirements) -->
@@ -1278,6 +1295,123 @@
                 <!-- Dynamically populated -->
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <!-- 7. MICROVM ISOLATION VIEW -->
+        <section class="page hidden" id="page-microvm">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                </svg>
+              </span>
+              MicroVM Isolation Engine (Cloud-Hypervisor / Firecracker)
+            </div>
+            <button class="btn btn-primary" onclick="spawnMicroVMUI()">+ Spawn MicroVM</button>
+          </div>
+
+          <div class="stats" style="margin-bottom: 20px;">
+            <div class="stat">
+              <div class="sub">VMM Hypervisor</div>
+              <div class="val" style="font-size: 1.2rem; color: var(--accent);">Cloud-Hypervisor / KVM</div>
+            </div>
+            <div class="stat">
+              <div class="sub">Early Boot Init</div>
+              <div class="val" style="font-size: 1.2rem; color: #10b981;">Busybox Initramfs + OverlayFS</div>
+            </div>
+            <div class="stat">
+              <div class="sub">Active MicroVMs</div>
+              <div class="val" id="microvmCount">1 Running</div>
+            </div>
+            <div class="stat">
+              <div class="sub">Network Isolation</div>
+              <div class="val" style="font-size: 1.2rem; color: #3b82f6;">TAP Bridge (10.20.1.0/24)</div>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 0;">
+            <table class="table" id="microvmTable">
+              <thead>
+                <tr>
+                  <th>VM ID</th>
+                  <th>Name</th>
+                  <th>vCPUs / Memory</th>
+                  <th>IP Address</th>
+                  <th>TAP Interface</th>
+                  <th>Vsock Socket</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="microvmTableBody">
+                <tr>
+                  <td><code style="color:var(--accent);">mvm_8f2a10</code></td>
+                  <td><strong>agent-microvm-01</strong></td>
+                  <td>2 vCPUs / 512 MB</td>
+                  <td>10.20.1.2</td>
+                  <td><code style="color:#10b981;">tap-8f2a10</code></td>
+                  <td><code>/tmp/thinkdome_vsock_mvm_8f2a10.sock</code></td>
+                  <td><span class="badge badge-success">RUNNING</span></td>
+                  <td>
+                    <button class="btn btn-ghost" onclick="snapshotVMUI('mvm_8f2a10')" style="padding:4px 8px; font-size:12px;">Snapshot</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 8. AGENT SNAPSHOT & BACKTRACK WORKFLOW VIEW -->
+        <section class="page hidden" id="page-snapshots">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                  <path d="M3 3v5h5"/>
+                </svg>
+              </span>
+              Agent Workflow Snapshots &amp; Point-in-Time Backtracking (MCTS)
+            </div>
+            <button class="btn btn-primary" onclick="createSnapshotUI()">+ Create Checkpoint</button>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+            <!-- Timeline / Checkpoint History -->
+            <div class="card">
+              <h3>Workflow Checkpoint History</h3>
+              <p class="sub" style="margin-bottom: 15px;">Agents can restore past states at any multi-step workflow node for speculation, tree search, or rollback.</p>
+              <div id="snapshotTimelineList">
+                <div style="padding: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 10px; background: rgba(255,255,255,0.02);">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                      <strong style="color: var(--accent);">[snap_step_01]</strong> <span class="badge" style="background:rgba(59,130,246,0.2); color:#3b82f6;">pre-execution</span>
+                      <div style="font-size: 12px; color: var(--text-subtle); margin-top: 4px;">Created prior to running data transformation pipeline</div>
+                    </div>
+                    <button class="btn btn-ghost" onclick="restoreSnapshotUI('snap_step_01')" style="color: var(--accent); border-color: var(--accent);">
+                      ↩ Backtrack Here
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Lineage DAG Visualizer Panel -->
+            <div class="card">
+              <h3>Lineage Tree (MCTS Branches)</h3>
+              <div style="padding: 20px; text-align: center; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px dashed var(--border-subtle);">
+                <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--accent); margin-bottom: 10px;">
+                  <circle cx="12" cy="5" r="3"/>
+                  <circle cx="6" cy="19" r="3"/>
+                  <circle cx="18" cy="19" r="3"/>
+                  <path d="M12 8v4M12 12L6 16M12 12l6 4"/>
+                </svg>
+                <div style="font-weight: 600; margin-bottom: 4px;">Snapshot Lineage Active</div>
+                <div style="font-size: 12px; color: var(--text-subtle);">Branching ratio: 1.0 (Sequential) <br/> RAM + Filesystem state preserved</div>
+              </div>
+            </div>
           </div>
         </section>
 

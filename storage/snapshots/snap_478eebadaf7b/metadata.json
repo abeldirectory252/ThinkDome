@@ -1,0 +1,12 @@
+{
+  "snapshot_id": "snap_478eebadaf7b",
+  "sandbox_id": "sb_48f6af5a",
+  "name": "step_1",
+  "tag": "step_1",
+  "description": "",
+  "created_at": 1785683863.58078,
+  "state_dir": "storage/snapshots/snap_478eebadaf7b",
+  "parent_snapshot_id": "",
+  "owner": "anonymous",
+  "file_count": 1
+}

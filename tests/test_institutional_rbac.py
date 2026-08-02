@@ -1,5 +1,5 @@
 import pytest
-from thinkdome.core.security import (
+from thinkdome.security.identity.core import (
     Role,
     UserIdentity,
     RolePolicyEngine,

@@ -1,7 +1,7 @@
 """Unit tests for the output security scanner."""
 
 import pytest
-from thinkdome.modules.security.security_scanner import SecurityScanner, Severity, Category
+from thinkdome.security.scanner.service import SecurityScanner, Severity, Category
 
 
 @pytest.fixture

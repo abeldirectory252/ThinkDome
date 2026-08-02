@@ -10,7 +10,7 @@ import json
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from thinkdome.core.tools import BaseTool, register_tool, get_context
+from thinkdome.orchestration.tools import BaseTool, register_tool, get_context
 from thinkdome.apps.erp.privileges import require_privilege, get_privilege_summary
 from thinkdome.apps.erp.frappe_client import FrappeClient
 from thinkdome.apps.erp.query_engine import QueryEngine
@@ -43,7 +43,7 @@ _asset_todo = AssetServiceTodo()
 
 def get_frappe_client() -> FrappeClient:
     """Retrieve FrappeClient contextually from active tool context or global fallback."""
-    from thinkdome.core.tools import current_tool_context
+    from thinkdome.orchestration.tools import current_tool_context
     ctx = current_tool_context.get()
     if ctx and ctx.get_service("frappe_client"):
         return ctx.get_service("frappe_client")
@@ -56,7 +56,7 @@ def get_frappe_client() -> FrappeClient:
 
 def get_query_engine() -> QueryEngine:
     """Retrieve QueryEngine contextually from active tool context or global fallback."""
-    from thinkdome.core.tools import current_tool_context
+    from thinkdome.orchestration.tools import current_tool_context
     ctx = current_tool_context.get()
     if ctx and ctx.get_service("query_engine"):
         return ctx.get_service("query_engine")
@@ -69,7 +69,7 @@ def get_query_engine() -> QueryEngine:
 
 def get_explainability() -> ExplainabilityEngine:
     """Retrieve ExplainabilityEngine contextually from active tool context or global fallback."""
-    from thinkdome.core.tools import current_tool_context
+    from thinkdome.orchestration.tools import current_tool_context
     ctx = current_tool_context.get()
     if ctx and ctx.get_service("explainability"):
         return ctx.get_service("explainability")
@@ -82,7 +82,7 @@ def get_explainability() -> ExplainabilityEngine:
 
 def get_accounting_service() -> AccountingService:
     """Retrieve AccountingService contextually from active tool context or global fallback."""
-    from thinkdome.core.tools import current_tool_context
+    from thinkdome.orchestration.tools import current_tool_context
     ctx = current_tool_context.get()
     if ctx and ctx.get_service("accounting_service"):
         return ctx.get_service("accounting_service")
@@ -95,7 +95,7 @@ def get_accounting_service() -> AccountingService:
 
 def get_report_engine() -> ReportEngine:
     """Retrieve ReportEngine contextually from active tool context or global fallback."""
-    from thinkdome.core.tools import current_tool_context
+    from thinkdome.orchestration.tools import current_tool_context
     ctx = current_tool_context.get()
     if ctx and ctx.get_service("report_engine"):
         return ctx.get_service("report_engine")

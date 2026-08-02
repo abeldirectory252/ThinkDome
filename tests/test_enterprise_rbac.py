@@ -2,12 +2,12 @@
 
 import uuid
 import pytest
-from thinkdome.services.rbac_services import UserService, RoleService, PermissionService
-from thinkdome.repositories.user_repository import UserRepository
-from thinkdome.repositories.role_repository import RoleRepository
-from thinkdome.repositories.permission_repository import PermissionRepository
-from thinkdome.repositories.audit_repository import AuditRepository
-from thinkdome.security.permission_evaluator import permission_evaluator
+from thinkdome.security.rbac.service import UserService, RoleService, PermissionService
+from thinkdome.security.repositories.user import UserRepository
+from thinkdome.security.repositories.role import RoleRepository
+from thinkdome.security.repositories.permission import PermissionRepository
+from thinkdome.security.repositories.audit import AuditRepository
+from thinkdome.security.identity.evaluator import permission_evaluator
 
 
 @pytest.fixture

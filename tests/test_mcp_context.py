@@ -2,9 +2,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from thinkdome.core.tools import ToolContext, current_tool_context, registry, RegisteredTool
+from thinkdome.orchestration.tools import ToolContext, current_tool_context, registry, RegisteredTool
 from thinkdome.apps.erp.tools import get_frappe_client, get_query_engine, get_accounting_service
-from thinkdome.mcp import get_mcp_server
+from thinkdome.orchestration.mcp_server import get_mcp_server
 
 
 def test_tool_context_service_binding():

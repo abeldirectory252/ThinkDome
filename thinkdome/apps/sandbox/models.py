@@ -16,7 +16,7 @@ class Sandbox(Model):
     """Execution sandbox entity mapping runtime configurations to the database."""
 
     name = StringField(required=True)
-    runtime = SelectField(choices=["docker", "kubernetes", "subprocess"], default="docker")
+    runtime = SelectField(choices=["docker", "kubernetes", "subprocess", "microvm"], default="docker")
     image = StringField(default="python:3.12-slim")
     cpu_limit = FloatField(default=1.0)
     memory_limit = IntegerField(default=256)
@@ -28,3 +28,18 @@ class Sandbox(Model):
         default="Created",
     )
     owner = StringField(required=True)
+
+
+class Snapshot(Model):
+    """Snapshot checkpoint entity mapping state snapshots to the database for backtracking."""
+
+    snapshot_id = StringField(primary_key=True)
+    sandbox_id = StringField(required=True)
+    name = StringField(default="")
+    tag = StringField(default="")
+    description = StringField(default="")
+    created_at = FloatField()
+    state_dir = StringField(default="")
+    parent_snapshot_id = StringField(default="")
+    owner = StringField(default="anonymous")
+

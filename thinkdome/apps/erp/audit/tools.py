@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from thinkdome.core.tools import registry
+from thinkdome.orchestration.tools import registry
 from thinkdome.apps.erp.audit.types import *
 from thinkdome.apps.erp.audit import company
 from thinkdome.apps.erp.audit import financial

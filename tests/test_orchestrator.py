@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from thinkdome.executors.python_docker import PythonDockerExecutor
+from thinkdome.executors.docker.python_executor import PythonDockerExecutor
 from thinkdome.executors.base import ExecRequest
 from thinkdome.core.config import Settings
 

@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from thinkdome.core.tools import get_context
+from thinkdome.orchestration.tools import get_context
 from thinkdome.apps.erp.frappe_client import FrappeClient
 
 logger = logging.getLogger(__name__)

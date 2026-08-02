@@ -1,49 +1,53 @@
-"""Executor factory â€” selects backend based on configuration."""
+"""Executor factory — selects backend based on configuration."""
 
 from __future__ import annotations
 
 from thinkdome.core.config import Settings
 from thinkdome.executors.base import BaseExecutor
-from thinkdome.executors.python_docker import PythonDockerExecutor
-from thinkdome.executors.python_kubernetes import PythonKubernetesExecutor
-from thinkdome.executors.python_hybrid import PythonHybridExecutor
-from thinkdome.executors.subprocess_executor import SubprocessExecutor
-from thinkdome.executors.cpp_stub import CppExecutor
-from thinkdome.executors.java_stub import JavaExecutor
-from thinkdome.executors.csharp_stub import CSharpExecutor
-
-
-_LANGUAGE_EXECUTORS: dict[str, dict[str, type[BaseExecutor]]] = {
-    "python": {
-        "docker": PythonDockerExecutor,
-        "kubernetes": PythonKubernetesExecutor,
-        "hybrid": PythonHybridExecutor,
-        "subprocess": SubprocessExecutor,
-    },
-    "cpp": {"docker": CppExecutor},
-    "java": {"docker": JavaExecutor},
-    "csharp": {"docker": CSharpExecutor},
-}
 
 
 def create_executor(settings: Settings, language: str = "python") -> BaseExecutor:
-    """Create an executor instance based on settings and language."""
+    """Create an executor instance based on settings and language.
+
+    Imports are deferred to avoid crashing when optional dependencies
+    (docker, kubernetes, aiohttp) are not installed.
+    """
     language = language.lower()
     backend = settings.EXECUTOR_BACKEND.lower()
 
-    lang_backends = _LANGUAGE_EXECUTORS.get(language)
-    if not lang_backends:
-        raise ValueError(f"Unsupported language: {language}")
+    executor_cls: type[BaseExecutor] | None = None
 
-    executor_cls = lang_backends.get(backend)
+    if backend == "microvm":
+        from thinkdome.executors.microvm.executor import MicroVMExecutor
+        executor_cls = MicroVMExecutor
+
+    elif backend == "docker":
+        from thinkdome.executors.docker import PythonDockerExecutor
+        if language == "python":
+            executor_cls = PythonDockerExecutor
+        else:
+            from thinkdome.executors.stubs import CppExecutor, JavaExecutor, CSharpExecutor
+            executor_cls = {"cpp": CppExecutor, "java": JavaExecutor, "csharp": CSharpExecutor}.get(language)
+
+    elif backend == "kubernetes":
+        from thinkdome.executors.kubernetes import PythonKubernetesExecutor
+        executor_cls = PythonKubernetesExecutor if language == "python" else None
+
+    elif backend == "subprocess":
+        from thinkdome.executors.host.subprocess_executor import SubprocessExecutor
+        executor_cls = SubprocessExecutor if language == "python" else None
+
+    elif backend == "hybrid":
+        from thinkdome.executors.host.python_hybrid import PythonHybridExecutor
+        executor_cls = PythonHybridExecutor if language == "python" else None
+
     if not executor_cls:
         raise ValueError(
-            f"Unsupported backend '{backend}' for language '{language}'. "
-            f"Available: {list(lang_backends.keys())}"
+            f"Unsupported backend '{backend}' for language '{language}'."
         )
 
-    # Executors that accept settings
     try:
         return executor_cls(settings)  # type: ignore
     except TypeError:
         return executor_cls()  # type: ignore
+

@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # Executor — pluggable backends
-    EXECUTOR_BACKEND: str = "docker"  # "docker" | "kubernetes" | "hybrid" | "subprocess"
+    EXECUTOR_BACKEND: str = "microvm"  # "microvm" | "docker" | "kubernetes" | "hybrid" | "subprocess"
+    EXECUTOR_BACKEND_USE_FALLBACK: bool = False  # Set to True to allow automatic fallback to subprocess when microvm/docker init fails
     EXECUTOR_IMAGE: str = "thinkdome-executor:latest"
 
     # Docker backend settings
@@ -42,6 +43,23 @@ class Settings(BaseSettings):
     K8S_NAMESPACE: str = "thinkdome-sandboxes"
     K8S_RUNTIME_CLASS: str = "gvisor"                  # gvisor | kata | runc
     K8S_IN_CLUSTER: bool = True                        # Use in-cluster config
+
+    # MicroVM backend settings (Cloud Hypervisor / KVM)
+    MICROVM_BINARY: str = "cloud-hypervisor"           # cloud-hypervisor | firecracker
+    MICROVM_KERNEL_PATH: str = "/var/lib/thinkdome/vmlinux"
+    MICROVM_ROOTFS_PATH: str = "/var/lib/thinkdome/rootfs.ext4"
+    MICROVM_INITRAMFS_PATH: str = "./initramfs/initramfs.cpio.gz"
+    MICROVM_STATE_DIR: str = "./vm-state"
+    MICROVM_BRIDGE_NAME: str = "br0"
+    MICROVM_BRIDGE_IP: str = "10.20.1.1/24"
+    MICROVM_BRIDGE_SUBNET: str = "10.20.1.0/24"
+    MICROVM_STATEFUL_DISK_MB: int = 2048
+    MICROVM_GUEST_MEM_PERCENTAGE: int = 50
+    MICROVM_DEFAULT_MEM_MB: int = 512
+    MICROVM_DEFAULT_VCPUS: int = 2
+    MICROVM_VSOCK_PORT: int = 4032                     # Guest vsockserver port
+    MICROVM_CMD_SERVER_PORT: int = 4031                # Guest HTTP command server port
+    SNAPSHOT_STORAGE_DIR: str = "./storage/snapshots"
 
     # Execution limits
     MAX_EXEC_TIMEOUT_MS: int = 10000

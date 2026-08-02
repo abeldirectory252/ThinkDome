@@ -3,7 +3,7 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from thinkdome.core.tools import think_tool, registry, ToolContext
+from thinkdome.orchestration.tools import think_tool, registry, ToolContext
 
 
 # ── Helper tools (NOT test functions — prefixed with _ to avoid pytest collection) ──

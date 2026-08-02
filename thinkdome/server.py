@@ -4,31 +4,31 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import thinkdome.core.tools  # Trigger tool imports and class-based tool registration
+import thinkdome.orchestration.tools  # Trigger tool imports and class-based tool registration
 from thinkdome.core.config import get_settings
 from thinkdome.core.logging import setup_logging
-from thinkdome.api.health import router as health_router
-from thinkdome.api.execute import router as execute_router
-from thinkdome.api.files import router as files_router
-from thinkdome.api.workspaces import router as workspaces_router
-from thinkdome.api.sessions import router as sessions_router
-from thinkdome.api.languages import router as languages_router
-from thinkdome.api.admin import router as admin_router
-from thinkdome.api.observability import router as observability_router
-from thinkdome.api.auth import router as auth_router
-from thinkdome.api.orchestrator import router as orchestrator_router
-from thinkdome.api.monitor import router as monitor_router
+from thinkdome.observability.api.health import router as health_router
+from thinkdome.execution.api.execute import router as execute_router
+from thinkdome.storage.api.files import router as files_router
+from thinkdome.storage.api.workspaces import router as workspaces_router
+from thinkdome.sessions.api import router as sessions_router
+from thinkdome.execution.api.languages import router as languages_router
+from thinkdome.security.api.admin import router as admin_router
+from thinkdome.observability.api.observability import router as observability_router
+from thinkdome.security.api.auth import router as auth_router
+from thinkdome.orchestration.api import router as orchestrator_router
+from thinkdome.observability.api.monitor import router as monitor_router
 
-from thinkdome.modules.execution.execution_service import ExecutionService
-from thinkdome.modules.storage.file_service import FileService
-from thinkdome.modules.storage.workspace_service import WorkspaceService
-from thinkdome.modules.session.session_service import SessionService
-from thinkdome.modules.database.db_service import DatabaseService
-from thinkdome.modules.auth.auth_service import AuthService
-from thinkdome.modules.search.search_service import SearchService
-from thinkdome.modules.orchestrator.orchestrator_service import OrchestratorService
-from thinkdome.modules.orchestrator.request_log_service import RequestLogService
-from thinkdome.modules.billing.billing_service import BillingService
+from thinkdome.execution.core.service import ExecutionService
+from thinkdome.storage.files.service import FileService
+from thinkdome.storage.workspaces.service import WorkspaceService
+from thinkdome.sessions.service import SessionService
+from thinkdome.database.service import DatabaseService
+from thinkdome.security.auth.service import AuthService
+from thinkdome.orchestration.search.service import SearchService
+from thinkdome.orchestration.orchestrator_service import OrchestratorService
+from thinkdome.orchestration.request_log import RequestLogService
+from thinkdome.billing.service import BillingService
 
 
 @asynccontextmanager
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     await app.state.db_service.initialize()
 
     # Initialize TaskBroker for RabbitMQ tasks
-    from thinkdome.modules.tasks.rabbitmq import TaskBroker
+    from thinkdome.tasks.rabbitmq import TaskBroker
     app.state.task_broker = TaskBroker(settings.RABBITMQ_URL)
     try:
         await app.state.task_broker.start()
@@ -67,13 +67,13 @@ async def lifespan(app: FastAPI):
     app.state.billing_service = BillingService(app.state.db_service)
 
     # Initialize PoolManager, MonitorService, SecurityScanner, CredentialVault
-    from thinkdome.modules.execution.pool_manager import PoolManager
-    from thinkdome.modules.security.security_scanner import SecurityScanner
-    from thinkdome.modules.monitoring.monitor_service import MonitorService
-    from thinkdome.modules.auth.credential_vault import CredentialVault
+    from thinkdome.execution.pool.manager import PoolManager
+    from thinkdome.security.scanner.service import SecurityScanner
+    from thinkdome.observability.monitoring.service import MonitorService
+    from thinkdome.security.auth.vault import CredentialVault
 
     docker_client = None
-    if settings.EXECUTOR_BACKEND.lower() in ("docker", "hybrid"):
+    if settings.EXECUTOR_BACKEND.lower() in ("docker", "hybrid", "microvm"):
         try:
             import docker
             # support DOCKER_HOST with mutual TLS
@@ -104,8 +104,8 @@ async def lifespan(app: FastAPI):
     app.state.credential_vault = CredentialVault(settings, app.state.db_service)
 
     # Initialize OpenAI & Anthropic Containment components
-    from thinkdome.modules.execution.egress_proxy import EgressProxy
-    from thinkdome.modules.tasks.scheduler import Scheduler
+    from thinkdome.execution.egress.proxy import EgressProxy
+    from thinkdome.tasks.scheduler import Scheduler
     from thinkdome.harness.harness import Harness
 
     app.state.egress_proxy = EgressProxy()
@@ -188,11 +188,11 @@ def create_app() -> FastAPI:
         )
 
     # Setup metrics
-    from thinkdome.core.metrics import setup_metrics
+    from thinkdome.observability.metrics.prometheus import setup_metrics
     setup_metrics(app, settings.EXECUTOR_BACKEND)
 
     # Setup tracing
-    from thinkdome.core.tracing import setup_tracing
+    from thinkdome.observability.tracing.telemetry import setup_tracing
     setup_tracing(
         service_name=settings.OTEL_SERVICE_NAME,
         otlp_endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
@@ -207,18 +207,21 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    from thinkdome.api.rbac.auth_router import router as rbac_auth_router
-    from thinkdome.api.rbac.users_router import router as rbac_users_router
-    from thinkdome.api.rbac.roles_router import router as rbac_roles_router
-    from thinkdome.api.rbac.permissions_router import router as rbac_permissions_router
-    from thinkdome.api.rbac.audit_router import router as rbac_audit_router
-    from thinkdome.database.rbac_schema import initialize_rbac_schema
+    from thinkdome.security.api.auth_rbac import router as rbac_auth_router
+    from thinkdome.security.api.users import router as rbac_users_router
+    from thinkdome.security.api.roles import router as rbac_roles_router
+    from thinkdome.security.api.permissions import router as rbac_permissions_router
+    from thinkdome.security.api.audit import router as rbac_audit_router
+    from thinkdome.security.rbac.schema import initialize_rbac_schema
 
     try:
         initialize_rbac_schema(app.state.db_service)
     except Exception as ie:
         import logging
         logging.getLogger(__name__).warning(f"RBAC Schema init note: {ie}")
+
+    from thinkdome.snapshots.api import router as snapshots_router
+    from thinkdome.executors.microvm.api import router as microvm_router
 
     # Register routers
     app.include_router(health_router)
@@ -237,6 +240,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix="/v1/admin")
     app.include_router(observability_router, prefix="/v1")
     app.include_router(monitor_router, prefix="/v1")
+    app.include_router(snapshots_router, prefix="/v1")
+    app.include_router(microvm_router, prefix="/v1")
 
     # Serve static assets
     from fastapi.staticfiles import StaticFiles
@@ -260,13 +265,13 @@ def create_app() -> FastAPI:
     @app.get("/orchestrator_schema.json")
     async def serve_schema():
         from fastapi.responses import JSONResponse
-        from thinkdome.modules.orchestrator.orchestrator_models import ToolUseRequest
+        from thinkdome.orchestration.orchestrator_models import ToolUseRequest
         return JSONResponse(content=ToolUseRequest.model_json_schema())
 
     # ── MCP SSE Transport Endpoints ──────────────────────────────────────────────
     from fastapi import Request
     from mcp.server.sse import SseServerTransport
-    from thinkdome.mcp import get_mcp_server
+    from thinkdome.orchestration.mcp_server import get_mcp_server
 
     sse = SseServerTransport("/mcp/messages")
 
@@ -278,7 +283,7 @@ def create_app() -> FastAPI:
         db_service = request.app.state.db_service
         orchestrator = request.app.state.orchestrator_service
 
-        from thinkdome.core.security import ROLE_ADMIN, UserIdentity
+        from thinkdome.security.identity.core import ROLE_ADMIN, UserIdentity
 
         client_ip = request.client.host if request.client else "127.0.0.1"
         caller_role = request.headers.get("X-User-Role", ROLE_ADMIN)
