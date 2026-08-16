@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # ── New Framework Imports ─────────────────────────────────────────────────────
-import thinkdome.orchestration.tools  # Trigger tool imports and class-based tool registration
+import thinkdome.platform.orchestration.tools  # Trigger tool imports and class-based tool registration
 from thinkdome.core.api.router import router as api_router
 from thinkdome.core.events.events import bus as event_bus
 from thinkdome.core.kernel.kernel import Kernel
@@ -27,29 +27,29 @@ from thinkdome.core.config import get_settings
 from thinkdome.core.logging import setup_logging
 
 # ── Original API Router Imports ───────────────────────────────────────────────
-from thinkdome.observability.api.health import router as health_router
-from thinkdome.execution.api.execute import router as execute_router
-from thinkdome.storage.api.files import router as files_router
-from thinkdome.storage.api.workspaces import router as workspaces_router
-from thinkdome.sessions.api import router as sessions_router
-from thinkdome.execution.api.languages import router as languages_router
+from thinkdome.platform.observability.api.health import router as health_router
+from thinkdome.api.routes.execution.execute import router as execute_router
+from thinkdome.platform.storage.api.files import router as files_router
+from thinkdome.platform.storage.api.workspaces import router as workspaces_router
+from thinkdome.sandbox.sessions.api import router as sessions_router
+from thinkdome.api.routes.execution.languages import router as languages_router
 from thinkdome.security.api.admin import router as admin_router
-from thinkdome.observability.api.observability import router as observability_router
+from thinkdome.platform.observability.api.observability import router as observability_router
 from thinkdome.security.api.auth import router as auth_router
-from thinkdome.orchestration.api import router as orchestrator_router
-from thinkdome.observability.api.monitor import router as monitor_router
+from thinkdome.platform.orchestration.api import router as orchestrator_router
+from thinkdome.platform.observability.api.monitor import router as monitor_router
 
 # ── Original Service Imports ──────────────────────────────────────────────────
-from thinkdome.execution.core.service import ExecutionService
-from thinkdome.storage.files.service import FileService
-from thinkdome.storage.workspaces.service import WorkspaceService
-from thinkdome.sessions.service import SessionService
-from thinkdome.database.service import DatabaseService
+from thinkdome.sandbox.core.service import ExecutionService
+from thinkdome.platform.storage.files.service import FileService
+from thinkdome.platform.storage.workspaces.service import WorkspaceService
+from thinkdome.sandbox.sessions.service import SessionService
+from thinkdome.platform.database.service import DatabaseService
 from thinkdome.security.auth.service import AuthService
-from thinkdome.orchestration.search.service import SearchService
-from thinkdome.orchestration.orchestrator_service import OrchestratorService
-from thinkdome.orchestration.request_log import RequestLogService
-from thinkdome.billing.service import BillingService
+from thinkdome.platform.orchestration.search.service import SearchService
+from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
+from thinkdome.platform.orchestration.request_log import RequestLogService
+from thinkdome.platform.billing.service import BillingService
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ async def serve_login():
 
 @app.get("/orchestrator_schema.json")
 async def serve_schema():
-    from thinkdome.orchestration.orchestrator_models import ToolUseRequest
+    from thinkdome.platform.orchestration.orchestrator_models import ToolUseRequest
     return JSONResponse(content=ToolUseRequest.model_json_schema())
 
 
@@ -152,7 +152,7 @@ async def startup_event() -> None:
     await app.state.db_service.initialize()
 
     # 4. Initialize TaskBroker for RabbitMQ tasks
-    from thinkdome.tasks.rabbitmq import TaskBroker
+    from thinkdome.platform.tasks.rabbitmq import TaskBroker
     app.state.task_broker = TaskBroker(settings.RABBITMQ_URL)
     try:
         await app.state.task_broker.start()
@@ -175,9 +175,9 @@ async def startup_event() -> None:
     app.state.billing_service = BillingService(app.state.db_service)
 
     # 6. Initialize original PoolManager and Monitoring services
-    from thinkdome.execution.pool.manager import PoolManager
+    from thinkdome.sandbox.pool.manager import PoolManager
     from thinkdome.security.scanner.service import SecurityScanner
-    from thinkdome.observability.monitoring.service import MonitorService
+    from thinkdome.platform.observability.monitoring.service import MonitorService
     from thinkdome.security.auth.vault import CredentialVault
 
     docker_client = None
@@ -209,9 +209,9 @@ async def startup_event() -> None:
     app.state.credential_vault = CredentialVault(settings, app.state.db_service)
 
     # 7. Initialize OpenAI & Anthropic Containment components
-    from thinkdome.execution.egress.proxy import EgressProxy
-    from thinkdome.tasks.scheduler import Scheduler as LegacyScheduler
-    from thinkdome.harness.harness import Harness
+    from thinkdome.sandbox.network.egress import EgressProxy
+    from thinkdome.platform.tasks.scheduler import Scheduler as LegacyScheduler
+    from thinkdome.sandbox.harness.harness import Harness
 
     app.state.egress_proxy = EgressProxy()
     app.state.scheduler = LegacyScheduler(partition_count=4, max_concurrency_per_partition=50)
@@ -265,7 +265,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 # ── MCP SSE Transport Endpoints ──────────────────────────────────────────────
 from mcp.server.sse import SseServerTransport
-from thinkdome.orchestration.mcp_server import get_mcp_server
+from thinkdome.platform.orchestration.mcp_server import get_mcp_server
 
 # Initialize SSE Transport
 sse = SseServerTransport("/mcp/messages")

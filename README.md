@@ -1,227 +1,144 @@
 # ThinkDome 🧠📦
 
-> Secure, isolated code execution sandbox and tool orchestrator for autonomous AI agents and applications.
+> Secure, isolated multi-backend code execution sandbox and tool orchestrator for autonomous AI agents and applications.
 
-`thinkdome` is a production-grade execution sandbox and tool engine designed for LLMs, agentic workflows, and safe code execution. It can be used directly as a **Python SDK** or as a **FastAPI server** with a suite of 24 tools with native privilege checks and type-safe schemas.
-
+`thinkdome` is a production-grade execution sandbox and security engine designed for LLMs, agentic workflows, and safe code execution. It can be used directly as a **Python SDK** or as a **FastAPI server** with a suite of tools, native privilege checks, strict egress network policies, and real-time audit dashboards.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abeldirectory252/ThinkDome/blob/main/notebook/thinkdome_kaggle.ipynb)
 [![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abeldirectory252/ThinkDome/blob/main/notebook/thinkdome_kaggle.ipynb)
+
 ---
 
+## 🏗️ Architecture & Domain Structure
 
-## 🚀 Installation
+`thinkdome` follows a domain-driven module architecture:
 
-You can install `thinkdome` directly from GitHub using `pip`:
-
-```bash
-pip install git+https://github.com/abeldirectory252/ThinkDome.git
+```
+thinkdome/
+├── api/                     # REST/HTTP API layer (FastAPI app factory & routes)
+├── sandbox/                 # Sandbox domain (SDK, MicroVM/Docker/gVisor backends, network, pool, sessions)
+│   ├── sdk.py               # Main Sandbox SDK entry point
+│   ├── executors/           # MicroVM (Firecracker), Docker, gVisor, Kata, Host backends
+│   ├── network/             # Ingress gateway, Egress proxy, Policy enforcement, Signing
+│   ├── pool/                # Pre-warmed container/VM pool manager
+│   ├── sessions/            # Persistent sandbox session manager
+│   └── snapshots/           # Snapshot creation & backtrack state restoration
+├── platform/                # Platform services (Billing, Storage, Tasks, Database, Observability, Orchestration)
+├── security/                # Cross-cutting security (Auth, Identity, RBAC, Vulnerability scanner, Vault)
+├── core/                    # Core framework plumbing (Config, Middleware, ORM, Events, Logging)
+├── apps/                    # Business applications (ERP, Agents, Marketplace, Workflows)
+└── static/                  # Web UI Dashboard & Real-Time Analytics
 ```
 
 ---
 
-## 🐍 Python SDK API (Simple Usage)
+## ⚡ Execution Backends
 
-`thinkdome` provides a simple, clean, and powerful programmatic context manager for developers to safely execute code in an isolated environment.
+`thinkdome` supports multiple hypervisor and container runtimes based on your isolation and performance requirements:
 
-### Basic Usage
+| Backend | Technology | Isolation Level | Cold Start | Use Case |
+|---|---|---|---|---|
+| **`microvm`** | Firecracker MicroVM | Hardware Virtualization (KVM) | ~50ms | Maximum multi-tenant security |
+| **`gvisor`** | gVisor (runsc) | User-space Kernel Isolation | ~100ms | Untrusted code execution |
+| **`kata`** | Kata Containers | Lightweight VM Isolation | ~300ms | Hardware isolation with Docker compatibility |
+| **`docker`** | Docker (cgroups v2 + seccomp) | OS Container Virtualization | ~200ms | Standard container workloads |
+| **`subprocess`**| Bubblewrap / Subprocess | Process Isolation | ~5ms | Fast local development / testing fallback |
+
+Set backend via SDK:
+```python
+from thinkdome import Sandbox
+
+with Sandbox(backend="microvm") as dome:
+    result = dome.run("import platform; print(platform.uname())")
+    print(result.output)
+```
+
+---
+
+## 🌐 Network Control & Egress Policies
+
+`thinkdome` features a **strict default-deny network policy**:
+
+- **Default-Deny Policy**: All outbound network traffic is blocked by default (`defaultAction="deny"`).
+- **Explicit Domain Allowlisting**: Outbound requests are allowed only to explicitly registered FQDNs and rules (e.g. PyPI, GitHub API).
+- **Non-Bypassable Egress Proxy**: Traffic is intercepted by the `EgressProxy` with SNI inspection and request throttling.
+- **Ingress Gateway**: Signed request signatures and token validation for incoming agent calls.
+- **Real-Time Audit Log & Analytics**: All outbound connection attempts (allowed and denied) are logged and exposed via REST APIs (`/v1/network/audit-log`, `/stats`, `/rules`) and the Web Dashboard.
+
+```python
+from thinkdome import Sandbox
+from thinkdome.sandbox.network import EgressRule
+
+# Sandbox with custom network egress allowlist
+with Sandbox(
+    allow_network=True,
+    egress_rules=[
+        EgressRule(domain="api.github.com", action="allow", ports=[443]),
+        EgressRule(domain="pypi.org", action="allow", ports=[443]),
+    ]
+) as dome:
+    res = dome.run("import urllib.request; print(urllib.request.urlopen('https://api.github.com').status)")
+    print(res.output)
+```
+
+---
+
+## 🐍 Python SDK Usage
 
 ```python
 from thinkdome import Sandbox
 
 # Run untrusted code in an ephemeral sandbox
 with Sandbox() as dome:
-    result = dome.run("print('Hello from inside ThinkDome')")
-    
-    print("Success:", result.success)
-    print("Output:", result.output)  # stdout
-    print("Errors:", result.error)   # stderr
-    print("Exit Code:", result.exit_code)
-```
-
-### Advanced Usage & Resource Limits
-
-You can easily configure resource limits, execution timeouts, and choose the underlying execution backend:
-
-```python
-from thinkdome import Sandbox
-
-with Sandbox(
-    language="python",       # Language to run
-    timeout=30,              # Timeout limit in seconds
-    memory_limit=256,        # Memory limit in MB
-    network_allowed=False,   # Enable/disable internet access
-    backend="auto",          # "auto" (uses docker if available, else subprocess), "docker", or "subprocess"
-    workspace="./my_workspace" # Custom directory mapping for file sharing
-) as dome:
-    # Set up text files or binary media (like images/audio) before execution
+    # Write files before execution
     dome.write_file("data.csv", "name,value\nAlice,10\nBob,20\n")
     
-    # You can write raw binary data directly (e.g. image inputs)
-    image_bytes = b"..." # raw image bytes
-    dome.write_file("input.png", image_bytes)
-    
-    # Run code that reads input files, processes them, and outputs new ones
+    # Execute code safely
     result = dome.run("""
 import pandas as pd
 df = pd.read_csv('data.csv')
-print("Sum:", df['value'].sum())
-
-# Modify the image or create a plot
-with open("input.png", "rb") as f_in:
-    data = f_in.read()
-with open("output.png", "wb") as f_out:
-    # process or save modified media
-    f_out.write(data + b"_modified")
+print("Total Sum:", df['value'].sum())
 """)
     
+    print("Success:", result.success)
     print("Stdout:", result.output.strip())
-    
-    # Read text or binary media files generated inside the sandbox workspace
-    modified_image = dome.read_file_bytes("output.png")
-    print("Modified image size:", len(modified_image))
-    
-    # List all files currently in the workspace
-    files = dome.list_files()
-    print("Workspace files:", files)
-```
-
-### Passing Media to `dome.run(..., files=...)`
-Alternatively, you can pass binary media files directly when invoking `run()`:
-
-```python
-with open("photo.jpg", "rb") as f:
-    photo_data = f.read()
-
-with Sandbox() as dome:
-    result = dome.run(
-        code="print('Processed photo!')",
-        files={"input_photo.jpg": photo_data}
-    )
-    # The output files can also be accessed from the result object:
-    # result.files contains the binary contents of all files created during execution
-    output_photo = result.files.get("output_photo.jpg")
+    print("Files in workspace:", dome.list_files())
 ```
 
 ---
 
 ## 🖥️ Command Line & API Server
 
-`thinkdome` can also be run as a standalone API server that exposes the dynamic tool orchestrator and endpoints for remote agent clients.
-
-### Start the API Server
-
+### Start API Server & Web UI
 ```bash
-# Start the FastAPI server on localhost:8000
 thinkdome serve --host 127.0.0.1 --port 8000
 ```
+Open `http://localhost:8000` to view the interactive **Network Egress & Sandbox Dashboard**.
 
 ### Run Code via CLI
-
 ```bash
-thinkdome run "print('Executed via thinkdome CLI')"
+thinkdome run "print('Hello from CLI!')" --backend microvm
 ```
 
 ---
 
-## 🛡️ Six-Layer Security Containment
+## 🛡️ Defense-in-Depth Containment
 
-When running with the `docker` backend, execution is protected by a strict six-layer defense-in-depth security model:
-
-```
-                  [ Agent Egress / Squid Proxy ]
-                                ▲
-                                │  (Layer 6: Proxy-only Network)
-   ┌───────────────────────────┴───────────────────────────┐
-   │ Ephemeral Docker Container (Layer 1: OS Virtualization)│
-   │                                                       │
-   │  ┌─────────────────────────────────────────────────┐  │
-   │  │   Sandbox User: UID 1000 (Layer 1: Non-root)     │  │
-   │  └───────────────────────┬─────────────────────────┘  │
-   │                          │                            │
-   │  ┌───────────────────────▼─────────────────────────┐  │
-   │  │   Read-Only rootfs (Layer 2: Filesystem Iso)    │  │
-   │  └───────────────────────┬─────────────────────────┘  │
-   │                          │                            │
-   │  ┌───────────────────────▼─────────────────────────┐  │
-   │  │   seccomp.json System Filters (Layer 3: Syscalls)│  │
-   │  └───────────────────────┬─────────────────────────┘  │
-   │                          │                            │
-   │  ┌───────────────────────▼─────────────────────────┐  │
-   │  │   cgroups limits (Layer 4: 0.5 CPU, 256MB RAM)  │  │
-   │  └───────────────────────┬─────────────────────────┘  │
-   │                          │                            │
-   │  ┌───────────────────────▼─────────────────────────┐  │
-   │  │   Drop ALL Kernel Capabilities (Layer 5: Caps)   │  │
-   │  └─────────────────────────────────────────────────┘  │
-   └───────────────────────────────────────────────────────┘
-```
-
-1. **OS-Level Virtualization**: Spawns ephemeral containers running under a non-root `sandbox` user (`UID 1000:1000`). Containers are destroyed immediately after execution.
-2. **Filesystem Isolation**: The root filesystem is mounted as read-only (`read_only=True`). `/workspace` and `/tmp` are mounted as tiny `tmpfs` RAM-disks (64MB, `noexec`). No host paths are ever exposed.
-3. **System Call Filtering**: Blocks dangerous system calls (e.g., `mount`, `umount2`, `reboot`, `ptrace`, `bpf`, `io_uring_*`) using a custom Docker seccomp profile (`security/seccomp.json`).
-4. **Resource Constraints (cgroups v2)**: Limits execution to `0.5 CPU` cores, `256MB RAM` (with swap disabled), and a maximum of `20 PIDs` to prevent fork bombs. Supports dynamic OOM detection.
-5. **Capability Dropping**: Drops all Linux kernel capabilities (`cap_drop=["ALL"]`).
-6. **Network Egress Control**: Restricts egress traffic. Standard `LLM` queries have network disabled (`network_mode="none"`). `ADMIN` queries with network enabled are routed through a secure Squid proxy to allow HTTP/HTTPS auditing.
+1. **MicroVM / gVisor Hypervisor**: Hardware KVM boundaries prevent host kernel exploit paths.
+2. **Non-Root Execution**: Runs under unprivileged user (`UID 1000:1000`).
+3. **Read-Only Root Filesystem**: Write access restricted to ephemeral RAM-disk `/workspace` (`tmpfs`).
+4. **Seccomp System Call Filtering**: Blocks dangerous syscalls (`mount`, `ptrace`, `bpf`, `io_uring`).
+5. **Resource Limits**: `0.5 CPU` cores, `256MB RAM`, `20 PIDs` max (prevent fork bombs).
+6. **Capability Dropping**: Drops all Linux capabilities (`cap_drop=["ALL"]`).
+7. **Egress Firewall**: Strict domain allowlisting and real-time audit logging.
 
 ---
 
-## 🐳 Docker Production Setup Guide (Windows & Linux)
+## 🧪 Verification & Testing
 
-To use the secure `docker` backend container isolation, `thinkdome` must communicate with a running Docker daemon.
-
-### 🪟 1. Windows Setup (Docker Desktop)
-Windows hosts utilize a named pipe (`\\.\pipe\docker_engine`) for daemon communication, which the Python `docker` client automatically resolves.
-
-1. Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/).
-2. Enable "Expose daemon on tcp://localhost:2375 without TLS" (optional, for remote debugging).
-3. Ensure Docker Desktop is running.
-
-### 🐧 2. Linux Setup
-On Linux, the Docker daemon listens on `/var/run/docker.sock`.
-
-1. Ensure your user has permissions to access the socket:
-   ```bash
-   sudo usermod -aG docker $USER
-   ```
-2. Log out and back in for the changes to take effect.
-
----
-
-## 🤖 Connection with LLM Frameworks (LangChain/AutoGPT/CrewAI)
-
-`thinkdome` exposes a dynamic tool schema that matches OpenAI/Anthropic/LangChain formats.
-Get the active tools schema at:
-```http
-GET http://127.0.0.1:8000/orchestrator_schema.json
+Run full test suite:
+```bash
+pytest tests/ -v
 ```
-For API invocation examples and Kaggle deployment, check [thinkbox_kaggle.ipynb](file:///e:/Sandbox/Sandbox/thinkBox-main/thinkbox_kaggle.ipynb).
-
-
-
-
-"""Test REAL-TIME delivery: prints timestamps to prove lines arrive incrementally."""
-import time, requests
-
-resp = requests.post(
-    "http://localhost:8000/v1/execute/stream",
-    json={
-        "code": "import time\nfor i in range(5):\n    print(f'Ping line {i}')\n    time.sleep(1)",
-        "language": "python",
-        "username": "test",
-        "allow_network": True,
-        "timeout_ms": 15000,
-    },
-    stream=True,
-    headers={"Accept": "text/event-stream"},
-)
-
-print(f"Status: {resp.status_code}")
-t0 = time.monotonic()
-for line in resp.iter_lines():
-    if line:
-        elapsed = time.monotonic() - t0
-        decoded = line.decode("utf-8", errors="replace")
-        print(f"[+{elapsed:5.2f}s] {decoded}")

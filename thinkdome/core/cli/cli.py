@@ -473,7 +473,7 @@ def handle_test() -> None:
 
 def handle_list_tools(site_name: str) -> None:
     """List all registered tools, their app source, description, scope, and status."""
-    from thinkdome.orchestration.tools import registry
+    from thinkdome.platform.orchestration.tools import registry
     from thinkdome.core.kernel.kernel import Kernel
 
     # Initialize kernel to load apps and register tools
@@ -500,7 +500,7 @@ def handle_list_tools(site_name: str) -> None:
 
 def handle_mcp(site_name: str) -> None:
     """Start the Model Context Protocol (MCP) stdio server."""
-    from thinkdome.orchestration.mcp_server import run_mcp_server
+    from thinkdome.platform.orchestration.mcp_server import run_mcp_server
     run_mcp_server(site_name)
 
 

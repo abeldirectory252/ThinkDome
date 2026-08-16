@@ -3,7 +3,7 @@
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 from pydantic_settings import BaseSettings
 
@@ -124,6 +124,15 @@ class Settings(BaseSettings):
 
     # ── Credential Vault Settings ──
     VAULT_MASTER_KEY: Optional[str] = None    # Fernet key for vault encryption
+
+    # ── Secure Container Runtime Settings ──
+    SECURE_RUNTIME_TYPE: str = ""             # "", "gvisor", "kata", "firecracker", "microvm"
+    DOCKER_RUNTIME: str = "runsc"              # OCI runtime name for Docker mode ("runsc", "kata-runtime")
+    K8S_RUNTIME_CLASS: str = "gvisor"         # K8s RuntimeClass ("gvisor", "kata-qemu", "kata-fc")
+
+    # ── Secure Access & Signed Route Settings (OSEP-0011) ──
+    SECURE_ACCESS_KEYS: Dict[str, str] = {}   # Map of key_id -> secret_hex (e.g. {"a": "secret123"})
+    SECURE_ACCESS_ACTIVE_KEY_ID: str = "a"
 
     model_config = {"env_prefix": "", "case_sensitive": True}
 

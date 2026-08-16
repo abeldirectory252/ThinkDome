@@ -31,8 +31,78 @@ function navTo(pageId) {
         if (typeof loadMcpTools === 'function') {
             loadMcpTools();
         }
+    } else if (pageId === 'network') {
+        loadNetworkAudit();
     }
 }
+
+async function loadNetworkAudit() {
+    try {
+        const [statsRes, auditRes, rulesRes] = await Promise.all([
+            fetch('/v1/network/stats').then(r => r.json()).catch(() => ({})),
+            fetch('/v1/network/audit-log?limit=50').then(r => r.json()).catch(() => ({ audit_log: [] })),
+            fetch('/v1/network/rules').then(r => r.json()).catch(() => ({ rules: [] })),
+        ]);
+
+        // 1. KPI Cards
+        const totalEl = document.getElementById('net-total-eval');
+        if (totalEl) totalEl.textContent = statsRes.total_evaluations || 0;
+        const allowedEl = document.getElementById('net-allowed-count');
+        if (allowedEl) allowedEl.textContent = statsRes.allowed || 0;
+        const deniedEl = document.getElementById('net-denied-count');
+        if (deniedEl) deniedEl.textContent = statsRes.denied || 0;
+        const rulesEl = document.getElementById('net-rules-count');
+        if (rulesEl) rulesEl.textContent = statsRes.total_rules || (rulesRes.rules ? rulesRes.rules.length : 0);
+
+        // 2. Audit Table
+        const auditTable = document.getElementById('networkAuditTable');
+        if (auditTable) {
+            const logs = auditRes.audit_log || [];
+            if (!logs.length) {
+                auditTable.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--fg-subtle);padding:24px;">No network egress activity recorded yet.</td></tr>`;
+            } else {
+                auditTable.innerHTML = logs.map(e => {
+                    const ts = new Date(e.timestamp * 1000).toLocaleString();
+                    const statusBadge = e.allowed
+                        ? `<span class="badge badge-success" style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">ALLOWED</span>`
+                        : `<span class="badge badge-danger" style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">DENIED</span>`;
+                    return `
+                        <tr>
+                            <td style="font-family:var(--font-mono);font-size:12px;">${ts}</td>
+                            <td style="font-weight:600;">${e.sandbox_id || 'global'}</td>
+                            <td><span style="background:var(--bg-card);padding:2px 6px;border-radius:4px;font-size:11px;">${e.method || 'GET'}</span></td>
+                            <td style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${e.url || e.domain}</td>
+                            <td>${statusBadge}</td>
+                            <td style="font-size:12px;color:var(--fg-muted);">${e.reason || e.matched_rule || 'Default Deny'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        // 3. Rules Table
+        const rulesTable = document.getElementById('networkRulesTable');
+        if (rulesTable) {
+            const rules = rulesRes.rules || [];
+            if (!rules.length) {
+                rulesTable.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--fg-subtle);padding:24px;">No egress domain rules configured.</td></tr>`;
+            } else {
+                rulesTable.innerHTML = rules.map(r => `
+                    <tr>
+                        <td style="font-family:var(--font-mono);font-weight:600;color:var(--accent);">${r.domain_pattern}</td>
+                        <td>${(r.methods || []).map(m => `<span style="background:var(--bg-card);padding:2px 6px;border-radius:4px;font-size:11px;">${m}</span>`).join(' ')}</td>
+                        <td>${r.max_requests_per_min || 300}/min</td>
+                        <td>${r.has_injected_credentials ? '<span style="color:var(--warn);font-size:12px;">🔐 Vault Injected</span>' : 'None'}</td>
+                        <td style="font-size:12px;color:var(--fg-muted);">${r.description || 'Allow rule'}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load network audit:', err);
+    }
+}
+window.loadNetworkAudit = loadNetworkAudit;
 
 /* =================== DYNAMIC RENDERING CONTROLLER =================== */
 function renderAllViews() {

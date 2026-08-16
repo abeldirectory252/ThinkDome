@@ -301,7 +301,7 @@ async def detect_management_override(tool_input: Dict[str, Any]) -> str:
 
         admin_journals = await client.get_list(
             "Journal Entry",
-            filters=admin_journals_filters if False else admin_filters, # clean filter mapping
+            filters=admin_filters,
             fields=["name", "posting_date", "grand_total", "owner", "creation"],
             limit_page_length=100,
         )

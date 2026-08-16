@@ -1,8 +1,8 @@
 """Tests for MicroVM Execution Backend and Initramfs OverlayFS setup."""
 
 import pytest
-from thinkdome.executors.microvm.executor import MicroVMExecutor
-from thinkdome.executors.base import ExecRequest
+from thinkdome.sandbox.executors.microvm.executor import MicroVMExecutor
+from thinkdome.sandbox.executors.base import ExecRequest
 from thinkdome.core.config import Settings
 
 
@@ -36,6 +36,7 @@ async def test_microvm_executor_init_and_spawn():
 async def test_microvm_execution():
     """Test executing code inside MicroVM isolated environment."""
     settings = Settings()
+    settings.EXECUTOR_BACKEND_USE_FALLBACK = True
     executor = MicroVMExecutor(settings)
     await executor.initialize()
 

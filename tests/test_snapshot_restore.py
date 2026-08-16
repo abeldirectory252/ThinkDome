@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from thinkdome import Sandbox
-from thinkdome.snapshots.service import SnapshotService
+from thinkdome.sandbox.snapshots.service import SnapshotService
 from thinkdome.core.config import Settings
 
 

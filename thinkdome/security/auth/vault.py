@@ -184,6 +184,128 @@ class CredentialVault:
 
         return env
 
+    # ── Outbound Credential Binding & Injection (OpenSandbox Broker) ──────────
+
+    def register_binding(self, sandbox_id: str, binding_data: dict) -> None:
+        """Register a CredentialBinding for a sandbox."""
+        if not hasattr(self, "_bindings"):
+            self._bindings: Dict[str, List[dict]] = {}
+        if sandbox_id not in self._bindings:
+            self._bindings[sandbox_id] = []
+        self._bindings[sandbox_id].append(binding_data)
+        logger.info(f"🔐 Vault: registered binding '{binding_data.get('name')}' for sandbox={sandbox_id}")
+
+    def evaluate_outbound_request(
+        self,
+        user_id: str,
+        sandbox_id: str,
+        scheme: str,
+        host: str,
+        method: str,
+        path: str,
+        headers: Optional[Dict[str, str]] = None,
+        query: Optional[Dict[str, str]] = None,
+        body: Optional[str] = None,
+    ) -> dict:
+        """Evaluate an outbound HTTPS request against active bindings.
+
+        If a binding matches, injects the configured auth headers and performs
+        scoped placeholder substitutions on allowed surfaces.
+
+        Returns:
+            dict containing:
+                - matched: bool
+                - injected_headers: Dict[str, str]
+                - rewritten_path: str
+                - rewritten_query: Dict[str, str]
+                - rewritten_body: Optional[str]
+        """
+        from thinkdome.security.auth.vault_bindings import (
+            CredentialBinding,
+            evaluate_binding_match,
+        )
+
+        bindings = getattr(self, "_bindings", {}).get(sandbox_id, [])
+        if not bindings:
+            return {
+                "matched": False,
+                "injected_headers": {},
+                "rewritten_path": path,
+                "rewritten_query": query or {},
+                "rewritten_body": body,
+            }
+
+        # Decrypt secrets for this user/sandbox
+        secrets = self.inject_into_env(user_id, sandbox_id)
+
+        injected_headers: Dict[str, str] = {}
+        new_path = path
+        new_query = dict(query or {})
+        new_body = body
+        matched_any = False
+
+        for b_data in bindings:
+            try:
+                b = CredentialBinding.model_validate(b_data)
+            except Exception:
+                continue
+
+            if evaluate_binding_match(b, scheme, host, method, path):
+                matched_any = True
+                auth = b.auth
+
+                # 1. Header Injection
+                if auth.type == "bearer" and auth.credential in secrets:
+                    injected_headers["Authorization"] = f"Bearer {secrets[auth.credential]}"
+                elif auth.type == "basic" and auth.credential in secrets:
+                    injected_headers["Authorization"] = f"Basic {secrets[auth.credential]}"
+                elif auth.type == "apiKey" and auth.name and auth.credential in secrets:
+                    injected_headers[auth.name] = secrets[auth.credential]
+                elif auth.type == "customHeaders" and auth.headers:
+                    for h_spec in auth.headers:
+                        if h_spec.credential in secrets:
+                            injected_headers[h_spec.name] = secrets[h_spec.credential]
+
+                # 2. Placeholder Substitutions
+                if auth.substitutions:
+                    for sub in auth.substitutions:
+                        if sub.credential not in secrets:
+                            continue
+                        sec_val = secrets[sub.credential]
+                        ph = sub.placeholder
+
+                        # Path surface
+                        if "path" in sub.surfaces and ph in new_path:
+                            import urllib.parse
+                            new_path = new_path.replace(ph, urllib.parse.quote(sec_val))
+
+                        # Query surface
+                        if "query" in sub.surfaces:
+                            for qk, qv in list(new_query.items()):
+                                if ph in qv:
+                                    import urllib.parse
+                                    new_query[qk] = qv.replace(ph, urllib.parse.quote(sec_val))
+
+                        # Body surface
+                        if "body" in sub.surfaces and new_body and ph in new_body:
+                            import json
+                            # JSON string escaped value if body looks like json
+                            if new_body.strip().startswith("{") or new_body.strip().startswith("["):
+                                json_escaped = json.dumps(sec_val)[1:-1]
+                                new_body = new_body.replace(ph, json_escaped)
+                            else:
+                                new_body = new_body.replace(ph, sec_val)
+
+                break  # Stop after first matching binding
+
+        return {
+            "matched": matched_any,
+            "injected_headers": injected_headers,
+            "rewritten_path": new_path,
+            "rewritten_query": new_query,
+            "rewritten_body": new_body,
+        }
+
     def get_stats(self) -> dict:
         """Return vault statistics (no secret values exposed)."""
         total = self.db_service.fetch_one("SELECT COUNT(*) as cnt FROM credential_vault")

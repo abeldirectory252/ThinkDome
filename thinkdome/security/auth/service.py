@@ -12,7 +12,7 @@ from typing import Optional, Any, Dict, List
 from pathlib import Path
 from datetime import datetime
 from thinkdome.core.config import Settings
-from thinkdome.database.service import DatabaseService
+from thinkdome.platform.database.service import DatabaseService
 
 logger = logging.getLogger(__name__)
 

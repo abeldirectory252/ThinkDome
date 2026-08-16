@@ -2,14 +2,14 @@
 
 from fastapi import Request, Depends
 
-from thinkdome.execution.core.service import ExecutionService
-from thinkdome.storage.files.service import FileService
-from thinkdome.storage.workspaces.service import WorkspaceService
-from thinkdome.sessions.service import SessionService
+from thinkdome.sandbox.core.service import ExecutionService
+from thinkdome.platform.storage.files.service import FileService
+from thinkdome.platform.storage.workspaces.service import WorkspaceService
+from thinkdome.sandbox.sessions.service import SessionService
 from thinkdome.security.auth.service import AuthService
-from thinkdome.orchestration.orchestrator_service import OrchestratorService
-from thinkdome.orchestration.request_log import RequestLogService
-from thinkdome.billing.service import BillingService
+from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
+from thinkdome.platform.orchestration.request_log import RequestLogService
+from thinkdome.platform.billing.service import BillingService
 
 
 def get_execution_service(request: Request) -> ExecutionService:
@@ -46,7 +46,7 @@ def get_billing_service(request: Request) -> BillingService:
 
 def get_snapshot_service(request: Request):
     if not hasattr(request.app.state, "snapshot_service"):
-        from thinkdome.snapshots.service import SnapshotService
+        from thinkdome.sandbox.snapshots.service import SnapshotService
         request.app.state.snapshot_service = SnapshotService(request.app.state.execution_service.settings)
     return request.app.state.snapshot_service
 

@@ -108,7 +108,7 @@ def require_privilege(operation: str) -> Callable:
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(self, tool_input: dict, *args, **kwargs) -> Any:
-            from thinkdome.orchestration.tools import get_context
+            from thinkdome.platform.orchestration.tools import get_context
             try:
                 ctx = get_context()
                 caller_role = ctx.caller_role

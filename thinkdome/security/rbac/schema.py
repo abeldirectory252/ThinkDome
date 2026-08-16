@@ -6,7 +6,7 @@ Leverages ThinkDome's custom ORM model metadata bindings to create tables automa
 from __future__ import annotations
 
 import logging
-from thinkdome.database.service import DatabaseService
+from thinkdome.platform.database.service import DatabaseService
 from thinkdome.core.orm.orm import Base
 import thinkdome.security.rbac.models  # Trigger model class registration
 

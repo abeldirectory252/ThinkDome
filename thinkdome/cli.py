@@ -74,7 +74,7 @@ def _serve(args) -> None:
 
     print(f"Starting ThinkDome API server on {args.host}:{args.port}")
     uvicorn.run(
-        "thinkdome.server:create_app",
+        "thinkdome.api.server:create_app",
         factory=True,
         host=args.host,
         port=args.port,
@@ -115,7 +115,7 @@ def _run(args) -> None:
 
 def _snapshot(args) -> None:
     """Execute snapshot actions from CLI."""
-    from thinkdome.snapshots.service import SnapshotService
+    from thinkdome.sandbox.snapshots.service import SnapshotService
     svc = SnapshotService()
 
     if args.action == "create":
@@ -136,7 +136,7 @@ def _snapshot(args) -> None:
 
 def _microvm(args) -> None:
     """Execute microvm actions from CLI."""
-    from thinkdome.executors.microvm import MicroVMExecutor
+    from thinkdome.sandbox.executors.microvm import MicroVMExecutor
     executor = MicroVMExecutor()
 
     if args.action == "start":

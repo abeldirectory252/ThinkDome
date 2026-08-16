@@ -8,7 +8,7 @@ from httpx import AsyncClient, ASGITransport
 os.environ["EXECUTOR_BACKEND"] = "subprocess"
 os.environ["FILE_STORAGE_DIR"] = "/tmp/thinkbox-test-files"
 
-from thinkdome.server import create_app
+from thinkdome.api.server import create_app
 
 
 @pytest.fixture
