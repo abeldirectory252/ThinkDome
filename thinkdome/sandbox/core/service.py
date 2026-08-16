@@ -48,21 +48,35 @@ class ExecutionService:
             self._executors["python"] = executor
         except Exception as e:
             backend = self.settings.EXECUTOR_BACKEND.lower()
-            if self.settings.EXECUTOR_BACKEND_USE_FALLBACK and backend in ("docker", "microvm"):
-                logger.warning(
-                    f"WARNING: Failed to initialize {backend} executor: {e}. "
-                    "Falling back to subprocess execution backend."
-                )
-                self.settings.EXECUTOR_BACKEND = "subprocess"
-                executor = create_executor(self.settings, "python")
-                await executor.initialize()
-                self._executors["python"] = executor
-            else:
-                logger.error(
-                    f"Failed to initialize {backend} executor: {e} "
-                    f"(EXECUTOR_BACKEND_USE_FALLBACK={self.settings.EXECUTOR_BACKEND_USE_FALLBACK})"
-                )
-                raise
+            if backend in ("docker", "microvm"):
+                if backend == "microvm":
+                    try:
+                        logger.warning(
+                            "MicroVM initialization failed (%s). Attempting auto-fallback to Docker backend.", e
+                        )
+                        self.settings.EXECUTOR_BACKEND = "docker"
+                        executor = create_executor(self.settings, "python")
+                        await executor.initialize()
+                        self._executors["python"] = executor
+                        logger.info("Successfully initialized Docker backend as fallback.")
+                        return
+                    except Exception as docker_exc:
+                        logger.warning("Docker fallback also failed: %s", docker_exc)
+
+                if self.settings.EXECUTOR_BACKEND_USE_FALLBACK or backend == "microvm":
+                    logger.warning("Falling back to subprocess execution backend.")
+                    self.settings.EXECUTOR_BACKEND = "subprocess"
+                    executor = create_executor(self.settings, "python")
+                    await executor.initialize()
+                    self._executors["python"] = executor
+                    return
+
+            logger.error(
+                f"Failed to initialize {backend} executor: {e} "
+                f"(EXECUTOR_BACKEND_USE_FALLBACK={self.settings.EXECUTOR_BACKEND_USE_FALLBACK})"
+            )
+            raise
+
         logger.info(
             "ExecutionService initialized (backend=%s)",
             self.settings.EXECUTOR_BACKEND,

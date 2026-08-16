@@ -142,11 +142,21 @@ class PythonDockerExecutor(BaseExecutor):
         else:
             logger.warning(f"⚠️  Seccomp profile not found at {SECCOMP_PROFILE_PATH} — using Docker default")
 
-    # ── Container Configuration Builder ──────────────────────────────────────────
+    def _has_network(self, network_name: str) -> bool:
+        """Check if a specific Docker network exists on the daemon."""
+        if not self.client:
+            return False
+        try:
+            networks = self.client.networks.list(names=[network_name])
+            return len(networks) > 0
+        except Exception:
+            return False
 
     def _build_container_config(self, request: ExecRequest) -> dict:
         """Build the full container creation config with all 6 security layers."""
         role = (request.caller_role or "LLM").upper()
+        if role == "LLM" and request.allow_network and request.username:
+            role = "IDE"
         profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
 
         # ── Layer 4: Resource Limits (cgroups v2) ──────────────────────────────────
@@ -171,15 +181,15 @@ class PythonDockerExecutor(BaseExecutor):
         network_mode = "none"
         environment = dict(request.env_vars or {})
 
-        if request.allow_network and role in ("ADMIN", "ORCH", "IDE"):
-            # ADMIN/ORCH/IDE with explicit network access — route through egress proxy
+        if request.allow_network and role in ("ADMIN", "ORCH", "IDE", "WEB", "SDK", "CURL"):
+            # Network access allowed for authenticated roles — route through egress proxy network
             network_mode = PROXY_NETWORK_NAME
             environment["HTTP_PROXY"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
             environment["HTTPS_PROXY"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
             environment["NO_PROXY"] = "localhost,127.0.0.1"
-            logger.info(f"🌐 Network access granted for {role} via egress proxy")
-        elif request.allow_network and role in ("LLM", "WEB", "SDK", "CURL"):
-            # Restricted tokens are NEVER allowed network access regardless of request
+            logger.info(f"🌐 Network access granted for {role} token via egress proxy network")
+        elif request.allow_network and role == "LLM":
+            # Restricted untrusted LLM tokens are NEVER allowed network access regardless of request
             logger.warning(
                 f"🚫 Network access DENIED for {role} token — "
                 f"{role} tokens cannot access the network. Upgrade to ORCH/IDE/ADMIN token."
@@ -187,6 +197,7 @@ class PythonDockerExecutor(BaseExecutor):
             network_mode = "none"
         else:
             logger.info(f"🔒 Network disabled (profile={role}, allow_network={request.allow_network})")
+
         
         # ── Layer 5: Capability Dropping ──────────────────────────────────────────
         cap_drop = ["ALL"]
@@ -196,12 +207,12 @@ class PythonDockerExecutor(BaseExecutor):
         if network_mode != "none":
             cap_add.append("NET_BIND_SERVICE")
 
-        # â”€â”€ Layer 3: Seccomp Profile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Layer 3: Seccomp Profile ──────────────────────────────────────────────
         security_opt = ["no-new-privileges:true"]
         if self._seccomp_profile:
             security_opt.append(f"seccomp={self._seccomp_profile}")
 
-        # â”€â”€ Layer 2: Filesystem Isolation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Layer 2: Filesystem Isolation ──────────────────────────────────────────
         # Read-only rootfs + tmpfs for /tmp (64MB, noexec)
         tmpfs_config = {
             "/tmp":       "size=67108864,noexec,nosuid,nodev",    # 64MB
@@ -219,8 +230,8 @@ class PythonDockerExecutor(BaseExecutor):
             # Inject environment variables for persistent pip packages
             environment["PYTHONUSERBASE"] = "/workspace/.pip"
             environment["PIP_USER"] = "true"
-            # Prepend the site-packages bin and PYTHONPATH
-            existing_path = environment.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+            # Prepend the site-packages bin, sbin paths and PYTHONPATH
+            existing_path = environment.get("PATH", "/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin")
             environment["PATH"] = f"/workspace/.pip/bin:{existing_path}"
             
             existing_pypath = environment.get("PYTHONPATH", "")
@@ -228,11 +239,21 @@ class PythonDockerExecutor(BaseExecutor):
             environment["PYTHONPATH"] = f"{site_packages}:{existing_pypath}" if existing_pypath else site_packages
         else:
             tmpfs_config["/workspace"] = "size=67108864,noexec,nosuid,nodev"
+            if "PATH" not in environment:
+                environment["PATH"] = "/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
 
-        # â”€â”€ Layer 1: OS-Level Virtualization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Language Command Resolution ────────────────────────────────────────────
+        lang = (request.language or "python").lower()
+        if lang in ("bash", "sh", "shell") or request.code.strip().startswith("#!"):
+            exec_command = ["/bin/bash", "-c", request.code]
+        else:
+            exec_command = ["python3", "-u", "-c", request.code]
+
+        # ── Layer 1: OS-Level Virtualization ──────────────────────────────────────
         config = {
             "image":        self.image,
-            "command":      ["python3", "-u", "-c", request.code],
+            "entrypoint":   "",
+            "command":      exec_command,
             "stdin_open":   bool(request.stdin),
 
             # Layer 1: Ephemeral, non-root user
@@ -379,15 +400,31 @@ class PythonDockerExecutor(BaseExecutor):
                 f"pids={profile['pids_limit']}, network={config.get('network_mode', 'none')}"
             )
 
-            container = self.client.containers.create(**config)
-
-            # Inject files into /workspace via tar archive
-            if request.files:
-                tar_stream = self._create_tar(request.files)
-                container.put_archive("/workspace", tar_stream)
-
-            # Start execution
-            container.start()
+            try:
+                container = self.client.containers.create(**config)
+                if request.files:
+                    tar_stream = self._create_tar(request.files)
+                    container.put_archive("/workspace", tar_stream)
+                container.start()
+            except docker.errors.APIError as net_err:
+                err_msg = str(net_err).lower()
+                if "network" in err_msg and ("not found" in err_msg or "failed to set up" in err_msg or "404" in err_msg):
+                    logger.warning(
+                        f"Egress network '{config.get('network_mode')}' failed on Docker host — recreating container with 'bridge' network mode"
+                    )
+                    try:
+                        if container:
+                            container.remove(force=True)
+                    except Exception:
+                        pass
+                    config["network_mode"] = "bridge"
+                    container = self.client.containers.create(**config)
+                    if request.files:
+                        tar_stream = self._create_tar(request.files)
+                        container.put_archive("/workspace", tar_stream)
+                    container.start()
+                else:
+                    raise
 
             # Provide stdin if needed
             if request.stdin:
@@ -461,12 +498,22 @@ class PythonDockerExecutor(BaseExecutor):
                 timed_out=False,
                 duration_ms=round(duration_ms, 2),
             )
+        except docker.errors.APIError as e:
+            duration_ms = (time.monotonic() - start) * 1000
+            logger.error(f"Docker API error: {e}", exc_info=True)
+            return ExecResult(
+                stdout="",
+                stderr="Container Isolation Error: Failed to setup sandbox network environment.",
+                exit_code=1,
+                timed_out=False,
+                duration_ms=round(duration_ms, 2),
+            )
         except Exception as e:
             duration_ms = (time.monotonic() - start) * 1000
             logger.error(f"Execution error: {e}", exc_info=True)
             return ExecResult(
                 stdout="",
-                stderr=f"Internal executor error: {e}",
+                stderr="Sandbox Execution Error: Unable to launch execution environment.",
                 exit_code=-1,
                 timed_out=False,
                 duration_ms=round(duration_ms, 2),
@@ -569,10 +616,39 @@ class PythonDockerExecutor(BaseExecutor):
             config = self._build_container_config(request)
             
             loop = asyncio.get_running_loop()
-            container = await loop.run_in_executor(
-                None,
-                lambda: self.client.containers.create(**config)
-            )
+
+            def _create_and_start():
+                """Create and start container with automatic network fallback."""
+                try:
+                    c = self.client.containers.create(**config)
+                except docker.errors.APIError as net_err:
+                    if "network" in str(net_err).lower() and "not found" in str(net_err).lower():
+                        logger.warning(
+                            f"Egress network '{config.get('network_mode')}' not found — falling back to 'bridge'"
+                        )
+                        config["network_mode"] = "bridge"
+                        c = self.client.containers.create(**config)
+                    else:
+                        raise
+                try:
+                    c.start()
+                except docker.errors.APIError as start_err:
+                    if "network" in str(start_err).lower() and "not found" in str(start_err).lower():
+                        logger.warning(
+                            f"Network start failed — recreating container with 'bridge' network mode"
+                        )
+                        try:
+                            c.remove(force=True)
+                        except Exception:
+                            pass
+                        config["network_mode"] = "bridge"
+                        c = self.client.containers.create(**config)
+                        c.start()
+                    else:
+                        raise
+                return c
+
+            container = await loop.run_in_executor(None, _create_and_start)
 
             if request.files:
                 tar_stream = self._create_tar(request.files)
@@ -580,8 +656,6 @@ class PythonDockerExecutor(BaseExecutor):
                     None,
                     lambda: container.put_archive("/workspace", tar_stream)
                 )
-
-            await loop.run_in_executor(None, container.start)
 
             if request.stdin:
                 def send_stdin():
@@ -640,7 +714,8 @@ class PythonDockerExecutor(BaseExecutor):
             await bg_task
 
         except Exception as e:
-            yield "stderr", f"Docker execution error: {e}"
+            logger.error(f"Streaming execution error: {e}", exc_info=True)
+            yield "stderr", "Sandbox Execution Error: Unable to launch execution environment."
         finally:
             if bg_task:
                 bg_task.cancel()

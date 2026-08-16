@@ -22,32 +22,32 @@ current_username: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar
 
 # ── Role-Based Access Control (RBAC) Scopes Matrix ──
 ROLE_SCOPES = {
-    "LLM": {"code:run", "memory:read", "memory:write"},
+    "LLM": {"code:run", "memory:read", "memory:write", "web:host"},
     "WEB": {
-        "code:run", "file:read", "file:write",
+        "code:run", "file:read", "file:write", "web:host",
         "memory:read", "memory:write"
     },
     "SDK": {
-        "code:run", "file:read", "file:write",
+        "code:run", "file:read", "file:write", "web:host",
         "web:search", "memory:read", "memory:write"
     },
     "CURL": {
-        "code:run", "file:read", "file:write",
+        "code:run", "file:read", "file:write", "web:host",
         "web:search", "memory:read", "memory:write"
     },
     "ORCH": {
         "code:run", "file:read", "file:write", "file:destructive",
-        "web:search", "memory:read", "memory:write", "memory:delete",
+        "web:search", "web:host", "memory:read", "memory:write", "memory:delete",
         "network:all", "shell:run", "comms:send", "admin:all"
     },
     "IDE": {
         "code:run", "file:read", "file:write", "file:destructive",
-        "web:search", "memory:read", "memory:write", "memory:delete",
+        "web:search", "web:host", "memory:read", "memory:write", "memory:delete",
         "network:all", "shell:run", "comms:send", "pty:all"
     },
     "ADMIN": {
         "code:run", "file:read", "file:write", "file:destructive",
-        "web:search", "memory:read", "memory:write", "memory:delete",
+        "web:search", "web:host", "memory:read", "memory:write", "memory:delete",
         "network:all", "shell:run", "comms:send", "pty:all", "admin:all"
     }
 }

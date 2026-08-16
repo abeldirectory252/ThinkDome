@@ -12,6 +12,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         gcc \
         g++ \
+        iputils-ping \
+        net-tools \
+        iproute2 \
+        curl \
+        procps \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- Python dependencies (keep in one layer for caching efficiency) ----
@@ -44,5 +49,4 @@ WORKDIR /workspace
 
 USER sandbox
 
-ENTRYPOINT ["python3", "-u"]
-CMD ["-c", "print('executor ready')"]
+CMD ["python3", "-u", "-c", "print('executor ready')"]

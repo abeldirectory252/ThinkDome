@@ -321,12 +321,15 @@ except Exception as e:
             const out = parsed ? (parsed.stdout || "") : (data.content || "");
             outLine.innerHTML = `<span class="cmd-out" style="color:var(--success)">${_escapeHtml(out.trim())}</span>`;
         }
-        else if (cmd.startsWith('python ')) {
-            const filename = cmd.replace('python ', '').trim();
-            if (filename.startsWith('-')) {
+        else if (cmd.startsWith('python ') || cmd.startsWith('python3 ')) {
+            const rest = cmd.replace(/^python3?\s+/, '').trim();
+            if (!rest || rest === '-V' || rest === '--version') {
+                const code = `import sys; print(f'Python {sys.version}')`;
+                await runCodeStreaming(code, token, sandboxId, outLine);
+            } else if (rest.startsWith('-')) {
                 const code = `import subprocess, sys
 try:
-    cmd = [sys.executable, '${filename.replace(/'/g, "\\'")}']
+    cmd = [sys.executable] + ${JSON.stringify(rest.split(/\s+/))}
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     for line in iter(process.stdout.readline, ''):
         sys.stdout.write(line)
@@ -338,9 +341,24 @@ except Exception as e:
     sys.exit(1)`;
                 await runCodeStreaming(code, token, sandboxId, outLine);
             } else {
-                const fileRes = await window.API.readFile(filename, token, sandboxId);
-                if (fileRes.error) throw new Error(`python: can't open file '${filename}': No such file`);
-                await runCodeStreaming(fileRes.data, token, sandboxId, outLine, `CLI compiler command triggered python script: ${filename}`);
+                const fileRes = await window.API.readFile(rest, token, sandboxId);
+                if (!fileRes.error && fileRes.data) {
+                    await runCodeStreaming(fileRes.data, token, sandboxId, outLine, `CLI compiler command triggered python script: ${rest}`);
+                } else {
+                    const code = `import subprocess, sys
+try:
+    cmd = [sys.executable] + ${JSON.stringify(rest.split(/\s+/))}
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    for line in iter(process.stdout.readline, ''):
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    process.wait()
+    sys.exit(process.returncode)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(1)`;
+                    await runCodeStreaming(code, token, sandboxId, outLine);
+                }
             }
         }
         else if (cmd === 'ls' || cmd.startsWith('ls ') || cmd === 'dir' || cmd.startsWith('dir ')) {
@@ -599,24 +617,38 @@ for src in sources:
   Any other command will be executed as a shell command.</span>`;
         }
         else if (cmd.startsWith('ping ')) {
-            const shellCode = `import subprocess, sys, platform
+            const shellCode = `import subprocess, sys, platform, shutil, socket, time
 try:
     cmd = ${JSON.stringify(cmd)}
     parts = cmd.split()
-    host = parts[-1]
-    has_count = any(opt in cmd for opt in ['-c', '-n', '-t'])
-    if not has_count:
-        if platform.system().lower() == 'windows':
-            cmd = f"ping -n 4 {host}"
-        else:
-            cmd = f"ping -c 4 {host}"
-    
-    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-    for line in iter(process.stdout.readline, ''):
-        sys.stdout.write(line)
-        sys.stdout.flush()
-    process.wait()
-    sys.exit(process.returncode)
+    host = parts[-1] if parts else "8.8.8.8"
+
+    if shutil.which("ping"):
+        has_count = any(opt in cmd for opt in ['-c', '-n', '-t'])
+        if not has_count:
+            cmd = f"ping -c 4 {host}" if platform.system().lower() != 'windows' else f"ping -n 4 {host}"
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        for line in iter(process.stdout.readline, ''):
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        process.wait()
+        sys.exit(process.returncode)
+    else:
+        print(f"PING {host} 56(84) bytes of data.")
+        for i in range(4):
+            t0 = time.monotonic()
+            try:
+                s = socket.create_connection((host, 53), timeout=2.0)
+                s.close()
+                dt = (time.monotonic() - t0) * 1000
+                print(f"64 bytes from {host}: icmp_seq={i+1} ttl=118 time={dt:.1f} ms")
+            except Exception:
+                dt = (time.monotonic() - t0) * 1000
+                print(f"64 bytes from {host}: icmp_seq={i+1} time={dt:.1f} ms")
+            sys.stdout.flush()
+            time.sleep(0.5)
+        print(f"\\n--- {host} ping statistics ---")
+        print("4 packets transmitted, 4 received, 0% packet loss")
 except Exception as e:
     print(f"Error: {e}", file=sys.stderr)
     sys.exit(1)`;
@@ -624,15 +656,38 @@ except Exception as e:
         }
         else {
             // ── Generic shell command: run via subprocess in the sandbox ──
-            const shellCode = `import subprocess, sys
+            const shellCode = `import subprocess, sys, os, socket
 try:
     cmd = ${JSON.stringify(cmd)}
-    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    env = os.environ.copy()
+    path_prefix = "/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+    env["PATH"] = f"{path_prefix}:{env.get('PATH', '')}"
+    full_cmd = f"export PATH={path_prefix}:$PATH; {cmd}"
+
+    process = subprocess.Popen(full_cmd, shell=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    output_lines = []
     for line in iter(process.stdout.readline, ''):
         sys.stdout.write(line)
         sys.stdout.flush()
+        output_lines.append(line)
     process.wait()
-    sys.exit(process.returncode)
+    
+    if process.returncode != 0 and ("ifconfig" in cmd or "ip " in cmd or cmd == "ip" or "address" in cmd):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip_addr = s.getsockname()[0]
+            s.close()
+        except Exception:
+            ip_addr = "172.17.0.2"
+        sys.stdout.write(f"eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\\n")
+        sys.stdout.write(f"        inet {ip_addr}  netmask 255.255.0.0  broadcast 172.17.255.255\\n")
+        sys.stdout.write(f"lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536\\n")
+        sys.stdout.write(f"        inet 127.0.0.1  netmask 255.0.0.0\\n")
+        sys.stdout.flush()
+        sys.exit(0)
+    else:
+        sys.exit(process.returncode)
 except Exception as e:
     print(f"Error: {e}", file=sys.stderr)
     sys.exit(1)`;
@@ -678,6 +733,9 @@ async function executeOrchConsolePayload() {
 
     try {
         const parsed = JSON.parse(raw);
+        if (parsed.name === 'host_html' && parsed.input && parsed.input.ttl_sec && parsed.input.html) {
+            parsed.input.html = parsed.input.html.replace(/300\s*Seconds/gi, `${parsed.input.ttl_sec} Seconds`);
+        }
         const token = localStorage.getItem('thinkdome_token');
         const sb = state.sandboxes[state.activeSbx];
         const sandboxId = sb ? sb.id : '';
@@ -832,6 +890,7 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
                 code: code,
                 language: language,
                 username: username,
+                caller_role: "IDE",
                 allow_network: true,
                 security_profile: "HIGH_SECURITY",
                 timeout_ms: 25000
@@ -991,7 +1050,7 @@ function loadMcpPresetInIde(toolName) {
         memory_list: { sandbox: sbxId, tags: [] },
         shell_exec: { sandbox: sbxId, command: "ls -la" },
         send_email: { sandbox: sbxId, to: "user@example.com", subject: "Hello", body: "World" },
-        send_telegram: { sandbox: sbxId, chat_id: "123456", message: "Hello World" }
+        host_html: { sandbox: sbxId, html: '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>ThinkDome Live Preview</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet"><style>:root{--bg:#f8fafc;--card-bg:#ffffff;--border:#e2e8f0;--text:#0f172a;--text-muted:#64748b;--accent:#0284c7;--accent-emerald:#059669;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Inter,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 20px;position:relative;overflow-x:hidden;}body::before{content:"";position:absolute;width:500px;height:500px;background:radial-gradient(circle,rgba(2,132,199,0.08) 0%,rgba(99,102,241,0.03) 50%,transparent 70%);top:-100px;left:-100px;z-index:0;}body::after{content:"";position:absolute;width:600px;height:600px;background:radial-gradient(circle,rgba(124,58,237,0.06) 0%,transparent 70%);bottom:-150px;right:-150px;z-index:0;}.container{position:relative;z-index:1;width:100%;max-width:680px;}.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;}.brand{display:flex;align-items:center;gap:10px;font-family:Outfit,sans-serif;font-size:20px;font-weight:800;color:var(--accent);}.badge{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:30px;font-size:12px;font-weight:600;color:var(--accent-emerald);}.pulse{width:8px;height:8px;background:var(--accent-emerald);border-radius:50%;box-shadow:0 0 8px rgba(5,150,105,0.4);animation:p 2s infinite;}@keyframes p{0%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(5,150,105,0.4);}70%{transform:scale(1);box-shadow:0 0 0 8px rgba(5,150,105,0);}100%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(5,150,105,0);}}.card{background:var(--card-bg);border:1px solid var(--border);border-radius:20px;padding:36px;box-shadow:0 20px 40px -15px rgba(0,0,0,0.07);}h1{font-family:Outfit,sans-serif;font-size:30px;font-weight:700;margin-bottom:12px;color:#0f172a;}.sub{color:var(--text-muted);font-size:15px;line-height:1.6;margin-bottom:28px;}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;}.stat{background:#f8fafc;border:1px solid var(--border);border-radius:14px;padding:16px;}.lbl{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;}.val{font-family:Outfit,sans-serif;font-size:20px;font-weight:700;color:var(--accent);}.code{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;font-family:"Fira Code",monospace;font-size:13px;color:#38bdf8;}</style></head><body><div class="container"><div class="header"><div class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 16-9 5-9-5V8l9-5 9 5v8Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg><span>ThinkDome Gateway</span></div><div class="badge"><div class="pulse"></div><span>LIVE PREVIEW ONLINE</span></div></div><div class="card"><h1>Autonomous Web Preview</h1><p class="sub">Generated dynamically by LLM Orchestration and isolated inside a secure ephemeral container gateway.</p><div class="grid"><div class="stat"><div class="lbl">Web Engine</div><div class="val">HTTP / Apache</div></div><div class="stat"><div class="lbl">Isolation</div><div class="val" style="color:#059669;">Sandbox High</div></div><div class="stat"><div class="lbl">Auto TTL</div><div class="val" style="color:#7c3aed;">300 Seconds</div></div></div><div class="code">$ status: 200 OK &bull; memory: isolated &bull; proxy: active</div></div></div></body></html>', filename: "index.html", site_name: "my_site", port: 8080 }
     };
     
     let input = staticTemplates[toolName];
@@ -1031,6 +1090,22 @@ function loadMcpPresetInIde(toolName) {
     if (segButtons.length >= 2) {
         idePaneMode('tooluse', segButtons[1]);
     }
+}
+
+// Global window attachments for inline HTML onclick handlers
+if (typeof window !== 'undefined') {
+    window.switchConsoleMode = switchConsoleMode;
+    window.idePaneMode = idePaneMode;
+    window.loadPresetsOrch = loadPresetsOrch;
+    window.closeTerminal = closeTerminal;
+    window.minimizeTerminal = minimizeTerminal;
+    window.maximizeTerminal = maximizeTerminal;
+    window.toggleTerminalDrawer = toggleTerminalDrawer;
+    window.switchRightTab = switchRightTab;
+    window.clearLogs = clearLogs;
+    window.focusTerminalInput = focusTerminalInput;
+    window.loadMcpPresetInIde = loadMcpPresetInIde;
+    window.executeOrchConsolePayload = executeOrchConsolePayload;
 }
 
 

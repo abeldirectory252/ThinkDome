@@ -487,3 +487,85 @@ async def test_orchestrate_memory_store_allowed_for_llm(client, api_keys):
     payload["id"] = "t_admin_cleanup"
     resp = await client.post("/v1/orchestrate", json=payload, headers=admin_headers)
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_orchestrate_host_html_tool(client, api_keys):
+    headers = {"Authorization": f"Bearer {api_keys['LLM']}"}
+    payload = {
+        "type": "tool_use",
+        "id": "toolu_host_html_test",
+        "name": "host_html",
+        "input": {
+            "html": "<html><body><h1>LLM Report</h1><p>Test report content</p></body></html>",
+            "filename": "report.html",
+            "site_name": "reports",
+            "port": 8089,
+            "ttl_sec": 60
+        }
+    }
+    resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
+    assert resp.status_code == 200
+    res_data = resp.json()
+    assert res_data["is_error"] is False
+    assert "report.html" in res_data["content"]
+    assert "/v1/hosted/" in res_data["content"]
+    assert '"ttl_sec": 60' in res_data["content"] or "TTL Timeout: 60" in res_data["content"]
+
+
+@pytest.mark.asyncio
+async def test_orchestrate_host_html_custom_24h_ttl(client, api_keys):
+    """Test host_html with 24 hour custom TTL (86400 seconds)."""
+    headers = {"Authorization": f"Bearer {api_keys['ADMIN']}"}
+    payload = {
+        "type": "tool_use",
+        "id": "toolu_host_html_24h",
+        "name": "host_html",
+        "input": {
+            "html": "<html><body><h1>24h Report</h1></body></html>",
+            "ttl_sec": 86400
+        }
+    }
+    resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
+    assert resp.status_code == 200
+    res_data = resp.json()
+    assert res_data["is_error"] is False
+    assert '"ttl_sec": 86400' in res_data["content"] or "TTL Timeout: 86400" in res_data["content"]
+
+
+@pytest.mark.asyncio
+async def test_orchestrate_host_html_default_and_custom_ttl(client, api_keys):
+    """Test that host_html uses default 300s (5min) when unspecified, and receives custom TTL when provided."""
+    headers = {"Authorization": f"Bearer {api_keys['ADMIN']}"}
+
+    # 1. Default (no ttl_sec passed) -> 300s (5 min)
+    payload_def = {
+        "type": "tool_use",
+        "id": "toolu_host_default",
+        "name": "host_html",
+        "input": {
+            "html": "<html><body><h1>Default 5min Report</h1></body></html>"
+        }
+    }
+    resp_def = await client.post("/v1/orchestrate", json=payload_def, headers=headers)
+    assert resp_def.status_code == 200
+    res_def = resp_def.json()
+    assert res_def["is_error"] is False
+    assert '"ttl_sec": 300' in res_def["content"] or "TTL Timeout: 300" in res_def["content"]
+
+    # 2. Custom 2-hour TTL (7200s)
+    payload_custom = {
+        "type": "tool_use",
+        "id": "toolu_host_custom_2h",
+        "name": "host_html",
+        "input": {
+            "html": "<html><body><h1>2h Custom Report</h1></body></html>",
+            "ttl_sec": 7200
+        }
+    }
+    resp_custom = await client.post("/v1/orchestrate", json=payload_custom, headers=headers)
+    assert resp_custom.status_code == 200
+    res_custom = resp_custom.json()
+    assert res_custom["is_error"] is False
+    assert '"ttl_sec": 7200' in res_custom["content"] or "TTL Timeout: 7200" in res_custom["content"]
+

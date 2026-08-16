@@ -35,10 +35,13 @@ async def test_microvm_executor_init_and_spawn():
 @pytest.mark.asyncio
 async def test_microvm_execution():
     """Test executing code inside MicroVM isolated environment."""
+    if not os.path.exists("/dev/kvm") or not os.access("/dev/kvm", os.R_OK | os.W_OK):
+        pytest.skip("KVM hardware acceleration (/dev/kvm) not available in environment")
     settings = Settings()
     settings.EXECUTOR_BACKEND_USE_FALLBACK = True
     executor = MicroVMExecutor(settings)
     await executor.initialize()
+
 
     req = ExecRequest(
         code="print('Hello from isolated MicroVM')",

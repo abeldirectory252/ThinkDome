@@ -1,4 +1,7 @@
 import os
+import sys
+import time
+import threading
 import json
 from typing import Any, Optional
 from thinkdome.platform.orchestration.tools import BaseTool, register_tool, get_context
@@ -228,4 +231,118 @@ class ListSnapshotsTool(BaseTool):
         svc = getattr(ctx.execution_service, "snapshot_service", None) or SnapshotService()
         snaps = svc.list_snapshots(sandbox_id=sandbox_id, owner=ctx.username)
         return json.dumps({"snapshots": snaps}, indent=2)
+
+
+@register_tool
+class HostHtmlTool(BaseTool):
+    name = "host_html"
+    description = "Host HTML content temporarily on HTTP/Apache web server with a clean unique token URL and automatic TTL timeout"
+    required_scope = "web:host"
+
+    async def execute(self, tool_input: dict[str, Any]) -> str:
+        import secrets
+        import shutil
+        from pathlib import Path
+
+        html = tool_input.get("html")
+        if not html:
+            raise ValueError("Parameter 'html' is required for host_html.")
+
+        filename = tool_input.get("filename", "index.html")
+        site_name = tool_input.get("site_name", "hosted_site")
+        port = tool_input.get("port", 8080)
+        ttl_sec = min(max(int(tool_input.get("ttl_sec", 300)), 10), 86400)
+        ctx = get_context()
+
+        # Dynamically sync TTL text in HTML markup if standard template placeholder or 300 Seconds is present
+        import re
+        ttl_text = f"{ttl_sec} Seconds"
+        html = re.sub(r'300\s*Seconds', ttl_text, html, flags=re.IGNORECASE)
+        html = html.replace('{ttl_sec}', str(ttl_sec))
+
+        # Generate clean, obfuscated random token for URL (no site_name exposed)
+        site_id = secrets.token_hex(12)
+
+        # Save HTML file locally in storage/hosted_sites/{site_id}/{filename} for FastAPI serving
+        storage_dir = Path(__file__).resolve().parents[3] / "storage" / "hosted_sites" / site_id
+        storage_dir.mkdir(parents=True, exist_ok=True)
+        html_path = storage_dir / filename
+        html_path.write_text(html, encoding="utf-8")
+
+        # Schedule auto-cleanup of hosted site files after ttl_sec
+        def cleanup_site():
+            time.sleep(ttl_sec)
+            if storage_dir.exists():
+                shutil.rmtree(storage_dir, ignore_errors=True)
+
+        threading.Thread(target=cleanup_site, daemon=True).start()
+
+        # Build python runner script that saves HTML inside container as well
+        python_code = f"""
+import os, sys, subprocess, time, socket, threading
+
+site_base = "/workspace" if os.path.exists("/workspace") else os.getcwd()
+site_dir = os.path.abspath(os.path.join(site_base, "{site_name}"))
+os.makedirs(site_dir, exist_ok=True)
+filepath = os.path.join(site_dir, "{filename}")
+
+with open(filepath, "w", encoding="utf-8") as f:
+    f.write({repr(html)})
+
+# Attempt Apache Web Server hosting if apachectl or apache2 is present
+apache_started = False
+try:
+    for cmd in ["apachectl start", "service apache2 start", "systemctl start apache2", "apache2ctl start"]:
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if res.returncode == 0:
+            apache_started = True
+            for docroot in ["/var/www/html", "/var/www"]:
+                if os.path.exists(docroot) and os.access(docroot, os.W_OK):
+                    target = os.path.join(docroot, "{filename}")
+                    with open(target, "w", encoding="utf-8") as f:
+                        f.write({repr(html)})
+            break
+except Exception:
+    pass
+
+server_type = "Apache HTTP Server" if apache_started else "HTTP Temporary Server"
+hosted_url = "http://localhost:8000/v1/hosted/{site_id}"
+
+print(f"✅ HTML Content Hosted Successfully")
+print(f"Web Engine: {{server_type}}")
+print(f"Site Token: {site_id}")
+print(f"Document File: {{filepath}}")
+print(f"TTL Timeout: {ttl_sec} seconds")
+print(f"Access URL: {{hosted_url}}")
+sys.stdout.flush()
+"""
+
+        exec_req = ExecuteRequest(
+            code=python_code,
+            language="python",
+            security_profile=tool_input.get("security_profile", "HIGH_SECURITY"),
+            caller_role=ctx.caller_role,
+            allow_network=True,
+            timeout_ms=10000,
+            username=ctx.username,
+        )
+
+        resp = await ctx.execution_service.execute(exec_req)
+
+        hosted_url = f"http://localhost:8000/v1/hosted/{site_id}"
+
+        result_dict = {
+            "status": "hosted",
+            "site_id": site_id,
+            "filename": filename,
+            "port": port,
+            "ttl_sec": ttl_sec,
+            "url": hosted_url,
+            "stdout": resp.stdout,
+            "stderr": resp.stderr,
+            "exit_code": resp.exit_code,
+        }
+
+        return json.dumps(result_dict, indent=2)
+
 

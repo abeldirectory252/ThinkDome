@@ -266,10 +266,11 @@ class MicroVMExecutor(BaseExecutor):
             and os.access("/dev/kvm", os.R_OK | os.W_OK)
         )
         if not self.kvm_available:
-            logger.warning(
-                "MicroVM: /dev/kvm not available or not writable. "
-                "VM creation will fail without KVM hardware acceleration."
+            raise MicroVMError(
+                "MicroVM backend requires /dev/kvm hardware virtualization extensions. "
+                "Enable nested virtualization in your host hypervisor settings or set EXECUTOR_BACKEND='docker'."
             )
+
 
         # 2. Validate cloud-hypervisor binary
         chv_path = shutil.which(self._chv_binary)
@@ -348,7 +349,13 @@ class MicroVMExecutor(BaseExecutor):
           6. Wait for in-guest command server
           7. Setup DNAT port forwards
         """
+        if not self.kvm_available:
+            raise MicroVMError(
+                "Cannot spawn MicroVM: /dev/kvm hardware acceleration device is missing or not writable."
+            )
+
         vm_id = f"mvm_{uuid.uuid4().hex[:8]}"
+
         vm_state_dir = self._state_dir / vm_id
         vm_state_dir.mkdir(parents=True, exist_ok=True)
 

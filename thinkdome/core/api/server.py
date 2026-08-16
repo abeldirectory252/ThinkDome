@@ -113,6 +113,91 @@ async def serve_favicon():
     return Response(status_code=204)
 
 
+@app.get("/v1/hosted/{site_id}/{filename:path}")
+@app.get("/v1/hosted/{site_id}")
+async def serve_hosted_site(site_id: str, filename: str = "index.html"):
+    """Serve dynamically hosted HTML reports and applications with auto-expiration."""
+    from fastapi.responses import FileResponse, HTMLResponse
+    from pathlib import Path
+    import os
+
+    base_dir = Path(os.getcwd()) / "storage" / "hosted_sites" / site_id
+    if not base_dir.exists():
+        base_dir = Path(__file__).resolve().parents[3] / "storage" / "hosted_sites" / site_id
+
+    target_file = base_dir / (filename if filename else "index.html")
+
+    if not target_file.exists() or not target_file.is_file():
+        target_file = base_dir / "index.html"
+
+    if not target_file.exists() or not target_file.is_file():
+        if base_dir.exists():
+            files = [f for f in base_dir.iterdir() if f.is_file()]
+            if files:
+                target_file = files[0]
+
+    if not target_file.exists() or not target_file.is_file():
+        expired_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hosted Site Expired — ThinkDome</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {{ margin: 0; background: #ffffff; color: #0f172a; font-family: Inter, system-ui, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }}
+    .login-card {{ width: 100%; max-width: 440px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 40px 36px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; box-sizing: border-box; }}
+    .brand {{ display: flex; align-items: center; justify-content: center; gap: 10px; font-family: Outfit, sans-serif; font-size: 22px; font-weight: 800; color: #0284c7; }}
+    .status-icon {{ margin: 24px auto 12px; width: 56px; height: 56px; border-radius: 50%; background: #fef2f2; border: 1px solid #fecaca; display: flex; align-items: center; justify-content: center; color: #dc2626; }}
+    h1 {{ font-family: Outfit, sans-serif; font-size: 24px; font-weight: 700; margin: 16px 0 8px; color: #0f172a; }}
+    .sub {{ color: #64748b; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }}
+    .token-badge {{ background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 8px; font-family: 'Fira Code', monospace; font-size: 13px; color: #0284c7; word-break: break-all; margin-bottom: 24px; }}
+    .action-btn {{ display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; background: #0f172a; color: #ffffff; font-weight: 600; font-size: 14px; border-radius: 8px; text-decoration: none; transition: opacity 0.2s; box-sizing: border-box; }}
+    .action-btn:hover {{ opacity: 0.9; }}
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m21 16-9 5-9-5V8l9-5 9 5v8Z" />
+        <path d="m3.3 7 8.7 5 8.7-5" />
+        <path d="M12 22V12" />
+      </svg>
+      <span>ThinkDome</span>
+    </div>
+    <div class="status-icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    </div>
+    <h1>Hosted Site Expired</h1>
+    <p class="sub">The temporary hosted application or preview has expired (TTL timeout) or the URL is invalid.</p>
+    <div class="token-badge">Token: {site_id}</div>
+    <a href="/" class="action-btn">
+      Return to ThinkDome Console
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+    </a>
+  </div>
+</body>
+</html>"""
+        return HTMLResponse(content=expired_html, status_code=404)
+
+    media_type = "text/html"
+    if target_file.suffix == ".css":
+        media_type = "text/css"
+    elif target_file.suffix == ".js":
+        media_type = "application/javascript"
+    elif target_file.suffix in [".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico"]:
+        media_type = f"image/{target_file.suffix.lstrip('.')}"
+
+    return FileResponse(target_file, media_type=media_type)
+
+
 # ── WebSocket Broadcast Registry ──────────────────────────────────────────────
 
 active_connections: Set[WebSocket] = set()

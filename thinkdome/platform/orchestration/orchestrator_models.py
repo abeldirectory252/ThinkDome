@@ -1,4 +1,4 @@
-﻿"""Pydantic schema models for orchestrator tool_use validation.
+"""Pydantic schema models for orchestrator tool_use validation.
 
 All tool input schemas are defined here as the single source of truth.
 The JSON schema is auto-generated from these models via ToolUseRequest.model_json_schema().
@@ -129,7 +129,7 @@ class MemoryListInput(BaseModel):
     limit: Optional[int] = Field(default=50, ge=1, le=500, description="Maximum number of keys to return.")
 
 
-# â”€â”€ SHELL / SYSTEM COMMAND TOOLS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── SHELL / SYSTEM COMMAND TOOLS ──────────────────────────────────────────────
 
 class ShellExecInput(BaseModel):
     command: str = Field(..., description="The shell command to execute.")
@@ -137,7 +137,7 @@ class ShellExecInput(BaseModel):
     cwd: Optional[str] = Field(default=None, description="Working directory for the command (defaults to workspace root).")
 
 
-# â”€â”€ COMMUNICATION TOOLS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── COMMUNICATION TOOLS ───────────────────────────────────────────────────────
 
 class SendEmailInput(BaseModel):
     to: str = Field(..., description="Recipient email address.")
@@ -154,7 +154,17 @@ class SendTelegramInput(BaseModel):
     )
 
 
-# â”€â”€ TOOL REGISTRY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── WEB HOSTING TOOLS ───────────────────────────────────────────────────────
+
+class HostHtmlInput(BaseModel):
+    html: str = Field(..., description="The HTML content/markup to host and serve.")
+    filename: Optional[str] = Field(default="index.html", description="Filename for the HTML page (default index.html).")
+    site_name: Optional[str] = Field(default="hosted_site", description="Site directory name under workspace.")
+    port: Optional[int] = Field(default=8080, description="Web server port to serve the HTML content on.")
+    ttl_sec: Optional[int] = Field(default=300, description="Time-to-live in seconds before the hosted site automatically shuts down and times out (default 300s, supports custom values up to 86400s / 24 hours).")
+
+
+# ── TOOL REGISTRY ─────────────────────────────────────────────────────────────
 
 INPUT_MODELS = {
     # File system
@@ -173,8 +183,9 @@ INPUT_MODELS = {
     "find_files": FindFilesInput,
     "get_file_info": GetFileInfoInput,
     "hash_file": HashFileInput,
-    # API / HTTP
+    # API / HTTP & Web Hosting
     "http_request": HttpRequestInput,
+    "host_html": HostHtmlInput,
     # Memory & Knowledge
     "memory_store": MemoryStoreInput,
     "memory_retrieve": MemoryRetrieveInput,
@@ -197,7 +208,7 @@ class ToolUseRequest(BaseModel):
     id: str
     name: Literal[
         "copy_file", "file_exists", "find_files", "get_file_info", "grep_search",
-        "hash_file", "http_request", "list_dir", "make_dir",
+        "hash_file", "host_html", "http_request", "list_dir", "make_dir",
         "memory_delete", "memory_list", "memory_retrieve", "memory_search", "memory_store",
         "move_file", "read_file", "remove_dir", "remove_file", "run_code",
         "send_email", "send_telegram", "shell_exec",

@@ -293,6 +293,7 @@ class PoolManager:
 
         return self.docker_client.containers.create(
             image=self.image,
+            entrypoint="",
             command=["sleep", "infinity"],
             detach=True,
             user="1000:1000",
