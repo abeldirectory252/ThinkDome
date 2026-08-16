@@ -26,18 +26,30 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional
 
+from thinkdome.sandbox.executors.microvm.exceptions import (
+    InsufficientPrivilegesError,
+    NetworkConfigurationError,
+)
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class PortForward:
-    """A DNAT port forwarding rule mapping host_port → guest_ip:guest_port."""
+    """A DNAT port forwarding rule mapping host_port -> guest_ip:guest_port."""
     host_port: int
     guest_port: int
     description: str
 
 
+def has_net_admin_privileges() -> bool:
+
+    """Check if process has root (UID 0) privileges required for host network manipulation."""
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
 def _run(cmd: List[str], check: bool = True, capture: bool = True) -> subprocess.CompletedProcess:
+
     """Run a command with logging."""
     logger.debug("Running: %s", " ".join(cmd))
     return subprocess.run(cmd, check=check, capture_output=capture, text=True)
@@ -88,6 +100,12 @@ def setup_bridge_and_firewall(
         bridge_subnet: Subnet CIDR (e.g. ``"10.20.1.0/24"``).
         backup_file: Optional path to save iptables backup before modifications.
     """
+    # Upfront privilege check
+    if not has_net_admin_privileges():
+        raise InsufficientPrivilegesError(
+            f"Configuring Linux bridge '{bridge_name}' and firewall rules requires root (UID 0) or CAP_NET_ADMIN privileges."
+        )
+
     # Save iptables backup
     if backup_file is None:
         backup_file = f"/tmp/iptables-backup-{int(time.time())}.rules"
@@ -110,35 +128,27 @@ def setup_bridge_and_firewall(
         return
 
     # Setup bridge and firewall rules
-    # Mirrors the exact sequence from Arrakis server.go setupBridgeAndFirewall()
     commands = [
-        # Create bridge
         ["ip", "link", "add", bridge_name, "type", "bridge"],
-        # Bring bridge up
         ["ip", "link", "set", bridge_name, "up"],
-        # Assign IP to bridge (scope host = only accessible from this host)
         ["ip", "addr", "add", bridge_ip, "dev", bridge_name, "scope", "host"],
-        # NAT: MASQUERADE outbound traffic from VM subnet
-        ["iptables", "-t", "nat", "-A", "POSTROUTING",
-         "-s", bridge_subnet, "-o", host_iface, "-j", "MASQUERADE"],
-        # Enable IP forwarding for the host interface
+        ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", bridge_subnet, "-o", host_iface, "-j", "MASQUERADE"],
         ["sysctl", "-w", f"net.ipv4.conf.{host_iface}.forwarding=1"],
-        # Enable IP forwarding for the bridge
         ["sysctl", "-w", f"net.ipv4.conf.{bridge_name}.forwarding=1"],
-        # Allow forwarding to/from VM subnet
-        ["iptables", "-t", "filter", "-I", "FORWARD",
-         "-s", bridge_subnet, "-j", "ACCEPT"],
-        ["iptables", "-t", "filter", "-I", "FORWARD",
-         "-d", bridge_subnet, "-j", "ACCEPT"],
+        ["iptables", "-t", "filter", "-I", "FORWARD", "-s", bridge_subnet, "-j", "ACCEPT"],
+        ["iptables", "-t", "filter", "-I", "FORWARD", "-d", bridge_subnet, "-j", "ACCEPT"],
     ]
 
     for cmd in commands:
         try:
             _run(cmd)
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                f"Failed to setup networking: {' '.join(cmd)}: {exc.stderr}"
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            stderr = getattr(exc, "stderr", None) or str(exc)
+            raise NetworkConfigurationError(
+                f"Failed to execute bridge setup command '{' '.join(cmd)}': {stderr.strip()}"
             ) from exc
+
+
 
     logger.info(
         "Bridge %s created with IP %s, subnet %s",

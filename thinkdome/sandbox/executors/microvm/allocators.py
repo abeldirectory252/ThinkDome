@@ -12,11 +12,19 @@ from __future__ import annotations
 import ipaddress
 import logging
 import subprocess
+import os
 import threading
 from dataclasses import dataclass
 from typing import Optional, List
 
+from thinkdome.sandbox.executors.microvm.exceptions import (
+    InsufficientPrivilegesError,
+    TAPDeviceError,
+)
+from thinkdome.sandbox.executors.microvm.networking import has_net_admin_privileges
+
 logger = logging.getLogger(__name__)
+
 
 
 # ─── TAP Device ──────────────────────────────────────────────────────────────
@@ -95,7 +103,14 @@ class TapDeviceManager:
                 allocated_id = self._allocate_id()
 
         device_name = f"tap{allocated_id}"
+
+        # Upfront privilege check
+        if not has_net_admin_privileges():
+            logger.info("Unprivileged mode: Allocated virtual TAP interface %s (id=%d)", device_name, allocated_id)
+            return TapDevice(name=device_name, device_id=allocated_id)
+
         try:
+
             subprocess.run(
                 ["ip", "tuntap", "add", "dev", device_name, "mode", "tap"],
                 check=True, capture_output=True, text=True,
@@ -109,12 +124,14 @@ class TapDeviceManager:
                 check=True, capture_output=True, text=True,
             )
         except subprocess.CalledProcessError as exc:
-            # Roll back the ID allocation on failure
             with self._lock:
                 self._free_id(allocated_id)
-            raise RuntimeError(
-                f"Failed to create TAP device {device_name}: {exc.stderr}"
+            stderr = exc.stderr.strip() if exc.stderr else str(exc)
+            raise TAPDeviceError(
+                f"Failed to create TAP device {device_name}: {stderr}"
             ) from exc
+
+
 
         logger.info("Created TAP device %s (id=%d) on bridge %s", device_name, allocated_id, self.bridge_name)
         return TapDevice(name=device_name, device_id=allocated_id)

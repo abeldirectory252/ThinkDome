@@ -55,7 +55,53 @@ with Sandbox(backend="microvm") as dome:
     print(result.output)
 ```
 
+### MicroVM & Non-Root Setup Guide
+
+> 📘 **Full Hypervisor & Secure Container Installation Guide**: For detailed instructions on downloading, installing, and configuring gVisor (`runsc`), Kata Containers, Firecracker, Cloud Hypervisor, Docker integration (`/etc/docker/daemon.json`), and kernel/rootfs assets, see the [Hypervisor & Secure Container Setup Guide](file:///home/sandbox/ThinkDome/docs/example/hypervisor_setup_guide.md).
+
+To run hardware-virtualized MicroVM sandboxes (`cloud-hypervisor` or `firecracker`), `thinkdome` requires the hypervisor binary and guest OS assets:
+
+
+#### 1. Install Hypervisor Binary
+Download the static release binary into your `PATH`:
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v40.0/cloud-hypervisor -o ~/.local/bin/cloud-hypervisor
+chmod +x ~/.local/bin/cloud-hypervisor
+```
+
+#### 2. KVM & Kernel/Rootfs Setup
+- **KVM Access**: Ensure `/dev/kvm` is accessible: `sudo chmod 666 /dev/kvm` (or add your user to `kvm` group: `sudo usermod -aG kvm $USER`).
+- **Guest OS Assets**: Place guest kernel and ext4 filesystem images at default locations (or configure via environment variables):
+  - Kernel: `/var/lib/thinkdome/vmlinux` (`MICROVM_KERNEL_PATH`)
+  - Rootfs: `/var/lib/thinkdome/rootfs.ext4` (`MICROVM_ROOTFS_PATH`)
+
+#### 3. Execution Modes
+
+Choose the execution mode suited for your environment:
+
+- **Mode A: Dev / Unprivileged Non-Root (with Automatic Fallback)**:
+  Runs using process/subprocess or container fallback when KVM/TAP permissions are missing:
+  ```bash
+  EXECUTOR_BACKEND_USE_FALLBACK=True ./venv/bin/python -m thinkdome.cli serve
+  ```
+
+- **Mode B: Docker / Kata / gVisor Runtime (`backend="docker"`)**:
+  Docker handles container/VM network namespaces without host TAP creation:
+  ```bash
+  EXECUTOR_BACKEND=docker ./venv/bin/python -m thinkdome.cli serve
+  ```
+
+- **Mode C: Native Host MicroVM (Root / `CAP_NET_ADMIN`)**:
+  Provides direct host TAP device bridging for production multi-tenant isolation:
+  ```bash
+  sudo ./venv/bin/python -m thinkdome.cli serve
+  # or: sudo setcap cap_net_admin,cap_net_raw+ep $(which python3)
+  ```
+
 ---
+
+
 
 ## 🌐 Network Control & Egress Policies
 
@@ -112,15 +158,39 @@ print("Total Sum:", df['value'].sum())
 ## 🖥️ Command Line & API Server
 
 ### Start API Server & Web UI
+
+You can configure the server using environment variables (`HOST`, `PORT`, `EXECUTOR_BACKEND`, `EXECUTOR_BACKEND_USE_FALLBACK`) or command-line flags:
+
 ```bash
-thinkdome serve --host 127.0.0.1 --port 8000
+# Direct inline environment variables
+HOST=127.0.0.1 PORT=8000 EXECUTOR_BACKEND=microvm ./venv/bin/thinkdome serve
+
+# Or using exported environment variables
+export HOST="127.0.0.1"
+export PORT="8000"
+export EXECUTOR_BACKEND="microvm"             # "microvm" | "docker" | "kubernetes" | "subprocess"
+export EXECUTOR_BACKEND_USE_FALLBACK="True"   # Set True for auto-fallback to subprocess in dev/non-root
+
+./venv/bin/thinkdome serve --host 127.0.0.1 --port 8000
 ```
+
+> **Note**: You can also run directly using the virtual environment Python executable:
+> ```bash
+> ./venv/bin/python -m thinkdome.cli serve --host 127.0.0.1 --port 8000
+> ```
+
 Open `http://localhost:8000` to view the interactive **Network Egress & Sandbox Dashboard**.
 
 ### Run Code via CLI
+
 ```bash
-thinkdome run "print('Hello from CLI!')" --backend microvm
+# Execute via virtualenv thinkdome CLI binary
+EXECUTOR_BACKEND=microvm ./venv/bin/thinkdome run "print('Hello from CLI!')" --backend microvm
+
+# Or via virtualenv python module syntax:
+./venv/bin/python -m thinkdome.cli run "print('Hello from CLI!')" --backend subprocess
 ```
+
 
 ---
 

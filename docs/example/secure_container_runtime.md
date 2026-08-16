@@ -2,6 +2,9 @@
 
 ThinkDome supports hardware-level isolation for untrusted AI-generated code using Google gVisor, Kata Containers, and Firecracker MicroVMs.
 
+> 📘 **Installation & Download Guide**: For step-by-step download links, installation commands, Docker daemon registration (`/etc/docker/daemon.json`), and kernel/rootfs asset configuration, see the [Hypervisor & Secure Container Setup Guide](file:///home/sandbox/ThinkDome/docs/example/hypervisor_setup_guide.md).
+
+
 ---
 
 ## 🏰 Supported Isolation Runtimes

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
+
 
 
 def main() -> None:
@@ -51,6 +53,14 @@ def main() -> None:
     mvm_parser.add_argument("--vcpus", type=int, default=2, help="vCPUs count")
     mvm_parser.add_argument("--memory", type=int, default=512, help="Memory MB")
 
+    # check / doctor command
+    subparsers.add_parser("check", help="Check host hypervisor readiness & system diagnostics")
+    subparsers.add_parser("doctor", help="Alias for check: diagnose host hypervisor & container runtimes")
+
+    # setup / setup-microvm command
+    subparsers.add_parser("setup", help="Download and provision all MicroVM & sandbox prerequisites automatically")
+    subparsers.add_parser("setup-microvm", help="Alias for setup: provision hypervisor binaries, kernel, and rootfs")
+
     args = parser.parse_args()
 
     if args.command == "serve":
@@ -63,9 +73,15 @@ def main() -> None:
         _snapshot(args)
     elif args.command == "microvm":
         _microvm(args)
+    elif args.command in ("check", "doctor"):
+        _check(args)
+    elif args.command in ("setup", "setup-microvm"):
+        _setup(args)
     else:
         parser.print_help()
         sys.exit(1)
+
+
 
 
 def _serve(args) -> None:
@@ -148,6 +164,93 @@ def _microvm(args) -> None:
             print(f" - [{inst.vm_id}] {inst.name} ({inst.vcpus} vCPUs, {inst.memory_mb}MB RAM) -> {inst.ip_address}")
 
 
+def _check(args) -> None:
+    """Check host system prerequisites and recommend optimal execution mode."""
+    from thinkdome.sandbox.provisioning import SystemProvisioner, StatusLevel
+
+    provisioner = SystemProvisioner()
+    report = provisioner.run_diagnostics()
+
+    print("=" * 80)
+    print(" 🧠 ThinkDome Host System & Hypervisor Diagnostic Tool")
+    print("=" * 80)
+    print()
+    print(f"[+] OS Platform    : {report.os_info}")
+    print(f"[+] User Privilege : {'Root (UID 0)' if report.is_root else f'Unprivileged (UID {report.user_uid})'}")
+
+    if report.is_root:
+        print("    ✓ Full privileges to configure TAP interfaces and Linux bridge network.")
+    else:
+        print("    ! Running non-root: Host TAP/bridge setup requires root or sudo.")
+
+    print()
+    print("--- ⚡ MicroVM & KVM Hardware Isolation ---")
+    for item in report.items[:5]:
+        sym = "✓" if item.level == StatusLevel.OK else "!"
+        print(f"  [{sym}] {item.name:<18}: {item.details}")
+        if item.suggestion:
+            print(f"      ➜ Suggestion: {item.suggestion}")
+
+    print()
+    print("--- 🐳 Docker & Secure OCI Runtimes ---")
+    for item in report.items[5:]:
+        sym = "✓" if item.level == StatusLevel.OK else "!"
+        print(f"  [{sym}] {item.name:<18}: {item.details}")
+        if item.suggestion:
+            print(f"      ➜ Suggestion: {item.suggestion}")
+
+    print()
+    print("=" * 80)
+    print(" 💡 SUGGESTED CONFIGURATION FOR THIS MACHINE")
+    print("=" * 80)
+
+    if report.recommended_backend == "microvm":
+        print(" ★ Optimal Mode: Native MicroVM Hardware Virtualization")
+        print("   export EXECUTOR_BACKEND=\"microvm\"")
+    elif report.recommended_backend == "docker":
+        print(" ★ Recommended Mode: Docker Container Isolation")
+        print("   export EXECUTOR_BACKEND=\"docker\"")
+    else:
+        print(" ★ Dev Fallback Mode: Process Isolation with Automatic Fallback")
+        print("   export EXECUTOR_BACKEND_USE_FALLBACK=\"True\"")
+
+    print()
+    print(" Command to start server:")
+    print("   ./venv/bin/python -m thinkdome.cli serve --host 127.0.0.1 --port 8000")
+
+
+def _setup(args) -> None:
+    """Download and provision all MicroVM & sandbox prerequisites automatically."""
+    import sys
+    from thinkdome.sandbox.provisioning import SystemProvisioner
+
+    print("=" * 80)
+    print(" 🚀 ThinkDome Setup - Provisioning All MicroVM & Sandbox Requirements")
+    print("=" * 80)
+    print()
+
+    provisioner = SystemProvisioner()
+    try:
+        report = provisioner.setup_prerequisites()
+        print()
+        print("=" * 80)
+        print(" ✅ Provisioning complete! Running diagnostic check now...")
+        print("=" * 80)
+        print()
+        _check(args)
+    except PermissionError as pe:
+        print()
+        print(f" ✘ ERROR: {pe}")
+        print()
+        print("   Usage:  sudo ./venv/bin/python -m thinkdome.cli setup")
+        print("       or: sudo ./scripts/setup_hypervisors.sh")
+        print()
+        sys.exit(1)
+
+
+
 
 if __name__ == "__main__":
     main()
+
+

@@ -62,7 +62,16 @@ from thinkdome.sandbox.executors.microvm.networking import (
     PortForward,
 )
 
+from thinkdome.sandbox.executors.microvm.exceptions import (
+    MicroVMError,
+    InsufficientPrivilegesError,
+    TAPDeviceError,
+    NetworkConfigurationError,
+    MicroVMProvisionError,
+)
+
 logger = logging.getLogger(__name__)
+
 
 
 # ─── Constants ───────────────────────────────────────────────────────────────
@@ -293,10 +302,11 @@ class MicroVMExecutor(BaseExecutor):
                 bridge_ip=self._bridge_ip,
                 bridge_subnet=self._bridge_subnet,
             )
+        except InsufficientPrivilegesError as exc:
+            logger.info("MicroVM host bridge setup skipped: %s", exc)
         except Exception as exc:
-            logger.warning(
-                "MicroVM: Bridge/firewall setup failed (may need root): %s", exc
-            )
+            logger.warning("MicroVM host bridge setup failed: %s", exc)
+
 
         # 6. Create allocators
         self._ip_allocator = IPAllocator(self._bridge_subnet)
@@ -571,14 +581,27 @@ class MicroVMExecutor(BaseExecutor):
                     memory_mb=getattr(self.settings, "MICROVM_DEFAULT_MEM_MB", 512),
                     vcpus=getattr(self.settings, "MICROVM_DEFAULT_VCPUS", 2),
                 )
-            except Exception as e:
+            except InsufficientPrivilegesError as exc:
                 use_fallback = getattr(self.settings, "EXECUTOR_BACKEND_USE_FALLBACK", False)
                 if use_fallback:
-                    logger.error("Failed to spawn MicroVM, falling back to subprocess: %s", e)
+                    logger.info("Insufficient system privileges for MicroVM networking; gracefully falling back to subprocess executor.")
                     return await self._fallback_subprocess_execute(request, start_time)
                 else:
-                    logger.error("Failed to spawn MicroVM (fallback disabled): %s", e)
-                    raise RuntimeError(f"Failed to spawn MicroVM: {e}") from e
+                    raise MicroVMProvisionError(
+                        f"MicroVM provisioning failed due to insufficient privileges: {exc}. "
+                        "Set EXECUTOR_BACKEND_USE_FALLBACK=True or run with root/CAP_NET_ADMIN privileges."
+                    ) from exc
+            except Exception as exc:
+                use_fallback = getattr(self.settings, "EXECUTOR_BACKEND_USE_FALLBACK", False)
+                if use_fallback:
+                    logger.warning("Failed to spawn MicroVM (%s); falling back to subprocess executor.", exc)
+                    return await self._fallback_subprocess_execute(request, start_time)
+                else:
+                    raise MicroVMProvisionError(
+                        f"Failed to spawn MicroVM instance: {exc}. "
+                        "Set EXECUTOR_BACKEND_USE_FALLBACK=True to allow automatic fallback."
+                    ) from exc
+
 
         instance = next(iter(self.instances.values()))
 
