@@ -6,10 +6,35 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abeldirectory252/ThinkDome/blob/main/notebook/thinkdome_kaggle.ipynb)
-[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abeldirectory252/ThinkDome/blob/main/notebook/thinkdome_kaggle.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abeldirectory252/ThinkDome/blob/main/ThinkDome_Colab_Quickstart.ipynb)
+[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abeldirectory252/ThinkDome/blob/main/ThinkDome_Colab_Quickstart.ipynb)
 
 ---
+
+## ⚡ Quickstart via `pip install` (Try in Google Colab)
+
+Install ThinkDome directly from GitHub in **Google Colab**, **Kaggle**, or any Python environment with a single command:
+
+```bash
+pip install git+https://github.com/abeldirectory252/ThinkDome.git
+```
+
+### Try Live Notebook in Google Colab
+Click the badge below to launch the pre-configured interactive notebook directly in **Google Colab**:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abeldirectory252/ThinkDome/blob/main/ThinkDome_Colab_Quickstart.ipynb)
+
+### CLI Quickstart
+```bash
+# 1. Run system readiness check
+thinkdome check
+
+# 2. Execute code in isolated sandbox
+thinkdome run "import sys; print('Hello from ThinkDome!'); print(sys.version)"
+
+# 3. Start API Server & Web Console UI
+thinkdome serve --host 0.0.0.0 --port 8000
+```
 
 ## 🏗️ Architecture & Domain Structure
 
