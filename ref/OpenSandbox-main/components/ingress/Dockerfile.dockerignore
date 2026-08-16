@@ -1,6 +1,0 @@
-**
-!components/ingress/**
-!components/internal/**
-!kubernetes/**
-!ingress/**
-!internal/**
