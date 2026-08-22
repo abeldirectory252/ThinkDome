@@ -146,3 +146,6 @@ media/
 
 # Logs
 logs/google-chrome-stable_current_amd64.deb
+
+# Workspace encryption key (never commit deployment secrets)
+storage/.workspace_master.key

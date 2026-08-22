@@ -92,9 +92,10 @@ async function enterApp(e) {
             const assignedRole = (data && data.user && data.user.role) || (data && data.role) || (username.toLowerCase().includes('admin') ? 'SUPER_ADMIN' : 'AGENT_STANDARD');
             localStorage.setItem('thinkdome_user_role', assignedRole);
 
-            if (data && data.access_token) {
-                localStorage.setItem('thinkdome_token', data.access_token);
-                localStorage.setItem('thinkdome_username', data.username || username);
+            const sessionToken = data && (data.session_token || data.access_token);
+            if (sessionToken) {
+                localStorage.setItem('thinkdome_token', sessionToken);
+                localStorage.setItem('thinkdome_username', (data.user && data.user.username) || data.username || username);
             }
 
             // Adapt navigation UI based on logged-in role
@@ -188,3 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
+function reloadSession() {
+    // Re-read the current authenticated session and refresh dashboard state.
+    window.location.reload();
+}

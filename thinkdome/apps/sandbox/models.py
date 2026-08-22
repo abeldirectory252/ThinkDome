@@ -20,6 +20,7 @@ class Sandbox(Model):
     image = StringField(default="python:3.12-slim")
     cpu_limit = FloatField(default=1.0)
     memory_limit = IntegerField(default=256)
+    pids_limit = IntegerField(default=64)
     gpu_limit = IntegerField(default=0)
     storage_limit = IntegerField(default=10)
     network_enabled = BooleanField(default=False)
@@ -28,6 +29,69 @@ class Sandbox(Model):
         default="Created",
     )
     owner = StringField(required=True)
+    organization_id = StringField(default="")
+    project_id = StringField(default="")
+    node_id = StringField(default="")
+    placement_version = IntegerField(default=0)
+
+
+class Organization(Model):
+    """Tenant boundary for all control-plane resources."""
+
+    organization_id = StringField(required=True)
+    name = StringField(required=True)
+    status = SelectField(choices=["active", "suspended", "deleted"], default="active")
+
+
+class Project(Model):
+    """Isolation and quota boundary within an organization."""
+
+    project_id = StringField(required=True)
+    organization_id = StringField(required=True)
+    name = StringField(required=True)
+    status = SelectField(choices=["active", "suspended", "deleted"], default="active")
+    max_sandboxes = IntegerField(default=10)
+    max_cpu_millis = IntegerField(default=4000)
+    max_memory_bytes = IntegerField(default=8_589_934_592)
+    __unique_together__ = ("project_id",)
+
+
+class ExecutionNode(Model):
+    """Node-local orchestrator registration and capacity lease."""
+
+    node_id = StringField(required=True)
+    region = StringField(default="default")
+    state = SelectField(choices=["registering", "ready", "draining", "offline"], default="registering")
+    capacity_json = StringField(default="{}")
+    orchestrator_version = StringField(required=True)
+    lease_expires_at = FloatField(default=0.0)
+    __unique_together__ = ("node_id",)
+
+
+class SandboxPlacement(Model):
+    """Durable placement decision with an optimistic version."""
+
+    sandbox_id = StringField(required=True)
+    organization_id = StringField(required=True)
+    project_id = StringField(required=True)
+    node_id = StringField(required=True)
+    region = StringField(default="default")
+    placement_version = IntegerField(default=1)
+    lease_expires_at = FloatField(default=0.0)
+    __unique_together__ = ("sandbox_id",)
+
+
+class IdempotencyRecord(Model):
+    """Replay-safe operation key scoped to an organization and operation."""
+
+    organization_id = StringField(required=True)
+    project_id = StringField(required=True)
+    idempotency_key = StringField(required=True)
+    operation = StringField(required=True)
+    resource_id = StringField(default="")
+    response_json = StringField(default="{}")
+    expires_at = FloatField(default=0.0)
+    __unique_together__ = ("organization_id", "operation", "idempotency_key")
 
 
 class Snapshot(Model):
@@ -42,4 +106,3 @@ class Snapshot(Model):
     state_dir = StringField(default="")
     parent_snapshot_id = StringField(default="")
     owner = StringField(default="anonymous")
-

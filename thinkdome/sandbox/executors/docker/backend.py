@@ -30,13 +30,8 @@ class DockerBackend(ExecutorBackend):
     def __init__(self, settings: Settings, client: Optional[docker.DockerClient] = None) -> None:
         self.settings = settings
         self.client = client
-        # Resolve seccomp path relative to core config
-        self.seccomp_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
-
-            "security",
-            "seccomp.json",
-        )
+        from thinkdome.core.config import get_workspace_root
+        self.seccomp_path = str(get_workspace_root() / "security" / "seccomp.json")
 
     async def create_sandbox(
         self,

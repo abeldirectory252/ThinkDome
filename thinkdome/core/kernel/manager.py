@@ -16,7 +16,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-WORKSPACE_ROOT = Path("/home/sandbox/ThinkDome")
+from thinkdome.core.config import get_workspace_root
+
+WORKSPACE_ROOT = get_workspace_root()
 SITES_DIR = WORKSPACE_ROOT / "sites"
 COMMON_APPS_JSON = SITES_DIR / "common" / "apps.json"
 APPS_DIR = WORKSPACE_ROOT / "thinkdome" / "apps"

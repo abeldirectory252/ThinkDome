@@ -29,7 +29,7 @@ def validate_secure_runtime_on_startup(
         RuntimeError: If configured runtime is unavailable.
     """
     runtime_type = (getattr(settings, "SECURE_RUNTIME_TYPE", "") or "").lower()
-    backend = (getattr(settings, "EXECUTOR_BACKEND", "microvm") or "").lower()
+    backend = (getattr(settings, "EXECUTOR_BACKEND", "docker") or "").lower()
 
     if not runtime_type:
         logger.info("ℹ️ Secure container runtime is unconfigured (using default runtime/backend).")
@@ -100,3 +100,29 @@ def _validate_k8s_secure_runtime(settings: Any, k8s_client: Any) -> None:
     """Validate Kubernetes RuntimeClass."""
     k8s_runtime_class = getattr(settings, "K8S_RUNTIME_CLASS", "gvisor")
     logger.info(f"✅ Kubernetes RuntimeClass configured: '{k8s_runtime_class}'")
+
+
+def get_secure_docker_config_kwargs(settings: Any = None) -> dict[str, Any]:
+    """Return mandatory Docker container security hardening parameters.
+    Enforces cap_drop=ALL, no-new-privileges, read-only rootfs + capped tmpfs,
+    cgroups PIDs limit, memory limit, and CPU limit.
+    """
+    config = {
+        "privileged": False,
+        "cap_drop": ["ALL"],
+        "security_opt": ["no-new-privileges:true"],
+        "read_only": True,
+        "tmpfs": {"/tmp": "rw,noexec,nosuid,size=64m"},
+        "pids_limit": 100,
+        "mem_limit": "512m",
+        "memswap_limit": "512m",
+        "nano_cpus": 1_000_000_000,  # 1 vCPU
+    }
+    
+    if settings:
+        runtime_type = (getattr(settings, "SECURE_RUNTIME_TYPE", "") or "").lower()
+        docker_runtime = getattr(settings, "DOCKER_RUNTIME", "runsc")
+        if runtime_type == "gvisor" or docker_runtime == "runsc":
+            config["runtime"] = "runsc"
+            
+    return config

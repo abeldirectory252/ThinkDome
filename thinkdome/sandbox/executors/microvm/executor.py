@@ -589,24 +589,25 @@ class MicroVMExecutor(BaseExecutor):
                     vcpus=getattr(self.settings, "MICROVM_DEFAULT_VCPUS", 2),
                 )
             except InsufficientPrivilegesError as exc:
-                use_fallback = getattr(self.settings, "EXECUTOR_BACKEND_USE_FALLBACK", False)
+                use_fallback = self.settings.allows_insecure_execution_fallback()
                 if use_fallback:
                     logger.info("Insufficient system privileges for MicroVM networking; gracefully falling back to subprocess executor.")
                     return await self._fallback_subprocess_execute(request, start_time)
                 else:
                     raise MicroVMProvisionError(
                         f"MicroVM provisioning failed due to insufficient privileges: {exc}. "
-                        "Set EXECUTOR_BACKEND_USE_FALLBACK=True or run with root/CAP_NET_ADMIN privileges."
+                        "Run the node orchestrator with the required privileges. "
+                        "Host-subprocess fallback is disabled outside explicit local development."
                     ) from exc
             except Exception as exc:
-                use_fallback = getattr(self.settings, "EXECUTOR_BACKEND_USE_FALLBACK", False)
+                use_fallback = self.settings.allows_insecure_execution_fallback()
                 if use_fallback:
                     logger.warning("Failed to spawn MicroVM (%s); falling back to subprocess executor.", exc)
                     return await self._fallback_subprocess_execute(request, start_time)
                 else:
                     raise MicroVMProvisionError(
                         f"Failed to spawn MicroVM instance: {exc}. "
-                        "Set EXECUTOR_BACKEND_USE_FALLBACK=True to allow automatic fallback."
+                        "Host-subprocess fallback is disabled outside explicit local development."
                     ) from exc
 
 

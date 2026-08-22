@@ -157,6 +157,47 @@ services:
           cpus: "0.25"
           memory: 256M
 
+  # One instance per execution node. This process owns MicroVM creation and
+  # is intentionally separate from the public API. Put it on a private
+  # network/VLAN and terminate mTLS at the node listener or an adjacent mesh.
+  thinkdome-node-agent:
+    build:
+      context: ..
+      dockerfile: docker/thinkdome/Dockerfile
+    command: ["thinkdome", "node-agent"]
+    restart: unless-stopped
+    environment:
+      EXECUTOR_BACKEND: microvm
+      DEPLOYMENT_ENV: production
+      NODE_ID: ${NODE_ID:?NODE_ID must be set}
+      NODE_REGION: ${NODE_REGION:-default}
+      NODE_AGENT_HOST: 0.0.0.0
+      NODE_AGENT_PORT: 8100
+      NODE_AUTH_KEY_HEX: ${NODE_AUTH_KEY_HEX:?NODE_AUTH_KEY_HEX must be set}
+      CONTROL_PLANE_INTERNAL_URL: ${CONTROL_PLANE_INTERNAL_URL:?CONTROL_PLANE_INTERNAL_URL must be set}
+      NODE_REQUIRE_MTLS: "true"
+      NODE_TLS_CERTFILE: /run/thinkdome/tls/node.crt
+      NODE_TLS_KEYFILE: /run/thinkdome/tls/node.key
+      NODE_TLS_CAFILE: /run/thinkdome/tls/ca.crt
+      MICROVM_KERNEL_PATH: /var/lib/thinkdome/vmlinux
+      MICROVM_ROOTFS_PATH: /var/lib/thinkdome/rootfs.ext4
+      MICROVM_INITRAMFS_PATH: /var/lib/thinkdome/initramfs.cpio.gz
+      MICROVM_STATE_DIR: /var/lib/thinkdome/vm-state
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_drop: ["ALL"]
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - node-state:/var/lib/thinkdome
+      - ${NODE_TLS_DIR:?NODE_TLS_DIR must be set}:/run/thinkdome/tls:ro
+    ports:
+      - "127.0.0.1:8100:8100"
+
   # ── Observability ──────────────────────────────────────────────────────────
 
   otel-collector:
@@ -177,3 +218,4 @@ volumes:
   dind-certs:
   dind-storage:
   workspace:
+  node-state:

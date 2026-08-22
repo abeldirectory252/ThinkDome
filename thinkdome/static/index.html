@@ -104,7 +104,7 @@
         <span class="sandbox-active" id="activeSbxBanner">prod-runner-01 live</span>
       </div>
       <div class="topbar-right">
-        <span class="pill">
+        <span class="pill" id="activeRolePill">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
@@ -115,6 +115,11 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+          </svg>
+        </button>
+        <button class="icon-btn" onclick="reloadSession()" aria-label="Reload session" title="Reload session">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>
           </svg>
         </button>
         <button class="logout-btn" onclick="logout()">
@@ -331,6 +336,17 @@
           </div>
 
           <div style="margin-bottom: 24px;"></div>
+
+          <div class="fleet-strip" aria-label="Control plane status">
+            <div class="fleet-item"><span class="fleet-dot" id="fleetApiDot"></span><div><span class="fleet-label">Control plane</span><strong id="fleetApiStatus">Checking</strong></div></div>
+            <div class="fleet-item"><span class="fleet-dot" id="fleetRuntimeDot"></span><div><span class="fleet-label">Runtime policy</span><strong id="fleetRuntimeStatus">Docker · default deny</strong></div></div>
+            <div class="fleet-item"><span class="fleet-dot" id="fleetNodeDot"></span><div><span class="fleet-label">Node fleet</span><strong id="fleetNodeStatus">Lease data pending</strong></div></div>
+          </div>
+
+          <div class="admin-control-banner" id="adminControlBanner" hidden>
+            <div><strong>Administrator control center</strong><span>Full tenant administration, audit, billing, API key, and role controls are enabled.</span></div>
+            <button class="btn btn-ghost" onclick="navTo('audit')">Open audit center</button>
+          </div>
 
           <!-- Two Column Panels for Recent Executions / Audit logs -->
           <div class="panels">
@@ -811,6 +827,12 @@
             </div>
           </div>
 
+          <div class="mcp-steps" aria-label="MCP setup steps">
+            <div class="mcp-step active"><span>1</span><div><strong>Copy config</strong><small>Use the ready-to-paste client configuration.</small></div></div>
+            <div class="mcp-step"><span>2</span><div><strong>Add to your client</strong><small>Claude Desktop, Cursor, or Cline.</small></div></div>
+            <div class="mcp-step"><span>3</span><div><strong>Restart and verify</strong><small>Refresh tools after the client reconnects.</small></div></div>
+          </div>
+
           <div class="grid-2col">
             <!-- Left Panel: Connection Config -->
             <div class="card">
@@ -833,7 +855,7 @@
     }
   }
 }</code></pre>
-                <button class="btn btn-ghost btn-sm" onclick="copyMcpConfig()" style="position: absolute; right: 10px; top: 10px;">Copy JSON</button>
+                <div style="position: absolute; right: 10px; top: 10px; display:flex; gap:6px;"><button class="btn btn-ghost btn-sm" onclick="copyMcpConfig()">Copy JSON</button><button class="btn btn-ghost btn-sm" onclick="downloadMcpConfig()">Download</button></div>
               </div>
               
               <div class="nav-group-label" style="margin-top: 20px;">HOW TO CONNECT</div>
@@ -902,6 +924,16 @@
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+          <div id="mcpTestModal" class="mcp-modal hidden" style="background:transparent!important;backdrop-filter:none!important" role="dialog" aria-modal="true" aria-labelledby="mcpTestTitle">
+            <div class="mcp-modal-card" style="background:var(--surface);color:var(--fg);filter:none;backdrop-filter:none;border:1px solid var(--border);">
+              <div class="mcp-modal-head"><div><span class="eyebrow">MCP TOOL TESTER</span><h3 id="mcpTestTitle">Test tool</h3></div><button class="icon-btn" onclick="closeMcpTestModal()" aria-label="Close">×</button></div>
+              <p class="mcp-modal-help">Start with the example payload, then adjust values for your sandbox.</p>
+              <textarea id="mcpTestInput" class="mcp-json-editor" spellcheck="false"></textarea>
+              <div id="mcpTestError" class="mcp-modal-error" hidden></div>
+              <pre id="mcpTestResult" class="mcp-test-result" hidden></pre>
+              <div class="mcp-modal-actions"><button class="btn btn-ghost" onclick="closeMcpTestModal()">Cancel</button><button id="mcpTestExecuteBtn" class="btn btn-primary" onclick="submitMcpTestModal()">Execute tool</button><button id="mcpTestOpenBtn" class="btn btn-primary" onclick="openMcpTestResult()" hidden>Open result</button></div>
             </div>
           </div>
         </section>
@@ -1645,16 +1677,16 @@
 
 
   <script type="module">
-    import * as API from './assets/js/api.js?v=19';
+    import * as API from './assets/js/api.js?v=21';
     window.API = API;
   </script>
   <script src="assets/js/plugin.js?v=19"></script>
-  <script src="assets/js/state.js?v=19"></script>
+  <script src="assets/js/state.js?v=21"></script>
   <script src="assets/js/auth.js?v=19"></script>
-  <script src="assets/js/dashboard.js?v=19"></script>
+  <script src="assets/js/dashboard.js?v=21"></script>
   <script src="assets/js/sandboxes.js?v=19"></script>
-  <script src="assets/js/editor.js?v=19"></script>
-  <script src="assets/js/terminal.js?v=19"></script>
+  <script src="assets/js/editor.js?v=21"></script>
+  <script src="assets/js/terminal.js?v=29"></script>
   <script src="assets/js/app.js?v=19"></script>
 </body>
 

@@ -131,13 +131,17 @@ function applyRoleBasedUINavigation(role, username) {
     const profileNameEl = document.querySelector('.profile-name');
     const profileBadgeEl = document.querySelector('.profile-badge');
     const profileAvatarEl = document.querySelector('.profile-avatar');
+    const rolePillEl = document.getElementById('activeRolePill');
+    const adminBannerEl = document.getElementById('adminControlBanner');
 
     if (profileNameEl) profileNameEl.innerText = activeUser;
     if (profileBadgeEl) profileBadgeEl.innerText = activeRole;
     if (profileAvatarEl) profileAvatarEl.innerText = activeUser.substring(0, 2).toUpperCase();
+    if (rolePillEl) rolePillEl.lastChild.textContent = ` ${activeRole}`;
+    if (adminBannerEl) adminBannerEl.hidden = !(isAdminRole(activeRole));
 
     // Show/Hide Nav Buttons according to Role Privileges
-    const isAdmin = activeRole.includes('ADMIN') || activeRole === 'SUPER_ADMIN';
+    const isAdmin = isAdminRole(activeRole);
     const isAuditor = activeRole.includes('AUDIT');
     const isFinance = activeRole.includes('FINANCE');
 
@@ -151,6 +155,11 @@ function applyRoleBasedUINavigation(role, username) {
             btn.style.display = 'flex';
         }
     });
+}
+
+function isAdminRole(role) {
+    const normalized = (role || '').toUpperCase();
+    return normalized.includes('ADMIN') || normalized === 'SUPER_ADMIN';
 }
 
 async function submitUserRoleAssignment() {

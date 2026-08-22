@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 from thinkdome.platform.orchestration.tools import BaseTool, register_tool, get_context
 from thinkdome.core.path_utils import resolve_safe_path
+from thinkdome.platform.storage.workspace_crypto import workspace_cipher
 from thinkdome.platform.orchestration.orchestrator_models import (
     ReadFileInput, WriteFileInput, ListDirInput, FileExistsInput, MakeDirInput,
     RemoveFileInput, RemoveDirInput, MoveFileInput, CopyFileInput
@@ -22,17 +23,22 @@ class ReadFileTool(BaseTool):
         if not path:
             raise ValueError("Parameter 'path' is required for read_file.")
         ctx = get_context()
-        safe_path = resolve_safe_path(path, ctx.workspace_dir)
-        if not safe_path.exists():
-            raise FileNotFoundError(f"File not found: {path}")
-        if not safe_path.is_file():
-            raise ValueError(f"Path is a directory, not a file: {path}")
-        try:
-            return safe_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            import base64
-            binary_content = safe_path.read_bytes()
-            return base64.b64encode(binary_content).decode("utf-8")
+        from thinkdome.platform.storage.filebox.service import FileBoxService, DEFAULT_FOLDERS
+        logical = str(path).strip().strip("/")
+        parts = logical.split("/", 1)
+        folder, filename = (parts[0], parts[1]) if len(parts) == 2 else ("workspace", parts[0])
+        if folder not in DEFAULT_FOLDERS or not filename:
+            raise FileNotFoundError(f"File not found in FileBox: {path}")
+        service = FileBoxService()
+        tenant = getattr(getattr(ctx, "identity", None), "tenant_id", None) or "default"
+        meta = next((m for m in service.list(tenant_id=tenant, owner_id=ctx.username)
+                     if m.folder == folder and m.filename == filename), None)
+        if not meta:
+            raise FileNotFoundError(f"File not found in FileBox: {path}")
+        result = service.read(meta.id, tenant_id=tenant, owner_id=ctx.username)
+        if result is None:
+            raise FileNotFoundError(f"File not found in FileBox: {path}")
+        return result[0].decode("utf-8")
 
 
 @register_tool
@@ -48,9 +54,19 @@ class WriteFileTool(BaseTool):
         if not path or content is None:
             raise ValueError("Parameters 'path' and 'content' are required for write_file.")
         ctx = get_context()
-        safe_path = resolve_safe_path(path, ctx.workspace_dir)
-        safe_path.parent.mkdir(parents=True, exist_ok=True)
-        safe_path.write_text(content, encoding="utf-8")
+        from thinkdome.platform.storage.filebox.service import FileBoxService
+        logical = str(path).strip().strip("/")
+        parts = logical.split("/", 1)
+        folder, filename = (parts[0], parts[1]) if len(parts) == 2 else ("workspace", parts[0])
+        tenant = getattr(getattr(ctx, "identity", None), "tenant_id", None) or "default"
+        service = FileBoxService()
+        available = list(service.ensure_layout(tenant_id=tenant, owner_id=ctx.username).keys())
+        if folder not in available or not filename:
+            folders = ", ".join(f"/{name}" for name in available)
+            raise ValueError(f"Invalid FileBox path. Available folders: {folders}. Use '/<folder>/<filename>'.")
+        service.create(tenant_id=tenant, owner_id=ctx.username, filename=filename,
+                                content=content.encode("utf-8"), permanent=True,
+                                folder=folder, override=True, conflict="override")
         return json.dumps({"status": "success", "bytes_written": len(content)})
 
 
@@ -64,6 +80,24 @@ class ListDirTool(BaseTool):
     async def execute(self, tool_input: dict[str, Any]) -> str:
         path = tool_input.get("path", ".")
         ctx = get_context()
+        # FileBox is the caller's only visible disk. Never enumerate the
+        # legacy host workspace, regardless of the supplied path.
+        from thinkdome.platform.storage.filebox.service import FileBoxService, DEFAULT_FOLDERS
+        tenant = getattr(getattr(ctx, "identity", None), "tenant_id", None) or "default"
+        service = FileBoxService()
+        folders = service.ensure_layout(tenant_id=tenant, owner_id=ctx.username)
+        logical = str(path).strip().strip("/")
+        if logical in {"", "."}:
+            entries = [{"name": name, "path": name, "type": "dir", "size_bytes": 0} for name in folders]
+        else:
+            folder = logical.split("/", 1)[0]
+            if folder not in DEFAULT_FOLDERS:
+                raise FileNotFoundError(f"Directory not found in FileBox: {path}")
+            entries = []
+        for item in service.list(tenant_id=tenant, owner_id=ctx.username):
+            if logical in {"", "."} or logical == item.folder:
+                entries.append({"name": item.filename, "path": f"{item.folder}/{item.filename}", "type": "file", "size_bytes": item.size_bytes})
+        return json.dumps(entries, indent=2)
         safe_path = resolve_safe_path(path, ctx.workspace_dir)
         if not safe_path.exists():
             raise FileNotFoundError(f"Directory not found: {path}")
@@ -71,6 +105,7 @@ class ListDirTool(BaseTool):
             raise ValueError(f"Path is not a directory: {path}")
         
         user_workspace = ctx.workspace_dir
+        cipher = workspace_cipher(ctx.username)
         entries = []
         for entry in sorted(safe_path.iterdir()):
             try:
@@ -78,6 +113,13 @@ class ListDirTool(BaseTool):
             except ValueError:
                 rel_path = entry.name
             is_directory = entry.is_dir()
+            if is_directory:
+                # Directory names are metadata; file contents remain encrypted.
+                size = 0
+            else:
+                # Accessing a listing authenticates the tenant and migrates
+                # legacy plaintext files to encrypted-at-rest storage.
+                cipher.read(entry)
             size = entry.stat().st_size if not is_directory else 0
             entries.append({
                 "name": entry.name,

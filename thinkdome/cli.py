@@ -29,6 +29,10 @@ def main() -> None:
     serve_parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
     serve_parser.add_argument("--workers", type=int, default=1, help="Number of worker processes")
 
+    node_parser = subparsers.add_parser("node-agent", help="Start the private node-local sandbox agent")
+    node_parser.add_argument("--host", default=None, help="Node-agent bind host")
+    node_parser.add_argument("--port", type=int, default=None, help="Node-agent bind port")
+
     # version command
     subparsers.add_parser("version", help="Show ThinkDome version")
 
@@ -65,6 +69,8 @@ def main() -> None:
 
     if args.command == "serve":
         _serve(args)
+    elif args.command == "node-agent":
+        _node_agent(args)
     elif args.command == "version":
         _version()
     elif args.command == "run":
@@ -100,6 +106,22 @@ def _serve(args) -> None:
     )
 
 
+def _node_agent(args) -> None:
+    """Start the private node-local MicroVM agent."""
+    import uvicorn
+    from thinkdome.core.config import Settings
+    from thinkdome.control_plane.node_server import create_node_app
+
+    settings = Settings()
+    tls = settings.node_tls_config()
+    uvicorn.run(
+        create_node_app(settings),
+        host=args.host or settings.NODE_AGENT_HOST,
+        port=args.port or settings.NODE_AGENT_PORT,
+        **tls,
+    )
+
+
 def _version() -> None:
     """Print version info."""
     from thinkdome._version import __version__
@@ -125,6 +147,8 @@ def _run(args) -> None:
         if result.output:
             print(result.output, end="")
         if result.error:
+            if result.error_code:
+                print(f"[{result.error_code}]", file=sys.stderr)
             print(result.error, file=sys.stderr, end="")
         sys.exit(result.exit_code)
 
@@ -252,5 +276,3 @@ def _setup(args) -> None:
 
 if __name__ == "__main__":
     main()
-
-

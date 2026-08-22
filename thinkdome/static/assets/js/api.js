@@ -30,6 +30,7 @@ async function apiFetch(endpoint, options = {}, token = "", sandboxId = "") {
 
     try {
         const response = await fetch(API_BASE + endpoint, {
+            credentials: "same-origin",
             ...options,
             headers,
         });
@@ -170,9 +171,17 @@ export async function listDir(path, token, sandboxId = "") {
     if (data?.is_error) return { data: null, error: data.content };
 
     try {
-        return { data: JSON.parse(data.content), error: null };
-    } catch {
-        return { data: null, error: "Failed to parse directory listing." };
+        // Tool responses may be returned directly or wrapped by the
+        // orchestrator adapter. Normalize both forms before the terminal
+        // renders the result.
+        let payload = data.content;
+        if (typeof payload === "object" && payload !== null) payload = payload.content ?? payload.data ?? payload;
+        let parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
+        if (typeof parsed === "string") parsed = JSON.parse(parsed);
+        if (!Array.isArray(parsed)) throw new Error("Directory listing was not an array");
+        return { data: parsed, error: null };
+    } catch (err) {
+        return { data: null, error: `Failed to parse directory listing: ${err.message}` };
     }
 }
 
@@ -227,6 +236,22 @@ export async function writeFile(filePath, content, token, sandboxId = "") {
     if (data?.is_error) return { data: null, error: data.content };
 
     return { data, error: null };
+}
+
+export async function getFileBoxVolume(token) {
+    return apiFetch("/v1/filebox/volume", { method: "GET" }, token);
+}
+
+export async function listFileBoxes(token) {
+    return apiFetch("/v1/filebox", { method: "GET" }, token);
+}
+
+export async function putFileBox(filename, content, token, permanent = true) {
+    const encoded = btoa(unescape(encodeURIComponent(content)));
+    return apiFetch("/v1/filebox", {
+        method: "POST",
+        body: JSON.stringify({ filename, content_base64: encoded, folder: "workspace", permanent, conflict: "override" })
+    }, token);
 }
 
 // ─────────────────────────────────────────────

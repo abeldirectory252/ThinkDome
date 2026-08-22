@@ -60,6 +60,7 @@ class ExecuteResponse(BaseModel):
     duration_ms: float = 0.0
     files: list[FileOutput] = Field(default_factory=list)
     session_id: Optional[str] = None
+    error_code: Optional[str] = None
 
 
 class BatchExecuteRequest(BaseModel):

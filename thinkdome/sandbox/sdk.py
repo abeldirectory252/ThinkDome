@@ -56,6 +56,7 @@ class SandboxResult:
     timed_out: bool = False
     duration_ms: float = 0.0
     files: dict = field(default_factory=dict)
+    error_code: Optional[str] = None
 
     @property
     def success(self) -> bool:
@@ -87,8 +88,19 @@ class Sandbox:
         backend: str = "auto",
         workspace: Optional[str] = None,
         sandbox_id: Optional[str] = None,
+        api_key: Optional[str] = None,
+        purpose: str = "general",
+        template: Optional[str] = None,
+        ttl: Optional[int] = None,
     ) -> None:
         import uuid
+        import os
+
+        # API Key authentication & Purpose scoping
+        self.api_key = api_key or os.getenv("THINKDOME_API_KEY") or os.getenv("THINKBOX_API_KEY")
+        self.purpose = purpose
+        self.template = template
+        self.ttl = ttl
 
         # Image handling
         if isinstance(image, SandboxImageSpec):
@@ -107,6 +119,11 @@ class Sandbox:
         self.backend = backend
         self.env = env or {}
         self.metadata = metadata or {}
+        if purpose:
+            self.metadata["purpose"] = purpose
+        if template:
+            self.metadata["template"] = template
+            
         self.sandbox_id = sandbox_id or f"sb_{uuid.uuid4().hex[:8]}"
         self._workspace = workspace
         self._temp_dir: Optional[tempfile.TemporaryDirectory] = None
@@ -139,7 +156,11 @@ class Sandbox:
                 self.network_allowed = (getattr(network_policy, "default_action", "deny") == "allow")
         else:
             self.network_policy = get_default_network_policy()
-            self.network_allowed = network_allowed or True  # Default PyPI enabled
+            # Network is deny-by-default.  Callers must explicitly opt in via
+            # a network policy or ``network_allowed=True``; do not let a
+            # boolean expression silently turn every sandbox into an egress
+            # request.
+            self.network_allowed = bool(network_allowed)
 
         # Credential Proxy / Vault
         self.credential_proxy_enabled = False
@@ -148,6 +169,16 @@ class Sandbox:
                 self.credential_proxy_enabled = credential_proxy.enabled
             else:
                 self.credential_proxy_enabled = bool(credential_proxy)
+
+    def get_sandbox_token(self, expires_minutes: int = 5) -> str:
+        """Mint a short-lived single-sandbox access token for browser log streaming or sidecar execution."""
+        from thinkdome.security.auth.single_sandbox_token import mint_sandbox_access_token
+        return mint_sandbox_access_token(
+            sandbox_id=self.sandbox_id,
+            username="sdk_client",
+            role="AGENT_STANDARD",
+            expires_minutes=expires_minutes
+        )
 
     @classmethod
     def create(
@@ -415,6 +446,7 @@ class Sandbox:
             timed_out=result.timed_out,
             duration_ms=result.duration_ms,
             files=result.output_files,
+            error_code=result.error_code,
         )
 
     def install(self, packages: List[str]) -> SandboxResult:
@@ -491,4 +523,3 @@ class Sandbox:
             workspace_path=str(self.workspace),
         )
         return res["success"]
-

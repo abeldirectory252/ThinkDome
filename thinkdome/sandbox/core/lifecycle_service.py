@@ -27,26 +27,34 @@ logger = logging.getLogger(__name__)
 
 class SandboxState(str, Enum):
     """Lifecycle states for a sandbox."""
-    CREATING = "Creating"
+    PROVISIONING = "Provisioning"
+    CREATING = "Creating"  # Legacy alias
+    READY = "Ready"
     RUNNING = "Running"
+    IDLE = "Idle"
     PAUSING = "Pausing"
     PAUSED = "Paused"
     RESUMING = "Resuming"
     STOPPING = "Stopping"
     TERMINATED = "Terminated"
+    DESTROYED = "Destroyed"
     FAILED = "Failed"
 
 
 # Valid state transitions
 _VALID_TRANSITIONS = {
-    SandboxState.CREATING: {SandboxState.RUNNING, SandboxState.FAILED},
-    SandboxState.RUNNING: {SandboxState.PAUSING, SandboxState.STOPPING},
-    SandboxState.PAUSING: {SandboxState.PAUSED, SandboxState.FAILED},
-    SandboxState.PAUSED: {SandboxState.RESUMING, SandboxState.STOPPING},
-    SandboxState.RESUMING: {SandboxState.RUNNING, SandboxState.FAILED},
-    SandboxState.STOPPING: {SandboxState.TERMINATED},
-    SandboxState.TERMINATED: set(),
-    SandboxState.FAILED: {SandboxState.STOPPING},
+    SandboxState.PROVISIONING: {SandboxState.READY, SandboxState.RUNNING, SandboxState.FAILED, SandboxState.DESTROYED},
+    SandboxState.CREATING: {SandboxState.READY, SandboxState.RUNNING, SandboxState.FAILED, SandboxState.DESTROYED},
+    SandboxState.READY: {SandboxState.RUNNING, SandboxState.IDLE, SandboxState.STOPPING, SandboxState.DESTROYED},
+    SandboxState.RUNNING: {SandboxState.IDLE, SandboxState.PAUSING, SandboxState.STOPPING, SandboxState.DESTROYED},
+    SandboxState.IDLE: {SandboxState.RUNNING, SandboxState.STOPPING, SandboxState.DESTROYED},
+    SandboxState.PAUSING: {SandboxState.PAUSED, SandboxState.FAILED, SandboxState.DESTROYED},
+    SandboxState.PAUSED: {SandboxState.RESUMING, SandboxState.STOPPING, SandboxState.DESTROYED},
+    SandboxState.RESUMING: {SandboxState.RUNNING, SandboxState.FAILED, SandboxState.DESTROYED},
+    SandboxState.STOPPING: {SandboxState.TERMINATED, SandboxState.DESTROYED},
+    SandboxState.TERMINATED: {SandboxState.DESTROYED},
+    SandboxState.DESTROYED: set(),
+    SandboxState.FAILED: {SandboxState.STOPPING, SandboxState.DESTROYED},
 }
 
 
@@ -58,7 +66,10 @@ class SandboxInfo:
     container_id: Optional[str] = None
     image: str = ""
     backend: str = "docker"
+    owner: str = "anonymous"
+    purpose: str = "general"
     created_at: float = field(default_factory=time.time)
+    last_active_at: float = field(default_factory=time.time)
     expires_at: Optional[float] = None  # Unix epoch seconds, None = no expiration
     metadata: Dict[str, str] = field(default_factory=dict)
     last_state_change: float = field(default_factory=time.time)
@@ -75,6 +86,22 @@ class SandboxLifecycleService:
         self._docker_client = docker_client
         self._sandboxes: Dict[str, SandboxInfo] = {}
 
+    @staticmethod
+    def bound_ttl_by_role(requested_ttl_sec: Optional[int], role: str) -> int:
+        """Bound requested TTL in seconds based on caller role limits."""
+        role_upper = (role or "FREE").upper()
+        default_ttl = 600  # 10 min default
+        
+        if "ADMIN" in role_upper or role_upper in ("SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH"):
+            max_ttl = 86400  # 24h
+        elif role_upper in ("AGENT", "AGENT_STANDARD", "LLM", "SDK"):
+            max_ttl = 7200   # 2h max
+        else:  # Free tier
+            max_ttl = 900    # 15m max
+
+        ttl = requested_ttl_sec if requested_ttl_sec is not None else default_ttl
+        return max(10, min(ttl, max_ttl))
+
     def register_sandbox(
         self,
         sandbox_id: str,
@@ -83,22 +110,64 @@ class SandboxLifecycleService:
         backend: str = "docker",
         timeout_sec: Optional[int] = None,
         metadata: Optional[Dict[str, str]] = None,
+        owner: str = "anonymous",
+        purpose: str = "general",
+        role: str = "FREE",
     ) -> SandboxInfo:
         """Register a newly created sandbox for lifecycle management."""
         now = time.time()
+        bounded_ttl = self.bound_ttl_by_role(timeout_sec, role)
         info = SandboxInfo(
             sandbox_id=sandbox_id,
             state=SandboxState.RUNNING,
             container_id=container_id,
             image=image,
             backend=backend,
+            owner=owner,
+            purpose=purpose,
             created_at=now,
-            expires_at=(now + timeout_sec) if timeout_sec else None,
+            last_active_at=now,
+            expires_at=now + bounded_ttl,
             metadata=metadata or {},
         )
         self._sandboxes[sandbox_id] = info
-        logger.info(f"📦 Registered sandbox {sandbox_id} (backend={backend})")
+        logger.info(f"📦 Registered sandbox {sandbox_id} (owner={owner}, purpose={purpose}, ttl={bounded_ttl}s)")
         return info
+
+    async def destroy_sandbox(self, sandbox_id: str, actor: str = "reaper") -> SandboxInfo:
+        """Safely and idempotently transition sandbox to DESTROYED and clean up resources."""
+        info = self._sandboxes.get(sandbox_id)
+        if not info:
+            # Idempotent — if already unregistered or missing, create placeholder
+            info = SandboxInfo(sandbox_id=sandbox_id, state=SandboxState.DESTROYED)
+            return info
+
+        if info.state == SandboxState.DESTROYED:
+            return info
+
+        try:
+            self._transition_state(info, SandboxState.DESTROYED)
+        except Exception:
+            info.state = SandboxState.DESTROYED
+
+        # Teardown physical container if active
+        if info.container_id and self._docker_client:
+            try:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, self._docker_destroy, info.container_id)
+            except Exception as e:
+                logger.warning(f"Container destruction note for {info.container_id}: {e}")
+
+        logger.info(f"🗑️ Sandbox {sandbox_id} destroyed by {actor}")
+        return info
+
+    def _docker_destroy(self, container_id: str) -> None:
+        try:
+            container = self._docker_client.containers.get(container_id)
+            container.stop(timeout=2)
+            container.remove(force=True)
+        except Exception as e:
+            logger.debug(f"Docker remove failed for {container_id}: {e}")
 
     def get_sandbox(self, sandbox_id: str) -> SandboxInfo:
         """Get sandbox info, raising 404 if not found."""

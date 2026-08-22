@@ -1,10 +1,13 @@
 """Security utilities: API key validation, rate limiting hooks."""
 
+import logging
 from typing import Optional
 
 from fastapi import Request, HTTPException, Security
 from fastapi.security import APIKeyHeader
 from thinkdome.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -84,6 +87,47 @@ ROLE_WEB = Role.WEB.value
 ADMIN_ROLES = {Role.SUPER_ADMIN.value, Role.ENTERPRISE_ADMIN.value, Role.ADMIN.value, Role.ORCH.value, Role.IDE.value}
 DEFAULT_ADMIN_USERNAMES = {"admin", "administrator"}
 GLOBAL_SANDBOX_OWNERS = {"admin", "administrator", "anonymous", "api_key_client"}
+
+# A user may have several assigned roles.  Never rely on database insertion
+# order when choosing the role carried into tool authorization: a default
+# AGENT_STANDARD role must not override SUPER_ADMIN/ADMIN privileges.
+ROLE_PRIORITY = (
+    Role.SUPER_ADMIN.value,
+    Role.ENTERPRISE_ADMIN.value,
+    Role.ADMIN.value,
+    Role.ORCH.value,
+    Role.IDE.value,
+    Role.FINANCE_MANAGER.value,
+    Role.AUDITOR.value,
+    Role.WEB.value,
+    Role.SDK.value if hasattr(Role, "SDK") else "SDK",
+    Role.AGENT_STANDARD.value,
+    Role.LLM.value,
+    Role.GUEST.value,
+)
+
+
+def select_effective_role(
+    roles,
+    default: str = Role.AGENT_STANDARD.value,
+    username: Optional[str] = None,
+) -> str:
+    """Return the highest-privilege role deterministically.
+
+    Legacy installations may contain an AGENT_STANDARD mapping for the
+    reserved administrator accounts.  Preserve their established bootstrap
+    privilege while still preferring explicitly assigned higher roles.
+    """
+    names = {str(role.name if hasattr(role, "name") else role).upper() for role in (roles or [])}
+    normalized_user = str(username or "").strip().lower()
+    if normalized_user == "administrator" and not names.intersection(ADMIN_ROLES):
+        return Role.SUPER_ADMIN.value
+    if normalized_user == "admin" and not names.intersection(ADMIN_ROLES):
+        return Role.ADMIN.value
+    for role_name in ROLE_PRIORITY:
+        if role_name in names:
+            return role_name
+    return next(iter(names), default)
 
 # Institutional Role Hierarchy: Parent role -> set of inherited permissions/roles
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
@@ -220,15 +264,28 @@ class RolePolicyEngine:
 
     @classmethod
     def is_sandbox_accessible(cls, sandbox: dict, identity: UserIdentity) -> bool:
-        """Evaluate if identity can execute inside target sandbox."""
+        """Evaluate if identity can execute inside target sandbox.
+        Checks both caller permissions AND strict instance ownership/tenant isolation.
+        """
         if identity.is_admin():
             return True
+
+        # Check tenant isolation
+        sbx_tenant = sandbox.get("tenant_id")
+        if sbx_tenant and identity.tenant_id not in ("default", "*") and sbx_tenant != identity.tenant_id:
+            logger.warning(
+                f"Tenant isolation mismatch: sandbox tenant '{sbx_tenant}' vs identity tenant '{identity.tenant_id}'"
+            )
+            return False
 
         owner = sandbox.get("owner")
         if not owner:
             return True
 
         allowed = {identity.username, identity.key_id}.union(GLOBAL_SANDBOX_OWNERS)
+        if identity.metadata and "key_id" in identity.metadata:
+            allowed.add(identity.metadata["key_id"])
+
         return owner in allowed
 
 

@@ -370,3 +370,162 @@ async def download_invoice_pdf(
         filename=f"invoice_{invoice_id}.pdf"
     )
 
+
+# ── ADMINISTRATOR CONTROLS (NETWORK POLICY, RUNTIMES, KILL SWITCH) ──
+
+class NetworkPolicyUpdateRequest(BaseModel):
+    tenant_id: str = Field("default", description="Tenant ID or '*' for global")
+    role: Optional[str] = Field(None, description="Role target (e.g. AGENT_STANDARD)")
+    allowlist: list[str] = Field(default_factory=list, description="Allowed domain regex patterns")
+    denylist: list[str] = Field(default_factory=list, description="Denied domain regex patterns")
+
+class RuntimeToggleRequest(BaseModel):
+    runtime: str = Field(..., description="Runtime identifier: python, node, go")
+    enabled: bool = Field(..., description="Whether runtime is enabled")
+    tenant_id: Optional[str] = Field("default", description="Target tenant or 'default'")
+
+class KillSwitchRequest(BaseModel):
+    freeze_creation: bool = Field(True, description="Freeze new sandbox creation")
+    purge_sandboxes: bool = Field(False, description="Force purge active sandboxes")
+    tenant_id: Optional[str] = Field(None, description="Specific target tenant ID or None for platform-wide")
+
+_PLATFORM_RUNTIMES: dict[str, bool] = {
+    "python": True,
+    "node": True,
+    "go": False,
+}
+_PLATFORM_FROZEN: bool = False
+
+
+@router.get("/network-policy")
+async def get_network_policy(
+    request: Request,
+    auth_svc: AuthService = Depends(get_auth_service),
+    _admin: dict = Depends(get_current_admin)
+):
+    """Get active network egress policies."""
+    row = auth_svc.db_service.fetch_one(
+        "SELECT config_value FROM admin_configs WHERE config_key = 'network_policy'"
+    )
+    if row:
+        import json
+        return json.loads(row["config_value"])
+    return {
+        "tenant_id": "default",
+        "allowlist": [r".*\.github\.com$", r".*\.pypi\.org$", r".*\.python\.org$"],
+        "denylist": [r"^169\.254\.169\.254$"]
+    }
+
+
+@router.put("/network-policy")
+async def update_network_policy(
+    req: NetworkPolicyUpdateRequest,
+    request: Request,
+    auth_svc: AuthService = Depends(get_auth_service),
+    _admin: dict = Depends(get_current_admin)
+):
+    """Update data-driven network egress policy per role or tenant and log audit."""
+    import json
+    actor = _admin.get("username", "admin")
+    client_ip = request.client.host if request.client else "unknown"
+    
+    policy_data = {
+        "tenant_id": req.tenant_id,
+        "role": req.role,
+        "allowlist": req.allowlist,
+        "denylist": req.denylist,
+        "updated_at": request.headers.get("date", "")
+    }
+    
+    auth_svc.db_service.execute(
+        """
+        INSERT INTO admin_configs (config_key, config_value, updated_at, updated_by)
+        VALUES ('network_policy', ?, CURRENT_TIMESTAMP, ?)
+        ON CONFLICT(config_key) DO UPDATE SET config_value = excluded.config_value, updated_by = excluded.updated_by
+        """,
+        (json.dumps(policy_data), actor)
+    )
+    
+    # Audit log
+    auth_svc.db_service.log_audit(
+        actor=actor,
+        action="update_network_policy",
+        ip_address=client_ip,
+        details=policy_data
+    )
+    return {"status": "success", "policy": policy_data}
+
+
+@router.get("/runtimes")
+async def list_runtimes(_admin: dict = Depends(get_current_admin)):
+    """List platform-wide language runtime availability."""
+    return {"runtimes": _PLATFORM_RUNTIMES}
+
+
+@router.post("/runtimes/toggle")
+async def toggle_runtime(
+    req: RuntimeToggleRequest,
+    request: Request,
+    auth_svc: AuthService = Depends(get_auth_service),
+    _admin: dict = Depends(get_current_admin)
+):
+    """Enable or disable language runtimes platform-wide or per tenant."""
+    actor = _admin.get("username", "admin")
+    client_ip = request.client.host if request.client else "unknown"
+    
+    runtime = req.runtime.lower()
+    _PLATFORM_RUNTIMES[runtime] = req.enabled
+    
+    auth_svc.db_service.log_audit(
+        actor=actor,
+        action="toggle_runtime",
+        ip_address=client_ip,
+        details={"runtime": runtime, "enabled": req.enabled, "tenant_id": req.tenant_id}
+    )
+    return {"status": "success", "runtime": runtime, "enabled": req.enabled}
+
+
+@router.post("/kill-switch")
+async def trigger_kill_switch(
+    req: KillSwitchRequest,
+    request: Request,
+    auth_svc: AuthService = Depends(get_auth_service),
+    _admin: dict = Depends(get_current_admin)
+):
+    """Platform emergency kill switch: freeze sandbox creation or force-purge tenant sandboxes."""
+    global _PLATFORM_FROZEN
+    actor = _admin.get("username", "admin")
+    client_ip = request.client.host if request.client else "unknown"
+    
+    _PLATFORM_FROZEN = req.freeze_creation
+    purged_count = 0
+    
+    if req.purge_sandboxes:
+        lifecycle_svc = getattr(request.app.state, "lifecycle_service", None)
+        if lifecycle_svc:
+            sboxes = list(lifecycle_svc._sandboxes.values())
+            for sb in sboxes:
+                if req.tenant_id is None or sb.metadata.get("tenant_id") == req.tenant_id:
+                    await lifecycle_svc.destroy_sandbox(sb.sandbox_id, actor=f"admin_kill_switch:{actor}")
+                    purged_count += 1
+                    
+    auth_svc.db_service.log_audit(
+        actor=actor,
+        action="trigger_kill_switch",
+        ip_address=client_ip,
+        details={
+            "freeze_creation": req.freeze_creation,
+            "purge_sandboxes": req.purge_sandboxes,
+            "tenant_id": req.tenant_id,
+            "purged_count": purged_count
+        }
+    )
+    
+    return {
+        "status": "success",
+        "frozen": _PLATFORM_FROZEN,
+        "purged_count": purged_count,
+        "message": f"Kill switch triggered by {actor}."
+    }
+
+

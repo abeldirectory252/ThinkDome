@@ -10,6 +10,7 @@ from thinkdome.security.auth.service import AuthService
 from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
 from thinkdome.platform.orchestration.request_log import RequestLogService
 from thinkdome.platform.billing.service import BillingService
+from thinkdome.control_plane.lifecycle import ControlPlaneLifecycle
 
 
 def get_execution_service(request: Request) -> ExecutionService:
@@ -42,6 +43,11 @@ def get_request_log_service(request: Request) -> RequestLogService:
 
 def get_billing_service(request: Request) -> BillingService:
     return request.app.state.billing_service
+
+
+def get_control_plane_lifecycle(request: Request) -> ControlPlaneLifecycle:
+    """Return the ORM-backed placement/lifecycle coordinator."""
+    return request.app.state.control_plane_lifecycle
 
 
 def get_snapshot_service(request: Request):
@@ -97,7 +103,10 @@ async def get_current_user(
 async def get_current_admin(
     current_user: dict = Depends(get_current_user)
 ) -> dict:
-    if current_user.get("role") not in ("ADMIN", "ORCH"):
+    from thinkdome.security.identity.core import ADMIN_ROLES
+    role = str(current_user.get("role", "")).upper()
+    username = str(current_user.get("username", "")).lower()
+    if role not in ADMIN_ROLES and username not in ("admin", "administrator"):
         from fastapi import HTTPException, status
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

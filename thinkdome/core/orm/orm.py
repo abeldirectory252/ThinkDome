@@ -17,6 +17,7 @@ from sqlalchemy import (
     Boolean,
     Text,
     Table,
+    UniqueConstraint,
     select,
     insert,
     update,
@@ -209,7 +210,14 @@ class ModelMetaclass(type):
             )
 
         # Dynamic table binding
-        table = Table(attrs["__tablename__"], Base.metadata, *columns, extend_existing=True)
+        constraints = []
+        unique_together = attrs.get("__unique_together__", ())
+        if unique_together:
+            constraints.append(UniqueConstraint(*unique_together))
+        table = Table(
+            attrs["__tablename__"], Base.metadata, *columns, *constraints,
+            extend_existing=True,
+        )
         attrs["_table"] = table
 
         model_class = super().__new__(cls, name, bases, attrs)

@@ -8,9 +8,24 @@ from typing import Optional, Dict
 from pydantic_settings import BaseSettings
 
 
+@lru_cache()
+def get_workspace_root() -> Path:
+    """Dynamically resolve the project workspace root directory."""
+    env_root = os.environ.get("THINKDOME_WORKSPACE") or os.environ.get("WORKSPACE_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+
+    config_dir = Path(__file__).resolve().parent
+    for parent in (config_dir, *config_dir.parents):
+        if (parent / "sites").exists() or (parent / "pyproject.toml").exists():
+            return parent
+
+    return Path.cwd().resolve()
+
+
 # Load .env values into the environment before Pydantic reads settings.
 # This makes `Settings()` support values defined in a project-root .env file.
-ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+ENV_FILE = get_workspace_root() / ".env"
 if ENV_FILE.exists():
     for line in ENV_FILE.read_text().splitlines():
         line = line.strip()
@@ -28,10 +43,70 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+    DEPLOYMENT_ENV: str = "development"  # development | test | staging | production
+    NODE_ID: str = ""
+    NODE_REGION: str = "default"
+    NODE_AGENT_HOST: str = "127.0.0.1"
+    NODE_AGENT_PORT: int = 8100
+    NODE_AUTH_KEY_HEX: Optional[str] = None
+    CONTROL_PLANE_INTERNAL_URL: str = ""
+    REDIS_CONTROL_PLANE_CACHE_ENABLED: bool = True
+    REDIS_CONTROL_PLANE_CACHE_TTL_SECONDS: int = 30
+    NODE_REQUIRE_MTLS: bool = True
+    NODE_TLS_CERTFILE: Optional[str] = None
+    NODE_TLS_KEYFILE: Optional[str] = None
+    NODE_TLS_CAFILE: Optional[str] = None
+
+    def node_tls_config(self) -> dict[str, str]:
+        """Return Uvicorn TLS settings after validating the mTLS file contract."""
+        paths = {
+            "ssl_certfile": self.NODE_TLS_CERTFILE,
+            "ssl_keyfile": self.NODE_TLS_KEYFILE,
+            "ssl_ca_certs": self.NODE_TLS_CAFILE,
+        }
+        if not self.NODE_REQUIRE_MTLS:
+            return {}
+        if not all(paths.values()):
+            raise RuntimeError(
+                "NODE_REQUIRE_MTLS is enabled; NODE_TLS_CERTFILE, "
+                "NODE_TLS_KEYFILE, and NODE_TLS_CAFILE are required"
+            )
+        return {key: value for key, value in paths.items() if value}
+
+    def validate_production_runtime(self) -> None:
+        """Reject settings that cannot satisfy the production isolation contract."""
+        if self.DEPLOYMENT_ENV.lower() not in {"production", "staging"}:
+            return
+        if self.allows_insecure_execution_fallback():
+            raise RuntimeError("insecure subprocess fallback is forbidden in production/staging")
+        if self.EXECUTOR_BACKEND.lower() == "subprocess":
+            raise RuntimeError("subprocess execution backend is forbidden in production/staging")
+        if self.EXECUTOR_BACKEND.lower() == "docker" and "@sha256:" not in self.EXECUTOR_IMAGE:
+            raise RuntimeError("production Docker executor images must use an immutable @sha256 digest")
+        if self.NODE_ID and not self.CONTROL_PLANE_INTERNAL_URL:
+            raise RuntimeError("production node agents require CONTROL_PLANE_INTERNAL_URL")
+        if not (self.WORKSPACE_MASTER_KEY or self.VAULT_MASTER_KEY):
+            raise RuntimeError("production workspaces require WORKSPACE_MASTER_KEY or VAULT_MASTER_KEY")
+    # Comma-separated origins. Empty disables cross-origin browser requests;
+    # same-origin dashboard traffic requires no CORS exception.
+    CORS_ALLOW_ORIGINS: str = ""
+
+    def cors_allow_origins(self) -> list[str]:
+        """Return normalized explicit CORS origins without wildcard support."""
+        return [origin.strip() for origin in self.CORS_ALLOW_ORIGINS.split(",") if origin.strip()]
+
+    def allows_insecure_execution_fallback(self) -> bool:
+        """Whether a host-subprocess fallback is explicitly safe to use."""
+        return (
+            self.DEPLOYMENT_ENV.lower() in {"development", "test"}
+            and self.EXECUTOR_BACKEND_USE_FALLBACK
+        )
 
     # Executor — pluggable backends
-    EXECUTOR_BACKEND: str = "microvm"  # "microvm" | "docker" | "kubernetes" | "hybrid" | "subprocess"
-    EXECUTOR_BACKEND_USE_FALLBACK: bool = False  # Set to True to allow automatic fallback to subprocess when microvm/docker init fails
+    EXECUTOR_BACKEND: str = "docker"  # "docker" | "microvm" | "kubernetes" | "hybrid" | "subprocess"
+    # This executes untrusted code on the API host and is allowed only for
+    # explicitly configured local development or test environments.
+    EXECUTOR_BACKEND_USE_FALLBACK: bool = False
     EXECUTOR_IMAGE: str = "thinkdome-executor:latest"
 
     # Docker backend settings
@@ -124,6 +199,7 @@ class Settings(BaseSettings):
 
     # ── Credential Vault Settings ──
     VAULT_MASTER_KEY: Optional[str] = None    # Fernet key for vault encryption
+    WORKSPACE_MASTER_KEY: Optional[str] = None  # Master key for workspace encryption at rest
 
     # ── Secure Container Runtime Settings ──
     SECURE_RUNTIME_TYPE: str = ""             # "", "gvisor", "kata", "firecracker", "microvm"
@@ -139,4 +215,12 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    # Site data is tenant-scoped. Unless explicitly overridden, keep each
+    # site's storage under its own site directory rather than repository root.
+    site_name = os.environ.get("THINKDOME_SITE", "think.local")
+    site_config = get_workspace_root() / "sites" / site_name / "site_config.json"
+    if site_config.exists() and settings.FILE_STORAGE_DIR == "./storage":
+        settings.FILE_STORAGE_DIR = str(site_config.parent / "storage")
+        settings.SNAPSHOT_STORAGE_DIR = str(site_config.parent / "storage" / "snapshots")
+    return settings

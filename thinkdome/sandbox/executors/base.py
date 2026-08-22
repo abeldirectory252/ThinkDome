@@ -35,6 +35,7 @@ class ExecResult:
     timed_out: bool = False
     duration_ms: float = 0.0
     output_files: dict[str, bytes] = field(default_factory=dict)  # path -> content
+    error_code: Optional[str] = None
 
 
 class BaseExecutor(ABC):

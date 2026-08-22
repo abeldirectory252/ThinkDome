@@ -15,7 +15,9 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 
-WORKSPACE_ROOT = Path("/home/sandbox/ThinkDome")
+from thinkdome.core.config import get_workspace_root
+
+WORKSPACE_ROOT = get_workspace_root()
 SITES_DIR = WORKSPACE_ROOT / "sites"
 APPS_DIR = WORKSPACE_ROOT / "thinkdome" / "apps"
 
@@ -92,6 +94,47 @@ def main() -> None:
     subparsers.add_parser("list-tools", help="List all registered tools and their active status")
     subparsers.add_parser("mcp", help="Start the Model Context Protocol (MCP) stdio server")
 
+    # ── Backup & Restore ──────────────────────────────────────────────────────
+    subparsers.add_parser("backup", help="Create a full backup of the site (database + files)")
+
+    restore_p = subparsers.add_parser("restore", help="Restore a site from a database dump")
+    restore_p.add_argument("db_dump", help="Path to .sql.gz or .sql database dump")
+    restore_p.add_argument("--with-public-files", dest="public_files", help="Path to public files tar archive")
+    restore_p.add_argument("--with-private-files", dest="private_files", help="Path to private files tar archive")
+    restore_p.add_argument("--admin-password", dest="admin_password", help="Set a new Administrator password after restore")
+
+    # ── Password Management ───────────────────────────────────────────────────
+    admin_pw_p = subparsers.add_parser("set-admin-password", help="Reset the Administrator (superadmin) password")
+    admin_pw_p.add_argument("password", help="New Administrator password")
+
+    user_pw_p = subparsers.add_parser("set-password", help="Reset any user's password by username or email")
+    user_pw_p.add_argument("identifier", help="Username or email address")
+    user_pw_p.add_argument("password", help="New password")
+
+    superadmin_p = subparsers.add_parser(
+        "create-superadmin", help="Create or provision the Administrator account"
+    )
+    superadmin_p.add_argument(
+        "--password",
+        dest="password",
+        help="Administrator password; if omitted, prompt securely",
+    )
+
+    filebox_p = subparsers.add_parser("create-filebox", help="Create an encrypted .box virtual disk for a user")
+    filebox_p.add_argument("username", help="Owner username")
+    filebox_p.add_argument("--tenant", default="default", help="Tenant identifier")
+    filebox_p.add_argument("--rotate", action="store_true", help="Lock the existing volume and create a new one")
+
+    # ── Console (interactive REPL) ────────────────────────────────────────────
+    subparsers.add_parser("console", help="Open an interactive Python console with site context")
+
+    # ── Code Execution ────────────────────────────────────────────────────────
+    run_p = subparsers.add_parser("run", help="Execute code in the sandbox")
+    run_p.add_argument("code", nargs="?", help="Code string to execute")
+    run_p.add_argument("-f", "--file", help="Path to a script file to execute")
+    run_p.add_argument("--timeout", type=int, default=10, help="Timeout in seconds")
+    run_p.add_argument("--backend", default="auto", choices=["auto", "docker", "subprocess", "microvm"])
+
     args = parser.parse_args()
 
     if not args.command:
@@ -101,7 +144,9 @@ def main() -> None:
     os.environ["THINKDOME_SITE"] = args.site
 
     try:
-        if args.command == "create-site":
+        if args.command == "run":
+            handle_run(args.code, args.file, args.timeout, args.backend)
+        elif args.command == "create-site":
             handle_create_site(args.site_name, args.db_url)
         elif args.command == "new-app":
             handle_new_app(args.app_name)
@@ -141,6 +186,20 @@ def main() -> None:
             handle_list_tools(args.site)
         elif args.command == "mcp":
             handle_mcp(args.site)
+        elif args.command == "backup":
+            handle_backup(args.site)
+        elif args.command == "restore":
+            handle_restore(args.site, args.db_dump, args.public_files, args.private_files, args.admin_password)
+        elif args.command == "set-admin-password":
+            handle_set_admin_password(args.site, args.password)
+        elif args.command == "set-password":
+            handle_set_password(args.site, args.identifier, args.password)
+        elif args.command == "console":
+            handle_console(args.site)
+        elif args.command == "create-superadmin":
+            handle_create_superadmin(args.site, args.password)
+        elif args.command == "create-filebox":
+            handle_create_filebox(args.tenant, args.username, args.rotate)
         else:
             parser.print_help()
     except Exception as e:
@@ -415,6 +474,27 @@ def handle_migration_status(site_name: str) -> None:
         print(f"{m['app']:<20} | {m['migration']:<20} | {m['status']}")
 
 
+def handle_run(code: Optional[str], file: Optional[str], timeout: int, backend: str) -> None:
+    """Execute code in a sandbox."""
+    from thinkdome import Sandbox
+
+    if file:
+        with open(file, "r", encoding="utf-8") as f:
+            code = f.read()
+
+    if not code:
+        print("Error: Provide code as an argument or use --file", file=sys.stderr)
+        sys.exit(1)
+
+    with Sandbox(timeout=timeout, backend=backend) as dome:
+        result = dome.run(code)
+        if result.output:
+            print(result.output, end="")
+        if result.error:
+            print(result.error, file=sys.stderr, end="")
+        sys.exit(result.exit_code)
+
+
 def handle_serve(host: str, port: int, reload: bool) -> None:
     """Launch the FastAPI server."""
     import uvicorn
@@ -502,6 +582,115 @@ def handle_mcp(site_name: str) -> None:
     """Start the Model Context Protocol (MCP) stdio server."""
     from thinkdome.platform.orchestration.mcp_server import run_mcp_server
     run_mcp_server(site_name)
+
+
+# ── Backup & Restore Handlers ────────────────────────────────────────────────
+
+
+def handle_backup(site_name: str) -> None:
+    """Create a full site backup (database + files)."""
+    from thinkdome.core.cli.site_ops import backup_site
+
+    print(f"Creating backup for site '{site_name}' …")
+    backup_site(site_name)
+
+
+def handle_restore(
+    site_name: str,
+    db_dump: str,
+    public_files: Optional[str],
+    private_files: Optional[str],
+    admin_password: Optional[str],
+) -> None:
+    """Restore a site from a database dump and optional file archives."""
+    from thinkdome.core.cli.site_ops import restore_site
+
+    restore_site(
+        site_name,
+        db_dump_path=db_dump,
+        public_files_path=public_files,
+        private_files_path=private_files,
+        admin_password=admin_password,
+    )
+
+
+# ── Password Management Handlers ─────────────────────────────────────────────
+
+
+def handle_set_admin_password(site_name: str, password: str) -> None:
+    """Reset the Administrator password for a site."""
+    from thinkdome.core.cli.site_ops import set_admin_password
+
+    set_admin_password(site_name, password)
+
+
+def handle_set_password(site_name: str, identifier: str, password: str) -> None:
+    """Reset any user's password by username or email."""
+    from thinkdome.core.cli.site_ops import set_user_password
+
+    set_user_password(site_name, identifier, password)
+
+
+# ── Console Handler ──────────────────────────────────────────────────────────
+
+
+def handle_console(site_name: str) -> None:
+    """Open an interactive Python console with site context."""
+    from thinkdome.core.cli.site_ops import open_console
+
+    open_console(site_name)
+
+
+# ── Superadmin Handler ───────────────────────────────────────────────────────
+
+
+def handle_create_superadmin(site_name: str, password: Optional[str] = None) -> None:
+    """Create the single Administrator superadmin account for a site."""
+    from thinkdome.core.cli.site_ops import create_superadmin
+
+    create_superadmin(site_name, password)
+
+
+def handle_create_filebox(tenant_id: str, username: str, rotate: bool = False) -> None:
+    """Provision one encrypted single-file .box volume through the ORM."""
+    from thinkdome.core.kernel.kernel import Kernel
+    from thinkdome.platform.storage.filebox.models import FileBox, FileBoxVolume
+    from thinkdome.platform.storage.filebox.service import FileBoxService
+    from thinkdome.security.rbac.models import User
+
+    owner = username.strip().lower()
+    if not owner:
+        raise ValueError("username is required")
+    kernel = Kernel.current()
+    kernel.initialize()
+    user = User.query().filter(username=owner).first()
+    if user is None:
+        raise LookupError(f"User '{owner}' does not exist. Create the user before provisioning a FileBox.")
+    if str(user.status).lower() != "active":
+        raise PermissionError(f"User '{owner}' is not active (status: {user.status}).")
+    existing = FileBoxVolume.query().filter(
+        tenant_id=tenant_id, owner_id=owner, volume_name="default", status="active"
+    ).first()
+    owner_root = Path(FileBoxService().root) / tenant_id / owner
+    disk_files = list(owner_root.glob("*.box")) if owner_root.exists() else []
+    if disk_files and not existing and not rotate:
+        raise FileExistsError(
+            f"A .box file already exists for {tenant_id}/{owner}, but its metadata is not active. "
+            "Use --rotate only after verifying recovery is intended."
+        )
+    if existing and not rotate:
+        raise FileExistsError("An active FileBox already exists. Use --rotate to create a new disk.")
+    if existing:
+        existing._values["status"] = "locked"
+        existing.save()
+        for item in FileBox.query().filter(tenant_id=tenant_id, owner_id=owner, status="active").all():
+            item._values["status"] = "expired"
+            item.save()
+    service = FileBoxService()
+    service.ensure_layout(tenant_id=tenant_id, owner_id=owner)
+    volume = service.get_volume(tenant_id=tenant_id, owner_id=owner)
+    container = Path(volume.root_path).parent / (Path(volume.root_path).name[:-5] if Path(volume.root_path).name.endswith(".data") else Path(volume.root_path).name)
+    print(f"✓ FileBox created for {tenant_id}/{owner}: {container}")
 
 
 def time_now_iso() -> str:

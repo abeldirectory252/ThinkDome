@@ -1,0 +1,12 @@
+{
+    "db_url": "sqlite:////home/sandbox/ThinkDome/sites/think.local/db.sqlite",
+    "installed_apps": [
+        "sandbox",
+        "agents",
+        "workflows",
+        "monitoring"
+    ],
+    "site_name": "think.local",
+    "storage_dir": "storage",
+    "created_at": "2026-08-22T11:18:19.954510+00:00"
+}

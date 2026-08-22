@@ -52,6 +52,12 @@ ROLE_SCOPES = {
     }
 }
 
+# Administrative roles inherit the complete ADMIN tool scope.  Without these
+# aliases, a correctly authenticated SUPER_ADMIN fell through to the LLM
+# default because it was absent from the matrix.
+ROLE_SCOPES["SUPER_ADMIN"] = ROLE_SCOPES["ADMIN"]
+ROLE_SCOPES["ENTERPRISE_ADMIN"] = ROLE_SCOPES["ADMIN"]
+
 
 class OrchestratorService:
     """Validates and executes tool use blocks like an LLM orchestrator."""
@@ -158,7 +164,7 @@ class OrchestratorService:
 
                 # Ensure non-core (app) tools are active in the current site config
                 if tool.app_name != "core":
-                    site_name = os.environ.get("THINKDOME_SITE", "personal")
+                    site_name = os.environ.get("THINKDOME_SITE", "think.local")
                     active_tools = registry.get_active_tools(site_name)
                     active_names = {t.name for t in active_tools}
                     if tool_name not in active_names:
@@ -213,10 +219,23 @@ class OrchestratorService:
 
             except Exception as e:
                 logger.error(f"Error executing tool {tool_name}: {e}")
+                from thinkdome.core.error_codes import SandboxErrorCodes
+                if isinstance(e, PermissionError):
+                    code = "AUTH::ACCESS_DENIED"
+                    message = "Access denied by the sandbox security policy."
+                elif isinstance(e, FileNotFoundError):
+                    code = SandboxErrorCodes.FILE_NOT_FOUND
+                    message = "The requested FileBox path does not exist."
+                elif isinstance(e, ValueError):
+                    code = SandboxErrorCodes.FILE_INVALID_PATH
+                    message = str(e)
+                else:
+                    code = SandboxErrorCodes.UNKNOWN_ERROR
+                    message = "The tool could not complete safely."
                 return {
                     "type": "tool_result",
                     "tool_use_id": tool_id,
-                    "content": f"Error executing tool '{tool_name}': {str(e)}",
+                    "content": json.dumps({"error": {"code": code, "message": message, "tool": tool_name}}),
                     "is_error": True
                 }
         finally:

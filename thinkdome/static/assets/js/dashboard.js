@@ -1,9 +1,12 @@
 // static/js/dashboard.js
 
-/* =================== CORE THEMING (Auto detection) =================== */
+/* =================== CORE THEMING =================== */
 function initTheme() {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (prefersDark) {
+    // Keep the established dashboard theme stable.  The OS/browser preference
+    // must not silently change the product theme between sessions.
+    const savedTheme = localStorage.getItem('thinkdome_theme_preference');
+    const useDark = savedTheme === 'dark';
+    if (useDark) {
         document.documentElement.classList.add('dark');
         state.theme = 'dark';
     } else {
@@ -24,6 +27,7 @@ function toggleTheme() {
         document.documentElement.classList.add('dark');
         state.theme = 'dark';
     }
+    localStorage.setItem('thinkdome_theme_preference', state.theme);
     if (typeof editorInstance !== 'undefined' && editorInstance) {
         monaco.editor.setTheme(state.theme === 'dark' ? 'vs-dark' : 'vs');
     }
@@ -85,10 +89,44 @@ async function refreshDash(btn) {
 }
 
 async function fetchDashboardData() {
+    try {
+        const health = await fetch('/health');
+        const apiStatus = document.getElementById('fleetApiStatus');
+        const apiDot = document.getElementById('fleetApiDot');
+        if (apiStatus) apiStatus.textContent = health.ok ? 'Operational' : 'Degraded';
+        if (apiDot) apiDot.className = `fleet-dot ${health.ok ? 'ok' : 'bad'}`;
+    } catch (_) {
+        const apiStatus = document.getElementById('fleetApiStatus');
+        const apiDot = document.getElementById('fleetApiDot');
+        if (apiStatus) apiStatus.textContent = 'Unavailable';
+        if (apiDot) apiDot.className = 'fleet-dot bad';
+    }
     const token = localStorage.getItem('thinkdome_token');
 
     if (!window.API || !token) {
         return;
+    }
+
+    try {
+        const nodesResponse = await fetch('/v1/control-plane/nodes', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const nodeStatus = document.getElementById('fleetNodeStatus');
+        const nodeDot = document.getElementById('fleetNodeDot');
+        if (nodesResponse.ok) {
+            const payload = await nodesResponse.json();
+            const count = Array.isArray(payload.nodes) ? payload.nodes.length : 0;
+            if (nodeStatus) nodeStatus.textContent = `${count} ready node${count === 1 ? '' : 's'}`;
+            if (nodeDot) nodeDot.className = `fleet-dot ${count ? 'ok' : 'bad'}`;
+        } else {
+            if (nodeStatus) nodeStatus.textContent = 'Access unavailable';
+            if (nodeDot) nodeDot.className = 'fleet-dot bad';
+        }
+    } catch (_) {
+        const nodeStatus = document.getElementById('fleetNodeStatus');
+        const nodeDot = document.getElementById('fleetNodeDot');
+        if (nodeStatus) nodeStatus.textContent = 'Unavailable';
+        if (nodeDot) nodeDot.className = 'fleet-dot bad';
     }
 
     try {
@@ -240,6 +278,12 @@ async function fetchDashboardData() {
 
 function renderDashboardRecentTables() {
     fetchDashboardData();
+    // Keep operator status current without creating an aggressive polling loop.
+    if (!window.__thinkdomeDashboardPoller) {
+        window.__thinkdomeDashboardPoller = window.setInterval(() => {
+            if (!document.hidden) fetchDashboardData();
+        }, 30000);
+    }
 }
 
 /* =================== AUDIT DETAIL MODAL =================== */
@@ -827,7 +871,15 @@ function filterMcpToolsTable() {
 async function testMcpTool(toolName) {
     const token = localStorage.getItem('thinkdome_token');
     
-    let defaultPayload = '{}';
+    const examples = {
+        run_code: { sandbox: "", language: "python", code: "print('Hello from ThinkDome')" },
+        execute_python: { code: "print(sum(range(10)))", timeout_ms: 5000 },
+        list_sandboxes: {},
+        get_sandbox: { sandbox_id: "" },
+        read_file: { sandbox_id: "", path: "/workspace/README.md" },
+        write_file: { sandbox_id: "", path: "/workspace/example.txt", content: "Hello from MCP" },
+    };
+    let defaultPayload = JSON.stringify(examples[toolName] || {}, null, 2);
     if (toolName === 'host_html') {
         defaultPayload = JSON.stringify({
             html: '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>LLM Executive Report</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet"><style>:root{--bg:#f8fafc;--card-bg:#ffffff;--border:#e2e8f0;--text:#0f172a;--text-muted:#64748b;--accent:#0284c7;--accent-emerald:#059669;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Inter,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 20px;position:relative;overflow-x:hidden;}body::before{content:"";position:absolute;width:500px;height:500px;background:radial-gradient(circle,rgba(2,132,199,0.08) 0%,rgba(99,102,241,0.03) 50%,transparent 70%);top:-100px;left:-100px;z-index:0;}body::after{content:"";position:absolute;width:600px;height:600px;background:radial-gradient(circle,rgba(124,58,237,0.06) 0%,transparent 70%);bottom:-150px;right:-150px;z-index:0;}.container{position:relative;z-index:1;width:100%;max-width:680px;}.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;}.brand{display:flex;align-items:center;gap:10px;font-family:Outfit,sans-serif;font-size:20px;font-weight:800;color:var(--accent);}.badge{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:30px;font-size:12px;font-weight:600;color:var(--accent-emerald);}.pulse{width:8px;height:8px;background:var(--accent-emerald);border-radius:50%;box-shadow:0 0 8px rgba(5,150,105,0.4);animation:p 2s infinite;}@keyframes p{0%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(5,150,105,0.4);}70%{transform:scale(1);box-shadow:0 0 0 8px rgba(5,150,105,0);}100%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(5,150,105,0);}}.card{background:var(--card-bg);border:1px solid var(--border);border-radius:20px;padding:36px;box-shadow:0 20px 40px -15px rgba(0,0,0,0.07);}h1{font-family:Outfit,sans-serif;font-size:30px;font-weight:700;margin-bottom:12px;color:#0f172a;}.sub{color:var(--text-muted);font-size:15px;line-height:1.6;margin-bottom:28px;}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;}.stat{background:#f8fafc;border:1px solid var(--border);border-radius:14px;padding:16px;}.lbl{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;}.val{font-family:Outfit,sans-serif;font-size:20px;font-weight:700;color:var(--accent);}.code{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;font-family:"Fira Code",monospace;font-size:13px;color:#38bdf8;}</style></head><body><div class="container"><div class="header"><div class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 16-9 5-9-5V8l9-5 9 5v8Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg><span>ThinkDome Gateway</span></div><div class="badge"><div class="pulse"></div><span>LLM EXECUTIVE REPORT</span></div></div><div class="card"><h1>Executive System Telemetry</h1><p class="sub">Hosted via host_html MCP tool with encrypted ephemeral memory isolation.</p><div class="grid"><div class="stat"><div class="lbl">System Health</div><div class="val" style="color:#059669;">99.98%</div></div><div class="stat"><div class="lbl">Isolation</div><div class="val" style="color:#0284c7;">High Security</div></div><div class="stat"><div class="lbl">Auto TTL</div><div class="val" style="color:#7c3aed;">300 Seconds</div></div></div><div class="code">$ status: 200 OK &bull; memory: isolated &bull; proxy: active</div></div></div></body></html>',
@@ -838,7 +890,7 @@ async function testMcpTool(toolName) {
         }, null, 2);
     }
 
-    const inputStr = prompt(`Execute test for tool '${toolName}'\n\nEnter JSON arguments (or edit defaults):`, defaultPayload);
+    const inputStr = await openMcpTestModal(toolName, defaultPayload);
     if (inputStr === null) return;
 
     let toolInput = {};
@@ -848,7 +900,11 @@ async function testMcpTool(toolName) {
             toolInput.html = toolInput.html.replace(/300\s*Seconds/gi, `${toolInput.ttl_sec} Seconds`);
         }
     } catch {
-        alert("Invalid JSON format for tool arguments.");
+        const modalError = document.getElementById('mcpTestError');
+        if (modalError) {
+            modalError.textContent = 'Please enter valid JSON before executing this tool.';
+            modalError.hidden = false;
+        }
         return;
     }
 
@@ -863,30 +919,116 @@ async function testMcpTool(toolName) {
         if (window.API && typeof window.API.orchestrate === 'function') {
             const res = await window.API.orchestrate(payload, token);
             if (res.error) {
-                alert(`Tool execution failed:\n${res.error}`);
+                showMcpTestResult('Tool execution failed', res.error, false);
             } else {
                 let contentText = res.data ? (res.data.content || JSON.stringify(res.data)) : "";
                 let urlMatch = contentText && contentText.match(/http:\/\/[^\s"'\\]+/);
                 if (urlMatch) {
                     const hostedUrl = urlMatch[0];
-                    if (confirm(`Tool '${toolName}' executed successfully!\n\nHosted URL: ${hostedUrl}\n\nClick OK to open the hosted page in a new tab.`)) {
-                        window.open(hostedUrl, '_blank');
-                    }
+                    showMcpTestResult('Tool executed successfully', `Hosted result is ready.\n\n${hostedUrl}`, true, hostedUrl);
                 } else {
-                    alert(`Tool '${toolName}' executed successfully!\n\nResult:\n${JSON.stringify(res.data, null, 2)}`);
+                    showMcpTestResult('Tool executed successfully', JSON.stringify(res.data, null, 2), true);
                 }
             }
         }
     } catch (e) {
-        alert(`Execution error: ${e.message}`);
+        showMcpTestResult('Execution error', e.message || String(e), false);
     }
+}
+
+let mcpTestResolver = null;
+function openMcpTestModal(toolName, payload) {
+    const modal = document.getElementById('mcpTestModal');
+    const title = document.getElementById('mcpTestTitle');
+    const input = document.getElementById('mcpTestInput');
+    const error = document.getElementById('mcpTestError');
+    const result = document.getElementById('mcpTestResult');
+    const execute = document.getElementById('mcpTestExecuteBtn');
+    const open = document.getElementById('mcpTestOpenBtn');
+    if (!modal || !input) return Promise.resolve(payload);
+    title.textContent = `Test ${toolName}`;
+    input.value = payload;
+    if (error) { error.hidden = true; error.textContent = ''; }
+    if (result) result.hidden = true;
+    if (execute) execute.hidden = false;
+    if (open) open.hidden = true;
+    modal.classList.remove('hidden');
+    input.focus();
+    return new Promise(resolve => { mcpTestResolver = resolve; });
+}
+
+let mcpResultUrl = '';
+function showMcpTestResult(title, message, success, url = '') {
+    const modal = document.getElementById('mcpTestModal');
+    const titleEl = document.getElementById('mcpTestTitle');
+    const input = document.getElementById('mcpTestInput');
+    const result = document.getElementById('mcpTestResult');
+    const execute = document.getElementById('mcpTestExecuteBtn');
+    const open = document.getElementById('mcpTestOpenBtn');
+    if (!modal || !result) return;
+    titleEl.textContent = title;
+    input.hidden = true;
+    result.hidden = false;
+    result.textContent = message;
+    result.classList.toggle('success', success);
+    result.classList.toggle('failure', !success);
+    if (execute) execute.hidden = true;
+    mcpResultUrl = url;
+    if (open) open.hidden = !url;
+    modal.classList.remove('hidden');
+}
+
+function openMcpTestResult() {
+    if (mcpResultUrl) window.open(mcpResultUrl, '_blank', 'noopener,noreferrer');
+}
+
+function closeMcpTestModal() {
+    const modal = document.getElementById('mcpTestModal');
+    if (modal) modal.classList.add('hidden');
+    if (mcpTestResolver) { mcpTestResolver(null); mcpTestResolver = null; }
+}
+
+function submitMcpTestModal() {
+    const input = document.getElementById('mcpTestInput');
+    const error = document.getElementById('mcpTestError');
+    try {
+        JSON.parse(input.value);
+    } catch (_) {
+        error.textContent = 'Please enter valid JSON before executing this tool.';
+        error.hidden = false;
+        return;
+    }
+    const value = input.value;
+    const modal = document.getElementById('mcpTestModal');
+    if (modal) modal.classList.add('hidden');
+    if (mcpTestResolver) { mcpTestResolver(value); mcpTestResolver = null; }
 }
 
 function copyMcpConfig() {
     const code = document.getElementById('mcpConfigCode').innerText;
+    const button = document.querySelector('[onclick="copyMcpConfig()"]');
     navigator.clipboard.writeText(code).then(() => {
-        alert("MCP Configuration copied to clipboard!");
+        if (!button) return;
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        button.classList.add('is-success');
+        window.setTimeout(() => {
+            button.textContent = original;
+            button.classList.remove('is-success');
+        }, 1600);
     }).catch(err => {
         console.error("Failed to copy text: ", err);
+        if (button) button.textContent = 'Copy failed';
     });
+}
+
+function downloadMcpConfig() {
+    const code = document.getElementById('mcpConfigCode')?.innerText || '';
+    const blob = new Blob([code], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'thinkdome-mcp-config.json';
+    link.click();
+    URL.revokeObjectURL(url);
 }

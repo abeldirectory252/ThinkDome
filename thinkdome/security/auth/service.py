@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Optional, Any, Dict, List
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from thinkdome.core.config import Settings
 from thinkdome.platform.database.service import DatabaseService
 
@@ -231,11 +231,168 @@ class AuthService:
             return True
         return False
 
+    def create_auth_tokens(
+        self,
+        username: str,
+        role: str = "AGENT_STANDARD",
+        tenant_id: str = "default",
+        actor_ip: str = "unknown"
+    ) -> dict[str, str]:
+        """Mint a 15-minute JWT access token and a 7-day rotating refresh token."""
+        from thinkdome.security.auth.jwt_engine import (
+            create_access_token,
+            generate_refresh_token,
+            hash_refresh_token
+        )
+        
+        username = username.strip().lower()
+        access_token = create_access_token({
+            "sub": username,
+            "username": username,
+            "role": role,
+            "tenant_id": tenant_id
+        })
+        
+        raw_refresh = generate_refresh_token()
+        hashed_refresh = hash_refresh_token(raw_refresh)
+        
+        now = datetime.now(timezone.utc)
+        expires_at = (now + timedelta(days=7)).isoformat()
+        
+        try:
+            self.db_service.execute(
+                """
+                INSERT INTO refresh_tokens (token_hash, username, created_at, expires_at, status)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (hashed_refresh, username, now.isoformat(), expires_at, "active")
+            )
+        except Exception as e:
+            logger.error(f"Error persisting refresh token for {username}: {e}")
+            
+        return {
+            "access_token": access_token,
+            "refresh_token": raw_refresh,
+            "token_type": "Bearer",
+            "expires_in": 900
+        }
+
+    def rotate_refresh_token(self, refresh_token: str, actor_ip: str = "unknown") -> Optional[dict[str, str]]:
+        """Validate an active refresh token, revoke it, and issue a new access + refresh token pair."""
+        from thinkdome.security.auth.jwt_engine import hash_refresh_token
+        hashed = hash_refresh_token(refresh_token)
+        
+        try:
+            row = self.db_service.fetch_one(
+                "SELECT * FROM refresh_tokens WHERE token_hash = ? AND status = 'active'",
+                (hashed,)
+            )
+            if not row:
+                return None
+                
+            expires_at_str = row.get("expires_at")
+            if expires_at_str:
+                exp_dt = datetime.fromisoformat(expires_at_str)
+                if datetime.now(timezone.utc) > exp_dt:
+                    self.db_service.execute(
+                        "UPDATE refresh_tokens SET status = 'expired' WHERE token_hash = ?",
+                        (hashed,)
+                    )
+                    return None
+            
+            # Revoke single-use refresh token
+            self.db_service.execute(
+                "UPDATE refresh_tokens SET status = 'revoked' WHERE token_hash = ?",
+                (hashed,)
+            )
+            
+            username = row["username"]
+            # Fetch user role
+            user_role = "AGENT_STANDARD"
+            try:
+                from thinkdome.security.repositories.user import UserRepository
+                user_repo = UserRepository()
+                user = user_repo.get_by_username(username)
+                if user and user.role:
+                    user_role = user.role
+            except Exception:
+                pass
+                
+            return self.create_auth_tokens(username, role=user_role, actor_ip=actor_ip)
+        except Exception as e:
+            logger.error(f"Error rotating refresh token: {e}")
+            return None
+
     def verify_token(self, token: str) -> Optional[dict[str, Any]]:
-        """Verify session token or API Key from SQLite. Returns token identity info or None."""
-        # 1. Check in-memory user sessions
+        """Verify JWT access token, single-sandbox token, session token, or API Key."""
+        # 1. Check JWT access tokens
+        from thinkdome.security.auth.jwt_engine import decode_access_token
+        jwt_payload = decode_access_token(token)
+        if jwt_payload:
+            username = jwt_payload.get("sub", jwt_payload.get("username", "anonymous"))
+            role = jwt_payload.get("role", "AGENT_STANDARD")
+            # Rehydrate RBAC from ORM so a JWT cannot retain a stale
+            # AGENT_STANDARD role after an administrator assignment changes.
+            try:
+                from thinkdome.security.repositories.user import UserRepository
+                from thinkdome.security.repositories.role import RoleRepository
+                from thinkdome.security.identity.core import select_effective_role
+                rbac_user = UserRepository().get_by_username(username)
+                if rbac_user:
+                    role = select_effective_role(
+                        RoleRepository().get_user_roles(rbac_user.id),
+                        username=username,
+                    )
+            except Exception:
+                pass
+            return {
+                "username": username,
+                "role": role,
+                "tenant_id": jwt_payload.get("tenant_id", "default"),
+                "key_id": jwt_payload.get("key_id"),
+                "jti": jwt_payload.get("jti"),
+                "display_name": jwt_payload.get("sub", "JWT Identity")
+            }
+
+        # 2. Check Single-sandbox access tokens
+        from thinkdome.security.auth.single_sandbox_token import verify_sandbox_access_token
+        sbx_payload = verify_sandbox_access_token(token)
+        if sbx_payload:
+            return {
+                "username": sbx_payload.get("sub", "sandbox_client"),
+                "role": sbx_payload.get("role", "AGENT_STANDARD"),
+                "sandbox_id": sbx_payload.get("sandbox_id"),
+                "token_type": "sandbox_access",
+                "display_name": f"Sandbox Token ({sbx_payload.get('sandbox_id')})"
+            }
+
+        # 3. Check legacy in-memory user sessions
         if token in self._active_sessions:
             return self._active_sessions[token].copy()
+
+        # RBAC sessions are persisted through the custom ORM repository.
+        try:
+            from thinkdome.security.repositories.audit import AuditRepository
+            from thinkdome.security.repositories.user import UserRepository
+            from thinkdome.security.repositories.role import RoleRepository
+            from thinkdome.security.identity.core import select_effective_role
+            session = AuditRepository().get_session(token)
+            if session:
+                expires_at = datetime.strptime(session.expires_at, "%Y-%m-%d %H:%M:%S")
+                if expires_at > datetime.utcnow():
+                    user = UserRepository().get_by_id(session.user_id)
+                    if user:
+                        roles = RoleRepository().get_user_roles(user.id)
+                        return {
+                            "id": user.id,
+                            "username": user.username,
+                            "role": select_effective_role(roles, username=user.username),
+                            "roles": [role.name for role in roles],
+                            "token_type": "session",
+                        }
+                return None
+        except Exception as exc:
+            logger.debug("RBAC session verification unavailable: %s", exc)
 
         # 2. Check local in-memory token cache
         hashed_token = hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -434,4 +591,3 @@ class AuthService:
         except Exception as e:
             logger.error(f"Failed to revoke API key {key_id}: {e}")
             return False
-

@@ -12,12 +12,15 @@ from fastapi.responses import JSONResponse
 from thinkdome.security.rbac.service import UserService, hash_password
 from thinkdome.security.repositories.user import UserRepository
 from thinkdome.security.repositories.audit import AuditRepository
+from thinkdome.security.repositories.role import RoleRepository
 from thinkdome.core.dependencies import get_auth_service, get_current_user
+from thinkdome.security.identity.core import select_effective_role
 
 router = APIRouter(prefix="/v1/auth", tags=["RBAC Auth"])
 
 user_repo = UserRepository()
 audit_repo = AuditRepository()
+role_repo = RoleRepository()
 
 
 class LoginRequest(BaseModel):
@@ -57,6 +60,7 @@ async def login(req: LoginRequest, request: Request):
     expires_at = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() + 86400))
     audit_repo.create_session(user.id, session_token, expires_at, ip_address=client_ip)
     audit_repo.record_login(user.id, status="success", ip_address=client_ip)
+    roles = [role.name for role in role_repo.get_user_roles(user.id)]
 
     return {
         "status": "success",
@@ -66,7 +70,9 @@ async def login(req: LoginRequest, request: Request):
             "id": user.id,
             "username": user.username,
             "email": user.email,
-            "status": user.status
+            "status": user.status,
+            "role": select_effective_role(roles, username=user.username),
+            "roles": roles,
         }
     }
 
@@ -89,6 +95,12 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     profile = user_repo.get_profile(user.id) if user else None
 
     return {
-        "user": user.to_dict() if user else current_user,
+        "user": {
+            **(user.to_dict() if user else current_user),
+            "role": (select_effective_role(role_repo.get_user_roles(user.id), username=user.username)
+                      if user else current_user.get("role", "AGENT_STANDARD")),
+            "roles": ([role.name for role in role_repo.get_user_roles(user.id)]
+                      if user else current_user.get("roles", [])),
+        },
         "profile": profile.to_dict() if profile else {}
     }

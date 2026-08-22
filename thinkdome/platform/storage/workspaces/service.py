@@ -16,6 +16,7 @@ from thinkdome.platform.storage.workspaces.models import (
     UpdateWorkspaceRequest,
     SnapshotResponse,
 )
+from thinkdome.platform.storage.workspace_crypto import migrate_workspace_tree
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,12 @@ class WorkspaceService:
     def __init__(self, settings: Settings) -> None:
         self.base_dir = Path(settings.FILE_STORAGE_DIR) / "workspaces"
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            migrate_workspace_tree(self.base_dir)
+        except Exception as exc:
+            # Fail closed for workspace access, but do not prevent unrelated
+            # control-plane routes from starting during key rotation.
+            logger.error("Workspace encryption migration failed: %s", exc)
         self._workspaces: dict[str, WorkspaceInfo] = {}
         self._snapshots: dict[str, SnapshotResponse] = {}
 

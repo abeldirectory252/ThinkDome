@@ -216,6 +216,17 @@ def test_docker_executor_config_admin_role():
     assert config["environment"]["HTTP_PROXY"] == "http://thinkbox-proxy:3128"
 
 
+def test_docker_executor_never_binds_a_host_workspace_for_a_user():
+    """A user identity must not create a host-path capability in the sandbox."""
+    executor = PythonDockerExecutor(Settings())
+    config = executor._build_container_config(
+        ExecRequest(code="print('test')", caller_role="LLM", username="alice")
+    )
+
+    assert "volumes" not in config
+    assert "/workspace" in config["tmpfs"]
+
+
 @pytest.mark.asyncio
 async def test_orchestrate_file_utilities(client, api_keys):
     headers = {"Authorization": f"Bearer {api_keys['ADMIN']}"}
@@ -568,4 +579,3 @@ async def test_orchestrate_host_html_default_and_custom_ttl(client, api_keys):
     res_custom = resp_custom.json()
     assert res_custom["is_error"] is False
     assert '"ttl_sec": 7200' in res_custom["content"] or "TTL Timeout: 7200" in res_custom["content"]
-

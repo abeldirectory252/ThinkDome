@@ -29,8 +29,19 @@ Click the badge below to launch the pre-configured interactive notebook directly
 # 1. Run system readiness check
 thinkdome check
 
-# 2. Execute code in isolated sandbox
-thinkdome run "import sys; print('Hello from ThinkDome!'); print(sys.version)"
+# 2. Execute code in isolated sandboxes across backends:
+# Subprocess (Fast process isolation for local dev)
+./venv/bin/python think run 'print("Hello from Subprocess!")' --backend subprocess
+
+# Docker (Standard container isolation via Docker)
+sudo ./venv/bin/python think run 'print("Hello from Docker!")' --backend docker
+
+
+# MicroVM / Firecracker (Hardware-virtualized KVM boundary)
+./venv/bin/python think run 'print("Hello from MicroVM!")' --backend microvm
+
+# gVisor (User-space kernel container isolation via runsc)
+DOCKER_RUNTIME=runsc ./venv/bin/python think run 'print("Hello from gVisor!")' --backend docker
 
 # 3. Start API Server & Web Console UI
 thinkdome serve --host 0.0.0.0 --port 8000
@@ -158,11 +169,39 @@ with Sandbox(
 
 ## 🐍 Python SDK Usage
 
+Select any execution backend when instantiating the SDK:
+
+```python
+from thinkdome import Sandbox
+
+# 1. Subprocess Backend (Fast unprivileged process isolation for dev)
+with Sandbox(backend="subprocess") as dome:
+    result = dome.run('print("Hello from Subprocess SDK!")')
+    print(result.output)
+
+# 2. Docker Backend (Standard OS container isolation)
+with Sandbox(backend="docker") as dome:
+    result = dome.run('print("Hello from Docker SDK!")')
+    print(result.output)
+
+# 3. MicroVM / Firecracker Backend (Hardware-virtualized KVM boundary)
+with Sandbox(backend="microvm") as dome:
+    result = dome.run('print("Hello from MicroVM SDK!")')
+    print(result.output)
+
+# 4. gVisor Backend (User-space kernel isolation)
+with Sandbox(backend="gvisor") as dome:
+    result = dome.run('print("Hello from gVisor SDK!")')
+    print(result.output)
+```
+
+### Full Ephemeral Sandbox Workflow Example
+
 ```python
 from thinkdome import Sandbox
 
 # Run untrusted code in an ephemeral sandbox
-with Sandbox() as dome:
+with Sandbox(backend="subprocess") as dome:
     # Write files before execution
     dome.write_file("data.csv", "name,value\nAlice,10\nBob,20\n")
     
@@ -210,12 +249,76 @@ Open `http://localhost:8000` to view the interactive **Network Egress & Sandbox 
 
 ```bash
 # Execute via virtualenv thinkdome CLI binary
-EXECUTOR_BACKEND=microvm ./venv/bin/thinkdome run "print('Hello from CLI!')" --backend microvm
+EXECUTOR_BACKEND=microvm ./venv/bin/thinkdome run 'print("Hello from CLI!")' --backend microvm
 
 # Or via virtualenv python module syntax:
-./venv/bin/python -m thinkdome.cli run "print('Hello from CLI!')" --backend subprocess
+./venv/bin/python -m thinkdome.cli run 'print("Hello from CLI!")' --backend subprocess
 ```
 
+### 🧰 Site Management & Admin CLI (`think`)
+
+ThinkDome includes a multi-tenant site management CLI (`think`) supporting site backups, database restoration, user password resets, superadmin account creation, and interactive python site REPLs:
+
+#### 1. Site Backup
+Create a full timestamped backup bundle (SQL dump + public/private files) stored at `sites/<site>/private/backups/`:
+```bash
+think --site think.local backup
+# Output: ✓ Backup completed: sites/think.local/private/backups/20260822_110000
+
+# View created backup archives
+ls -lh sites/think.local/private/backups/
+```
+
+#### 2. Site Restore & Password Reset
+Restore a site from a database SQL dump, optional file archives, and update the Administrator password in a single command:
+```bash
+# Basic restoration from SQL dump
+think --site think.local restore /path/to/database.sql.gz
+
+# Restore database with public/private files and set a new Administrator password
+think --site think.local restore /path/to/database.sql.gz \
+  --with-public-files /path/to/files.tar \
+  --with-private-files /path/to/private-files.tar \
+  --admin-password 'NewStrongPassword'
+```
+
+#### 3. Administrator & User Password Reset
+Reset user credentials directly from the command line:
+```bash
+# Reset Administrator (superadmin) password
+think --site think.local set-admin-password 'NewStrongPassword'
+
+# Reset password for any user by username or email
+think --site think.local set-password user@example.com 'NewPassword'
+```
+
+#### 4. Create Single Superadmin Account
+Provision the single `Administrator` superadmin account for a site:
+```bash
+# Interactive prompt for Administrator password
+think --site think.local create-superadmin
+
+# Or supply password directly
+think --site think.local create-superadmin --password 'SuperAdminPass123'
+```
+
+#### 5. Interactive Site Python Console
+Open an interactive Python shell pre-loaded with site context, database connection, and custom ORM models (`User`, `Role`, `UserRole`, `Kernel`, `db`, `sql()`):
+```bash
+think --site think.local console
+```
+Inside the interactive REPL:
+```python
+# Query site users via ThinkDome Custom ORM
+users = User.query().all()
+admin = User.query().filter(username='administrator').first()
+
+# Execute SQL directly
+rows = sql("SELECT username, email FROM rbac_users")
+
+# Set user passwords programmatically
+set_user_password(site, 'user@example.com', 'NewPassword')
+```
 
 ---
 

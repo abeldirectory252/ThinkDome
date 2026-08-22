@@ -38,7 +38,7 @@ class ExecutionService:
     async def initialize(self) -> None:
         """Initialize default executor.
 
-        Fallback chain (only active if EXECUTOR_BACKEND_USE_FALLBACK is True):
+        Development-only fallback chain (only active when explicitly enabled):
           - microvm fails (no /dev/kvm) → subprocess
           - docker fails (no daemon)    → subprocess
         """
@@ -49,7 +49,7 @@ class ExecutionService:
         except Exception as e:
             backend = self.settings.EXECUTOR_BACKEND.lower()
             if backend in ("docker", "microvm"):
-                if backend == "microvm":
+                if backend == "microvm" and self.settings.allows_insecure_execution_fallback():
                     try:
                         logger.warning(
                             "MicroVM initialization failed (%s). Attempting auto-fallback to Docker backend.", e
@@ -63,8 +63,8 @@ class ExecutionService:
                     except Exception as docker_exc:
                         logger.warning("Docker fallback also failed: %s", docker_exc)
 
-                if self.settings.EXECUTOR_BACKEND_USE_FALLBACK or backend == "microvm":
-                    logger.warning("Falling back to subprocess execution backend.")
+                if self.settings.allows_insecure_execution_fallback():
+                    logger.warning("Using explicitly enabled development subprocess fallback.")
                     self.settings.EXECUTOR_BACKEND = "subprocess"
                     executor = create_executor(self.settings, "python")
                     await executor.initialize()
@@ -73,7 +73,7 @@ class ExecutionService:
 
             logger.error(
                 f"Failed to initialize {backend} executor: {e} "
-                f"(EXECUTOR_BACKEND_USE_FALLBACK={self.settings.EXECUTOR_BACKEND_USE_FALLBACK})"
+                f"(insecure_fallback_allowed={self.settings.allows_insecure_execution_fallback()})"
             )
             raise
 
@@ -97,7 +97,7 @@ class ExecutionService:
             return executor
         except Exception as e:
             backend = self.settings.EXECUTOR_BACKEND.lower()
-            if self.settings.EXECUTOR_BACKEND_USE_FALLBACK and backend in ("docker", "microvm"):
+            if self.settings.allows_insecure_execution_fallback() and backend in ("docker", "microvm"):
                 logger.warning(
                     f"{backend} executor health check/init failed for {language}: {e}. "
                     "Falling back to subprocess execution backend."
@@ -170,6 +170,7 @@ class ExecutionService:
             timed_out=result.timed_out,
             duration_ms=result.duration_ms,
             files=output_files,
+            error_code=result.error_code,
         )
 
     async def execute_batch(self, request: BatchExecuteRequest) -> BatchExecuteResponse:
@@ -238,10 +239,13 @@ class ExecutionService:
             username=request.username,
         )
 
+        exit_code = 0
         try:
             async for stream_type, chunk in executor.execute_stream(exec_req):
+                if stream_type == "error":
+                    exit_code = 1
                 yield {"data": json.dumps({'event': stream_type, 'data': chunk})}
-            yield {"data": json.dumps({'event': 'done', 'exit_code': 0, 'duration_ms': 0.0, 'timed_out': False})}
+            yield {"data": json.dumps({'event': 'done', 'exit_code': exit_code, 'duration_ms': 0.0, 'timed_out': False})}
         except Exception as e:
             yield {"data": json.dumps({'event': 'stderr', 'data': f'Streaming error: {e}'})}
             yield {"data": json.dumps({'event': 'done', 'exit_code': -1, 'duration_ms': 0.0, 'timed_out': False})}

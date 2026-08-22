@@ -258,6 +258,28 @@ async function executeTerminalCmd(cmd) {
             throw new Error("Active sandbox node is not running. Start the node before running terminal commands.");
         }
 
+        if (cmd === 'cd' || cmd.startsWith('cd ')) {
+            const target = cmd.slice(2).trim() || '.';
+            const current = state.terminalCwd || '.';
+            if (target === '-') throw new Error('cd: OLDPWD not set');
+            const absolute = target.startsWith('/');
+            const parts = absolute ? [] : (current === '.' ? [] : current.split('/').filter(Boolean));
+            for (const part of target.split('/')) {
+                if (!part || part === '.') continue;
+                if (part === '..') parts.pop();
+                else if (part.startsWith('/')) parts.length = 0;
+                else parts.push(part);
+            }
+            const next = parts.join('/') || '.';
+            const check = await window.API.listDir(next, token, sandboxId);
+            if (check.error) throw new Error(`cd: ${target}: ${check.error}`);
+            state.terminalCwd = next;
+            const pathEl = document.getElementById('terminalPromptPath');
+            if (pathEl) pathEl.textContent = `~/workspace/${next === '.' ? '' : next}`.replace(/\/$/, '');
+            outLine.innerHTML = '';
+            return;
+        }
+
         if (cmd.startsWith('pip install ')) {
             const pkg = cmd.replace('pip install ', '').trim();
             const code = `import subprocess, sys
@@ -366,6 +388,35 @@ except Exception as e:
             const cmdName = isDirCmd ? 'dir' : 'ls';
             const parts = cmd.split(/\s+/);
             const args = parts.slice(1);
+
+            // The editor uses the persistent workspace service. Read from the
+            // same source so terminal listings include editor-created files;
+            // a fresh Docker tmpfs is intentionally empty at container start.
+            const listPath = args.find(arg => !arg.startsWith('-')) || state.terminalCwd || '.';
+            const boxes = await window.API.listFileBoxes(token);
+            if (!boxes.error) {
+                const folderEntries = (boxes.data?.folders || []).map(name => ({ name, type: 'dir' }));
+                const fileEntries = (boxes.data?.fileboxes || []).map(item => ({ name: item.filename, type: 'file' }));
+                const entries = [...folderEntries, ...fileEntries];
+                const showHidden = args.some(arg => arg.includes('a'));
+                const visible = showHidden ? entries : entries.filter(entry => !String(entry.name || '').startsWith('.'));
+                const names = visible.map(entry => String(entry.name || '')).filter(Boolean);
+                outLine.innerHTML = `<span class="cmd-out" style="white-space:pre-wrap;">${_escapeHtml(names.length ? names.join('    ') : '(empty directory)')}</span>`;
+                return;
+            }
+            throw new Error(boxes.error || 'FileBox volume unavailable');
+            const listing = await window.API.listDir(listPath, token, sandboxId);
+            if (listing.error) throw new Error(listing.error);
+            if (!Array.isArray(listing.data)) {
+                throw new Error('Workspace listing returned an invalid response.');
+            }
+            const entries = listing.data;
+            const showHidden = args.some(arg => arg.includes('a'));
+            const visible = showHidden ? entries : entries.filter(entry => !String(entry.name || '').startsWith('.'));
+            const names = visible.map(entry => String(entry.name || entry.path || '')).filter(Boolean);
+            outLine.innerHTML = `<span class="cmd-out" style="white-space:pre-wrap;">${_escapeHtml(names.length ? names.join('    ') : '(empty directory)')}</span>`;
+            return;
+
             const code = `
 import os, sys, datetime, stat
 
@@ -458,31 +509,23 @@ def emulate_ls(args):
         for d in details:
             inode_prefix = f"{d['inode']} " if show_inode else ""
             output.append(f"{inode_prefix}{d['name']}")
-        print("    ".join(output))
+        print("    ".join(output) if output else "(empty directory)")
 
 emulate_ls(${JSON.stringify(args)})
 `;
-            await runCodeStreaming(code, token, sandboxId, outLine);
+            await runCodeOnce(code, token, sandboxId, outLine);
         }
         else if (cmd.startsWith('mkdir ')) {
             const parts = cmd.split(/\s+/);
             const args = parts.slice(1);
-            const code = `
-import os, sys
-args = ${JSON.stringify(args)}
-paths = [a for a in args if not a.startswith('-')]
-parents = '-p' in args or '--parents' in args
-for path in paths:
-    try:
-        if parents:
-            os.makedirs(path, exist_ok=True)
-        else:
-            os.mkdir(path)
-    except Exception as e:
-        print(f"mkdir: cannot create directory '{path}': {e}", file=sys.stderr)
-        sys.exit(1)
-`;
-            await runCodeStreaming(code, token, sandboxId, outLine);
+            const path = args.find(arg => !arg.startsWith('-'));
+            if (!path) throw new Error('mkdir: missing operand');
+            const { data, error } = await window.API.orchestrate({
+                type: 'tool_use', id: `toolu_mkdir_${Date.now()}`,
+                name: 'make_dir', input: { path }
+            }, token, sandboxId);
+            if (error || data?.is_error) throw new Error(error || data?.content || 'mkdir failed');
+            outLine.innerHTML = `<span class="cmd-out" style="white-space:pre-wrap;">Directory created: ${_escapeHtml(path)}</span>`;
         }
         else if (cmd.startsWith('rm ')) {
             const parts = cmd.split(/\s+/);
@@ -510,21 +553,26 @@ for path in paths:
 `;
             await runCodeStreaming(code, token, sandboxId, outLine);
         }
+        else if (/^echo\s+.+\s*>\s*[^\s]+/.test(cmd)) {
+            const match = cmd.match(/^echo\s+["']([\s\S]*?)["']\s*>\s*([^\s]+)(?:\s*&&\s*echo\s+["']?[\s\S]*?)?$/);
+            if (!match) throw new Error('echo: supported form is echo "text" > filename');
+            const result = await window.API.putFileBox(match[2], match[1], token, true);
+            if (result.error) throw new Error(`echo: ${result.error}`);
+            outLine.innerHTML = `<span class="cmd-out">${_escapeHtml(match[1])}</span>`;
+        }
         else if (cmd.startsWith('touch ')) {
-            const parts = cmd.split(/\s+/);
-            const args = parts.slice(1);
-            const code = `
-import sys, pathlib
-args = ${JSON.stringify(args)}
-paths = [a for a in args if not a.startswith('-')]
-for path in paths:
-    try:
-        pathlib.Path(path).touch()
-    except Exception as e:
-        print(f"touch: cannot touch '{path}': {e}", file=sys.stderr)
-        sys.exit(1)
-`;
-            await runCodeStreaming(code, token, sandboxId, outLine);
+            const [touchPart, ...continuations] = cmd.split('&&');
+            const paths = touchPart.trim().split(/\s+/).slice(1).filter(Boolean);
+            if (!paths.length) throw new Error('touch: missing file operand');
+            for (const path of paths) {
+                const result = await window.API.putFileBox(path, '', token, true);
+                if (result.error) throw new Error(`touch: ${result.error}`);
+            }
+            let message = paths.map(path => `Created ${path}`).join('\n');
+            const echo = continuations.join('&&').trim();
+            const match = echo.match(/^echo\s+["']?(.*?)["']?$/);
+            if (match) message = match[1];
+            outLine.innerHTML = `<span class="cmd-out" style="white-space:pre-wrap;">${_escapeHtml(message)}</span>`;
         }
         else if (cmd.startsWith('cp ')) {
             const parts = cmd.split(/\s+/);
@@ -593,7 +641,8 @@ for src in sources:
             outLine.innerHTML = `<span class="cmd-out" style="color:#e2e8f0; white-space: pre-wrap;">${_escapeHtml(data)}</span>`;
         }
         else if (cmd === 'pwd') {
-            outLine.innerHTML = `<span class="cmd-out" style="color:#a5b4fc;">/workspace</span>`;
+            const cwd = state.terminalCwd || '.';
+            outLine.innerHTML = `<span class="cmd-out" style="color:#a5b4fc;">/workspace${cwd === '.' ? '' : `/${_escapeHtml(cwd)}`}</span>`;
         }
         else if (cmd === 'whoami') {
             const user = localStorage.getItem('thinkdome_username') || 'root';
@@ -878,6 +927,7 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
     _activeAbortController = new AbortController();
     try {
         const username = localStorage.getItem('thinkdome_username') || 'anonymous';
+        const callerRole = (localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD').toUpperCase();
         const response = await fetch('/v1/execute/stream', {
             method: 'POST',
             signal: _activeAbortController.signal,
@@ -890,8 +940,10 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
                 code: code,
                 language: language,
                 username: username,
-                caller_role: "IDE",
-                allow_network: true,
+                caller_role: callerRole,
+                // Terminal commands are isolated by default. Network access
+                // must be enabled by an explicit, separately authorized flow.
+                allow_network: false,
                 security_profile: "HIGH_SECURITY",
                 timeout_ms: 25000
             })
@@ -963,6 +1015,26 @@ async function runCodeStreaming(code, token, sandboxId, outLine, onDoneLog = nul
             if (terminal) terminal.scrollTop = terminal.scrollHeight;
         }
     );
+}
+
+async function runCodeOnce(code, token, sandboxId, outLine, onDoneLog = null) {
+    try {
+        const { data, error } = await window.API.orchestrate({
+            type: "tool_use",
+            id: `toolu_terminal_${Date.now()}`,
+            name: "run_code",
+            input: { code, language: "python", allow_network: false }
+        }, token, sandboxId);
+        if (error) throw new Error(error);
+        const rawContent = data?.content ?? data ?? '';
+        const result = _tryParseJSON(rawContent) || {};
+        const output = result.stdout || result.stderr || result.output || result.content ||
+            (typeof rawContent === 'string' ? rawContent : '') || '(command completed with no output)';
+        outLine.innerHTML = `<span class="cmd-out" style="white-space:pre-wrap;">${_escapeHtml(output)}</span>`;
+        if (onDoneLog) addLogLine('SYS', onDoneLog);
+    } catch (err) {
+        outLine.innerHTML = `<span class="cmd-out" style="color:var(--danger);white-space:pre-wrap;">${_escapeHtml(err.message || String(err))}</span>`;
+    }
 }
 
 // Global listener for Ctrl+C to terminate running process
@@ -1107,7 +1179,3 @@ if (typeof window !== 'undefined') {
     window.loadMcpPresetInIde = loadMcpPresetInIde;
     window.executeOrchConsolePayload = executeOrchConsolePayload;
 }
-
-
-
-

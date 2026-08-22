@@ -273,10 +273,8 @@ class PoolManager:
 
         # Load seccomp profile
         security_opt = ["no-new-privileges:true"]
-        seccomp_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
-            "security", "seccomp.json",
-        )
+        from thinkdome.core.config import get_workspace_root
+        seccomp_path = str(get_workspace_root() / "security" / "seccomp.json")
 
         if os.path.exists(seccomp_path):
             with open(seccomp_path) as f:

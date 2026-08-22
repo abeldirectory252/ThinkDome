@@ -111,6 +111,32 @@ CREATE TABLE IF NOT EXISTS credential_vault (
     updated_at TEXT NOT NULL,
     UNIQUE(user_id, sandbox_id, key_name)
 );
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    token_hash TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    status TEXT DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS sandbox_templates (
+    template_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_image TEXT NOT NULL,
+    runtime TEXT DEFAULT 'python',
+    vcpus REAL DEFAULT 1.0,
+    memory_mb INTEGER DEFAULT 512,
+    network_policy_id TEXT DEFAULT 'blocked',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS admin_configs (
+    config_key TEXT PRIMARY KEY,
+    config_value TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT NOT NULL
+);
 """
 
 POSTGRES_SCHEMA_SQL = """
@@ -184,6 +210,32 @@ CREATE TABLE IF NOT EXISTS credential_vault (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, sandbox_id, key_name)
+);
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    token_hash TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    status TEXT DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS sandbox_templates (
+    template_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_image TEXT NOT NULL,
+    runtime TEXT DEFAULT 'python',
+    vcpus REAL DEFAULT 1.0,
+    memory_mb INTEGER DEFAULT 512,
+    network_policy_id TEXT DEFAULT 'blocked',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS admin_configs (
+    config_key TEXT PRIMARY KEY,
+    config_value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_by TEXT NOT NULL
 );
 """
 

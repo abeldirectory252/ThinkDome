@@ -1,6 +1,7 @@
 """FastAPI application factory."""
 
 from contextlib import asynccontextmanager
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,6 +19,7 @@ from thinkdome.platform.observability.api.observability import router as observa
 from thinkdome.security.api.auth import router as auth_router
 from thinkdome.platform.orchestration.api import router as orchestrator_router
 from thinkdome.platform.observability.api.monitor import router as monitor_router
+from thinkdome.api.routes.control_plane import router as control_plane_router
 
 from thinkdome.sandbox.core.service import ExecutionService
 from thinkdome.platform.storage.files.service import FileService
@@ -35,11 +37,22 @@ from thinkdome.platform.billing.service import BillingService
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown."""
     settings = get_settings()
+    settings.validate_production_runtime()
     setup_logging()
 
     # Initialize DB first and call initialize for asyncpg pool
     app.state.db_service = DatabaseService(settings)
     await app.state.db_service.initialize()
+
+    # Control-plane state is persisted through the custom ORM.  This service is
+    # deliberately independent from the local execution backend so public API
+    # workers can schedule onto remote node agents.
+    from thinkdome.control_plane.lifecycle import ControlPlaneLifecycle
+    from thinkdome.control_plane.repository import ControlPlaneRepository
+    app.state.control_plane_repository = ControlPlaneRepository()
+    app.state.control_plane_lifecycle = ControlPlaneLifecycle(
+        app.state.control_plane_repository
+    )
 
     # Initialize TaskBroker for RabbitMQ tasks
     from thinkdome.platform.tasks.rabbitmq import TaskBroker
@@ -138,15 +151,38 @@ async def lifespan(app: FastAPI):
         await app.state.pool_manager.start()
     await app.state.monitor_service.start()
     
-    # Start scheduler facade with task broker
-    await app.state.scheduler.start(
-        executor_fn=app.state.orchestrator_service.execute_tool,
-        broker=app.state.task_broker
-    )
+    # Initialize background Sandbox Reaper
+    from thinkdome.sandbox.core.reaper import SandboxReaper
+    from thinkdome.platform.storage.filebox.service import FileBoxService
+    import asyncio
+    app.state.reaper = SandboxReaper(app.state.lifecycle_service, app.state.db_service)
+    await app.state.reaper.start()
+    app.state.filebox_service = FileBoxService(settings)
+    # Initialize semantic FileBox folders for every known ORM user before the
+    # API accepts requests. Missing folders are recreated safely on restart.
+    try:
+        from thinkdome.security.rbac.models import User
+        for user in User.query().all():
+            app.state.filebox_service.ensure_layout(
+                tenant_id="default",
+                owner_id=user.username,
+            )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("FileBox layout initialization failed: %s", exc)
+    async def _filebox_reaper():
+        while True:
+            try:
+                app.state.filebox_service.reap_expired()
+            except Exception as exc:
+                logging.getLogger(__name__).warning("FileBox reaper error: %s", exc)
+            await asyncio.sleep(30)
+    app.state.filebox_reaper_task = asyncio.create_task(_filebox_reaper())
 
     yield
 
     # Cleanup
+    await app.state.reaper.stop()
+    app.state.filebox_reaper_task.cancel()
     await app.state.scheduler.stop()
     if getattr(app.state, "task_broker", None):
         await app.state.task_broker.stop()
@@ -221,10 +257,11 @@ def create_app() -> FastAPI:
     from thinkdome.core.middleware.date_header import DateHeaderMiddleware
 
     app.add_middleware(RequestIdMiddleware)
+    cors_origins = settings.cors_allow_origins()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=bool(cors_origins),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -250,10 +287,14 @@ def create_app() -> FastAPI:
     from thinkdome.platform.observability.api.sdk_metrics import router as sdk_metrics_router
     from thinkdome.security.api.vault import router as vault_router
     from thinkdome.api.routes.execution.network_audit import router as network_audit_router
+    from thinkdome.security.api.api_keys_router import router as api_keys_router
+    from thinkdome.platform.storage.api.filebox import router as filebox_router
 
     # Register routers
     app.include_router(health_router)
     app.include_router(auth_router, prefix="/v1")
+    app.include_router(api_keys_router)
+    app.include_router(filebox_router)
     app.include_router(rbac_auth_router)
     app.include_router(rbac_users_router)
     app.include_router(rbac_roles_router)
@@ -276,6 +317,7 @@ def create_app() -> FastAPI:
     app.include_router(sdk_metrics_router, prefix="/v1")
     app.include_router(vault_router, prefix="/v1")
     app.include_router(network_audit_router, prefix="/v1")
+    app.include_router(control_plane_router, prefix="/v1")
 
     # Serve static assets
     from fastapi.staticfiles import StaticFiles
@@ -283,13 +325,31 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).resolve().parent.parent / "static"
 
     app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+    compiled_console_dir = static_dir / "console"
+    if compiled_console_dir.exists():
+        app.mount(
+            "/console",
+            StaticFiles(directory=str(compiled_console_dir), html=True),
+            name="console",
+        )
 
     # Serve dashboard and schema
     @app.get("/")
     async def serve_dashboard():
         from fastapi.responses import HTMLResponse
+        # Preserve the established dashboard as the primary experience. The
+        # Node console is available explicitly at /console during migration.
         index_path = static_dir / "index.html"
         return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+
+    @app.get("/console")
+    async def serve_console_fallback():
+        """Keep /console usable before the optional Node build is installed."""
+        from fastapi.responses import HTMLResponse
+        compiled_console = static_dir / "console" / "index.html"
+        if compiled_console.exists():
+            return HTMLResponse(content=compiled_console.read_text(encoding="utf-8"))
+        return HTMLResponse(content=(static_dir / "index.html").read_text(encoding="utf-8"))
 
     @app.get("/login.html")
     async def serve_login():
@@ -311,9 +371,11 @@ def create_app() -> FastAPI:
         from pathlib import Path
         import os
 
-        base_dir = Path(os.getcwd()) / "storage" / "hosted_sites" / site_id
-        if not base_dir.exists():
-            base_dir = Path(__file__).resolve().parents[2] / "storage" / "hosted_sites" / site_id
+        from thinkdome.core.config import get_settings, get_workspace_root
+        storage_dir = Path(get_settings().FILE_STORAGE_DIR)
+        if not storage_dir.is_absolute():
+            storage_dir = get_workspace_root() / storage_dir
+        base_dir = storage_dir / "hosted_sites" / site_id
 
         target_file = base_dir / (filename if filename else "index.html")
 

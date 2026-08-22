@@ -31,6 +31,7 @@ from thinkdome.platform.observability.api.health import router as health_router
 from thinkdome.api.routes.execution.execute import router as execute_router
 from thinkdome.platform.storage.api.files import router as files_router
 from thinkdome.platform.storage.api.workspaces import router as workspaces_router
+from thinkdome.platform.storage.api.filebox import router as filebox_router
 from thinkdome.sandbox.sessions.api import router as sessions_router
 from thinkdome.api.routes.execution.languages import router as languages_router
 from thinkdome.security.api.admin import router as admin_router
@@ -75,6 +76,7 @@ app.include_router(orchestrator_router, prefix="/v1")
 app.include_router(execute_router, prefix="/v1")
 app.include_router(files_router, prefix="/v1")
 app.include_router(workspaces_router, prefix="/v1")
+app.include_router(filebox_router)
 app.include_router(sessions_router, prefix="/v1")
 app.include_router(languages_router, prefix="/v1")
 app.include_router(admin_router, prefix="/v1/admin")
@@ -374,4 +376,3 @@ async def handle_sse(request: Request):
 
 # Mount POST message endpoint
 app.mount("/mcp/messages", sse.handle_post_message)
-

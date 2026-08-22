@@ -18,7 +18,9 @@ from sqlalchemy.orm import sessionmaker, Session
 
 logger = logging.getLogger(__name__)
 
-WORKSPACE_ROOT = Path("/home/sandbox/ThinkDome")
+from thinkdome.core.config import get_workspace_root
+
+WORKSPACE_ROOT = get_workspace_root()
 SITES_DIR = WORKSPACE_ROOT / "sites"
 APPS_DIR = WORKSPACE_ROOT / "thinkdome" / "apps"
 
@@ -55,7 +57,7 @@ class Kernel:
     @classmethod
     def current(cls) -> Kernel:
         """Get Kernel instance corresponding to THINKDOME_SITE env var."""
-        site_name = os.environ.get("THINKDOME_SITE", "personal")
+        site_name = os.environ.get("THINKDOME_SITE", "think.local")
         return cls.get_instance(site_name)
 
     def initialize(self) -> None:

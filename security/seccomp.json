@@ -25,7 +25,7 @@
         "readlink", "readlinkat", "chmod", "fchmod", "fchmodat", "chown",
         "fchown", "fchownat", "lchown", "utime", "utimes", "futimesat",
         "utimensat", "prctl", "arch_prctl", "getdents", "getdents64",
-        "getrandom", "statfs", "fstatfs", "nanosleep", "capget", "capset",
+        "getrandom", "statfs", "fstatfs", "statx", "nanosleep", "capget", "capset",
         "setuid", "setgid", "setreuid", "setregid", "setresuid", "setresgid",
         "newfstatat", "eventfd", "eventfd2", "epoll_create", "epoll_create1",
         "epoll_ctl", "epoll_wait", "epoll_pwait", "fcntl64", "stat64", "fstat64",

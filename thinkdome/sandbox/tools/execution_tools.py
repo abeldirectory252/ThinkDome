@@ -149,7 +149,9 @@ except Exception as e:
         run_code_input = {
             "code": python_code,
             "language": "python",
-            "allow_network": True,  # Network access governed by the token role
+            # Shell commands are offline by default.  Network access must be
+            # explicitly requested and is still constrained by caller role.
+            "allow_network": bool(tool_input.get("allow_network", False)),
         }
 
         # Retrieve RunCodeTool instance and run it
@@ -248,12 +250,14 @@ class HostHtmlTool(BaseTool):
         if not html:
             raise ValueError("Parameter 'html' is required for host_html.")
 
-        filename = tool_input.get("filename", "index.html")
-        site_name = tool_input.get("site_name", "hosted_site")
+        # Hosted content is persisted by the control plane, not by the
+        # unprivileged execution container.  Keep the document name confined
+        # to the generated site directory as an additional path-safety check.
+        filename = Path(str(tool_input.get("filename", "index.html"))).name
+        if not filename or filename in {".", ".."}:
+            filename = "index.html"
         port = tool_input.get("port", 8080)
         ttl_sec = min(max(int(tool_input.get("ttl_sec", 300)), 10), 86400)
-        ctx = get_context()
-
         # Dynamically sync TTL text in HTML markup if standard template placeholder or 300 Seconds is present
         import re
         ttl_text = f"{ttl_sec} Seconds"
@@ -277,59 +281,15 @@ class HostHtmlTool(BaseTool):
 
         threading.Thread(target=cleanup_site, daemon=True).start()
 
-        # Build python runner script that saves HTML inside container as well
-        python_code = f"""
-import os, sys, subprocess, time, socket, threading
-
-site_base = "/workspace" if os.path.exists("/workspace") else os.getcwd()
-site_dir = os.path.abspath(os.path.join(site_base, "{site_name}"))
-os.makedirs(site_dir, exist_ok=True)
-filepath = os.path.join(site_dir, "{filename}")
-
-with open(filepath, "w", encoding="utf-8") as f:
-    f.write({repr(html)})
-
-# Attempt Apache Web Server hosting if apachectl or apache2 is present
-apache_started = False
-try:
-    for cmd in ["apachectl start", "service apache2 start", "systemctl start apache2", "apache2ctl start"]:
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if res.returncode == 0:
-            apache_started = True
-            for docroot in ["/var/www/html", "/var/www"]:
-                if os.path.exists(docroot) and os.access(docroot, os.W_OK):
-                    target = os.path.join(docroot, "{filename}")
-                    with open(target, "w", encoding="utf-8") as f:
-                        f.write({repr(html)})
-            break
-except Exception:
-    pass
-
-server_type = "Apache HTTP Server" if apache_started else "HTTP Temporary Server"
-hosted_url = "http://localhost:8000/v1/hosted/{site_id}"
-
-print(f"✅ HTML Content Hosted Successfully")
-print(f"Web Engine: {{server_type}}")
-print(f"Site Token: {site_id}")
-print(f"Document File: {{filepath}}")
-print(f"TTL Timeout: {ttl_sec} seconds")
-print(f"Access URL: {{hosted_url}}")
-sys.stdout.flush()
-"""
-
-        exec_req = ExecuteRequest(
-            code=python_code,
-            language="python",
-            security_profile=tool_input.get("security_profile", "HIGH_SECURITY"),
-            caller_role=ctx.caller_role,
-            allow_network=True,
-            timeout_ms=10000,
-            username=ctx.username,
-        )
-
-        resp = await ctx.execution_service.execute(exec_req)
-
         hosted_url = f"http://localhost:8000/v1/hosted/{site_id}"
+        stdout = (
+            "✅ HTML Content Hosted Successfully\n"
+            "Web Engine: ThinkDome hosted storage\n"
+            f"Site Token: {site_id}\n"
+            f"Document File: {filename}\n"
+            f"TTL Timeout: {ttl_sec} seconds\n"
+            f"Access URL: {hosted_url}\n"
+        )
 
         result_dict = {
             "status": "hosted",
@@ -338,11 +298,9 @@ sys.stdout.flush()
             "port": port,
             "ttl_sec": ttl_sec,
             "url": hosted_url,
-            "stdout": resp.stdout,
-            "stderr": resp.stderr,
-            "exit_code": resp.exit_code,
+            "stdout": stdout,
+            "stderr": "",
+            "exit_code": 0,
         }
 
         return json.dumps(result_dict, indent=2)
-
-

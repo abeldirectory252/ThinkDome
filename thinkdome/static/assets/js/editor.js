@@ -75,23 +75,28 @@ async function fetchExplorerFiles() {
             return;
         }
 
-        // If sandboxId is not set, attempt to list workspace directory or skip without throwing error
-        const activeSandbox = sandboxId || localStorage.getItem('thinkdome_sandbox_id') || '';
-        const { data, error } = await window.API.listDir(".", token, activeSandbox);
+        // The editor explorer is backed by the authenticated FileBox volume,
+        // never by another user's legacy workspace directory.
+        const { data, error } = await window.API.listFileBoxes(token);
         if (error) {
+            proj.files = {};
+            renderFileExplorer();
             return;
         }
 
-        if (data && Array.isArray(data)) {
+        if (data && Array.isArray(data.fileboxes)) {
             const updatedFiles = {};
-            data.forEach(item => {
-                const isDir = item.type === 'dir' || item.type === 'folder';
+            (data.folders || []).forEach(name => {
+                updatedFiles[name] = { name, path: name, type: 'folder', content: '', isOpen: true };
+            });
+            data.fileboxes.forEach(item => {
                 updatedFiles[item.path] = {
-                    name: item.name,
-                    path: item.path,
-                    type: isDir ? 'folder' : 'file',
+                    name: item.filename,
+                    path: item.filename,
+                    type: 'file',
                     content: '',
-                    isOpen: true
+                    isOpen: true,
+                    fileboxId: item.id
                 };
             });
             proj.files = updatedFiles;

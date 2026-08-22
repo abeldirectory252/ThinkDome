@@ -18,7 +18,9 @@ from thinkdome.core.kernel.kernel import Kernel
 
 logger = logging.getLogger(__name__)
 
-APPS_DIR = Path("/home/sandbox/ThinkDome/thinkdome/apps")
+from thinkdome.core.config import get_workspace_root
+
+APPS_DIR = get_workspace_root() / "thinkdome" / "apps"
 
 
 def ensure_migrations_table(kernel: Kernel) -> None:
