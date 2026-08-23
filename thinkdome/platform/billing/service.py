@@ -43,7 +43,7 @@ class BillingService:
             label = now.strftime("%B %Y")
         return start, end, label
 
-    def get_billing_data(self, cycle: str, username: str) -> Dict[str, Any]:
+    def get_billing_data(self, cycle: str, username: str, is_admin: bool = False) -> Dict[str, Any]:
         """Aggregate sandbox usage details and execution counts to compute the bill."""
         start, end, label = self.get_cycle_boundaries(cycle)
         start_str = start.isoformat()
@@ -52,7 +52,7 @@ class BillingService:
         # 1. Fetch all sandboxes
         all_sandboxes = self.db_service.list_sandboxes()
         # Non-admin users only see their own sandboxes
-        if username not in ("admin", "administrator"):
+        if not is_admin and username not in ("admin", "administrator"):
             all_sandboxes = [s for s in all_sandboxes if s["owner"] == username]
 
         # 2. Fetch all execution request logs in the cycle time window
@@ -166,10 +166,10 @@ class BillingService:
             "sandboxes": sandboxes_billing
         }
 
-    def compile_invoice_pdf(self, cycle: str, username: str) -> Tuple[str, Path]:
+    def compile_invoice_pdf(self, cycle: str, username: str, is_admin: bool = False) -> Tuple[str, Path]:
         """Compile a dynamic billing invoice PDF and write to storage."""
         invoice_id = f"inv_{uuid.uuid4().hex[:8]}"
-        billing_data = self.get_billing_data(cycle, username)
+        billing_data = self.get_billing_data(cycle, username, is_admin=is_admin)
         
         pdf_path = self.invoices_dir / f"invoice_{invoice_id}.pdf"
         

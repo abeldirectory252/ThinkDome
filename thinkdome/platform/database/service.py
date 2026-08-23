@@ -295,7 +295,9 @@ class DatabaseService:
                     _create_pool(),
                     self._loop_thread.loop
                 )
-                self._pool = fut.result()
+                # Do not let an unavailable database block application startup
+                # indefinitely; fall back to SQLite after a bounded probe.
+                self._pool = fut.result(timeout=5.0)
 
                 # Execute schema setup
                 await self._run_postgres_coro(self._setup_postgres_schema())

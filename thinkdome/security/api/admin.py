@@ -25,6 +25,13 @@ def _principal(user: dict) -> str:
     """Stable per-user namespace, including API-key identities."""
     return str(user.get("workspace_id", user.get("username", "anonymous"))).strip().lower()
 
+
+def _is_admin(user: dict) -> bool:
+    """Use the resolved RBAC role, never a display name, for admin scope."""
+    return str(user.get("role", "")).upper() in {
+        "ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH", "IDE"
+    }
+
 # In-memory filesystem backend registry (placeholder)
 _fs_backends: dict[str, dict] = {
     "local": {
@@ -342,7 +349,9 @@ async def get_billing_report(
     user: dict = Depends(get_current_user)
 ):
     """Retrieve billing and usage reports."""
-    return billing_svc.get_billing_data(cycle=cycle, username=_principal(user))
+    return billing_svc.get_billing_data(
+        cycle=cycle, username=_principal(user), is_admin=_is_admin(user)
+    )
 
 
 @router.post("/billing/invoice")
@@ -352,7 +361,9 @@ async def compile_invoice(
     user: dict = Depends(get_current_user)
 ):
     """Compile PDF invoice for a given billing cycle."""
-    invoice_id, _ = billing_svc.compile_invoice_pdf(cycle=cycle, username=_principal(user))
+    invoice_id, _ = billing_svc.compile_invoice_pdf(
+        cycle=cycle, username=_principal(user), is_admin=_is_admin(user)
+    )
     
     # We construct a secure download URL passing the session token as query parameter
     return {

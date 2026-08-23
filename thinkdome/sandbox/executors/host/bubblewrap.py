@@ -98,6 +98,7 @@ class BubblewrapExecutor(BaseExecutor):
     def __init__(self, settings) -> None:
         self.settings = settings
         self.bwrap_path = "/usr/bin/bwrap"
+        self._bwrap_usable = False
 
     async def initialize(self) -> None:
         """Check if bubblewrap is installed on Linux host; log warning otherwise."""
@@ -113,6 +114,25 @@ class BubblewrapExecutor(BaseExecutor):
                 self.bwrap_path = found
             else:
                 logger.warning("bubblewrap executable ('bwrap') not found. Command executions will fall back to standard unconfined subprocess execution.")
+                return
+
+        # Presence of the binary is insufficient: hardened hosts may deny
+        # user/network namespace creation. Probe once so execution does not
+        # burn the user's timeout and report a misleading timeout error.
+        import subprocess
+        try:
+            probe = subprocess.run(
+                [self.bwrap_path, "--unshare-all", "--die-with-parent",
+                 "--ro-bind", "/usr", "/usr", "--proc", "/proc",
+                 "--dev", "/dev", "--tmpfs", "/tmp", "--", "/bin/true"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                timeout=1.0, check=False,
+            )
+            self._bwrap_usable = probe.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            self._bwrap_usable = False
+        if not self._bwrap_usable:
+            logger.warning("bubblewrap is installed but unavailable under this host's namespace policy; using compatibility fallback")
 
     async def shutdown(self) -> None:
         pass
@@ -121,7 +141,7 @@ class BubblewrapExecutor(BaseExecutor):
         if sys.platform != "linux":
             return True
         import shutil
-        return os.path.exists(self.bwrap_path) or shutil.which("bwrap") is not None
+        return self._bwrap_usable
 
     def _build_bwrap_command(self, script_path: Path, workspace_dir: Path) -> list[str]:
         """Construct the bubblewrap shell argument list."""
@@ -186,7 +206,7 @@ class BubblewrapExecutor(BaseExecutor):
             )
 
             # Determine execution command
-            if sys.platform == "linux" and os.path.exists(self.bwrap_path):
+            if sys.platform == "linux" and self._bwrap_usable:
                 args = self._build_bwrap_command(script_path, workspace_dir)
                 logger.info(f"🔒 Executing command inside bubblewrap jail: {' '.join(args[:10])}...")
             else:

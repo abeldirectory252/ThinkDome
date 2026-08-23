@@ -222,7 +222,10 @@ class OrchestratorService:
                 from thinkdome.core.error_codes import SandboxErrorCodes
                 if isinstance(e, PermissionError):
                     code = "AUTH::ACCESS_DENIED"
-                    message = "Access denied by the sandbox security policy."
+                    # The policy denial is safe to expose and tells clients
+                    # which capability/role contract they violated. Do not
+                    # expose arbitrary exception text for other failures.
+                    message = str(e) or "Access denied by the sandbox security policy."
                 elif isinstance(e, FileNotFoundError):
                     code = SandboxErrorCodes.FILE_NOT_FOUND
                     message = "The requested FileBox path does not exist."

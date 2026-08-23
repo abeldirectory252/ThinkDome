@@ -1,6 +1,7 @@
 """FastAPI application factory."""
 
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,16 +63,20 @@ async def lifespan(app: FastAPI):
 
     # Initialize TaskBroker for RabbitMQ tasks
     from thinkdome.platform.tasks.rabbitmq import TaskBroker
-    app.state.task_broker = TaskBroker(settings.RABBITMQ_URL)
-    try:
-        await app.state.task_broker.start()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(
-            f"⚠️ Failed to connect to RabbitMQ ({e}). "
-            f"Stateless distributed queue scheduler will operate in local fallback execution mode."
-        )
-        app.state.task_broker = None
+    app.state.task_broker = None
+    if settings.RABBITMQ_URL.strip():
+        app.state.task_broker = TaskBroker(settings.RABBITMQ_URL)
+        try:
+            # Dependency startup must be bounded.  A missing broker must
+            # degrade to the local scheduler instead of hanging every worker.
+            await asyncio.wait_for(app.state.task_broker.start(), timeout=5.0)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"⚠️ Failed to connect to RabbitMQ ({e}). "
+                f"Stateless distributed queue scheduler will operate in local fallback execution mode."
+            )
+            app.state.task_broker = None
 
     # Initialize services
     app.state.file_service = FileService(settings)
@@ -160,7 +165,6 @@ async def lifespan(app: FastAPI):
     # Initialize background Sandbox Reaper
     from thinkdome.sandbox.core.reaper import SandboxReaper
     from thinkdome.platform.storage.filebox.service import FileBoxService
-    import asyncio
     app.state.reaper = SandboxReaper(app.state.lifecycle_service, app.state.db_service)
     await app.state.reaper.start()
     app.state.filebox_service = FileBoxService(settings)

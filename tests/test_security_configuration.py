@@ -151,6 +151,8 @@ def test_production_rejects_default_infrastructure_credentials():
             EXECUTOR_IMAGE="runner@sha256:" + "a" * 64,
             SECURE_RUNTIME_TYPE="gvisor",
             WORKSPACE_MASTER_KEY="x" * 32,
+            DATABASE_URL="postgresql://thinkdome:thinkdome@db:5432/thinkdome",
+            RABBITMQ_URL="amqp://guest:guest@rabbitmq:5672/",
         ).validate_production_runtime()
 
 
