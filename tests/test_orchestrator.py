@@ -260,7 +260,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_write",
         "name": "write_file",
-            "input": {"path": "/workspace/test_folder/test.txt", "content": "thinkbox-utility-test"}
+            "input": {"path": "/workspace/test.txt", "content": "thinkbox-utility-test"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200
@@ -270,7 +270,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_hash",
         "name": "hash_file",
-            "input": {"path": "/workspace/test_folder/test.txt", "algorithm": "md5"}
+            "input": {"path": "/workspace/test.txt", "algorithm": "md5"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200

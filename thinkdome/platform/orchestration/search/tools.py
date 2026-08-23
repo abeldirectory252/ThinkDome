@@ -157,19 +157,37 @@ class HashFileTool(BaseTool):
             raise ValueError("Parameter 'path' is required for hash_file.")
         ctx = get_context()
         safe_path = resolve_safe_path(tool_input["path"], ctx.workspace_dir)
-        if not safe_path.exists():
-            raise FileNotFoundError(f"File not found: {tool_input['path']}")
-        if not safe_path.is_file():
-            raise ValueError(f"Path is not a file: {tool_input['path']}")
             
         algo_name = tool_input.get("algorithm", "sha256").lower()
         if algo_name not in ("md5", "sha256"):
             raise ValueError("Unsupported hashing algorithm. Choose 'md5' or 'sha256'.")
             
         hasher = hashlib.md5() if algo_name == "md5" else hashlib.sha256()
-        with open(safe_path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                hasher.update(chunk)
+        if safe_path.exists():
+            if not safe_path.is_file():
+                raise ValueError(f"Path is not a file: {tool_input['path']}")
+            with open(safe_path, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    hasher.update(chunk)
+        else:
+            # File writes are tenant-scoped FileBox entries; read tools must
+            # resolve the same namespace instead of silently switching to the
+            # host workspace and reporting a false "not found".
+            from thinkdome.platform.storage.filebox.service import FileBoxService, DEFAULT_FOLDERS
+            logical = str(tool_input["path"]).strip().strip("/")
+            folder, filename = (logical.split("/", 1) if "/" in logical else ("workspace", logical))
+            if folder not in DEFAULT_FOLDERS or not filename:
+                raise FileNotFoundError(f"File not found: {tool_input['path']}")
+            identity = getattr(ctx, "identity", None)
+            metadata = getattr(identity, "metadata", {}) or {}
+            owner = str(metadata.get("workspace_id") or ctx.username).strip().lower()
+            tenant = getattr(identity, "tenant_id", None) or "default"
+            meta = next((m for m in FileBoxService().list(tenant_id=tenant, owner_id=owner)
+                         if m.folder == folder and m.filename == filename), None)
+            content = FileBoxService().read(meta.id, tenant_id=tenant, owner_id=owner)[0] if meta else None
+            if content is None:
+                raise FileNotFoundError(f"File not found: {tool_input['path']}")
+            hasher.update(content)
                 
         return json.dumps({
             "path": tool_input["path"],
