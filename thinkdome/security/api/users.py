@@ -10,9 +10,13 @@ from thinkdome.security.rbac.service import UserService
 from thinkdome.security.repositories.user import UserRepository
 from thinkdome.security.repositories.role import RoleRepository
 from thinkdome.security.rbac.models import UserProfile
-from thinkdome.core.dependencies import get_current_user
+from thinkdome.core.dependencies import get_current_admin, get_current_user
 
-router = APIRouter(prefix="/v1/users", tags=["RBAC Users"])
+router = APIRouter(
+    prefix="/v1/users",
+    tags=["RBAC Users"],
+    dependencies=[Depends(get_current_admin)],
+)
 
 user_service = UserService()
 user_repo = UserRepository()
@@ -20,7 +24,12 @@ role_repo = RoleRepository()
 
 
 class CreateUserRequest(BaseModel):
-    username: str = Field(description="Username")
+    username: str = Field(
+        description="Username",
+        min_length=3,
+        max_length=50,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,49}$",
+    )
     email: str = Field(description="Email address")
     password: str = Field(description="Initial password")
     first_name: str = Field(default="")

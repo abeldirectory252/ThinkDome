@@ -14,9 +14,11 @@ router = APIRouter(prefix="/v1/filebox", tags=["FileBox"])
 
 
 class FileBoxCreateRequest(BaseModel):
-    filename: str
-    content_base64: str
-    folder: str = "workspace"
+    filename: str = Field(..., min_length=1, max_length=255)
+    # Cap the encoded payload to keep request parsing and base64 decoding from
+    # becoming an unbounded memory allocation.
+    content_base64: str = Field(..., min_length=1, max_length=67_108_864)
+    folder: str = Field("workspace", min_length=1, max_length=32)
     ttl_seconds: Optional[int] = Field(default=300, ge=1, le=31_536_000)
     permanent: bool = False
     override: bool = False
@@ -28,13 +30,13 @@ class FileBoxRenewRequest(BaseModel):
 
 
 class FileBoxProvisionRequest(BaseModel):
-    username: str
-    tenant_id: str = "default"
+    username: str = Field(..., min_length=1, max_length=128)
+    tenant_id: str = Field("default", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
     rotate: bool = False
 
 
 def _identity(user: dict) -> tuple[str, str]:
-    return str(user.get("tenant_id") or "default"), str(user.get("username", "")).strip().lower()
+    return str(user.get("tenant_id") or "default"), str(user.get("workspace_id", user.get("username", ""))).strip().lower()
 
 
 def _service() -> FileBoxService:
@@ -119,7 +121,7 @@ async def get_filebox_volume(user: dict = Depends(get_current_user)):
 
 @router.get("/{filebox_id}")
 async def read_filebox(filebox_id: str, user: dict = Depends(get_current_user)):
-    owner = str(user.get("username", "")).strip().lower()
+    owner = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
     tenant = str(user.get("tenant_id") or "default")
     result = _service().read(filebox_id, tenant_id=tenant, owner_id=owner)
     if not result:
@@ -130,7 +132,7 @@ async def read_filebox(filebox_id: str, user: dict = Depends(get_current_user)):
 
 @router.get("")
 async def list_fileboxes(user: dict = Depends(get_current_user)):
-    owner = str(user.get("username", "")).strip().lower()
+    owner = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
     tenant = str(user.get("tenant_id") or "default")
     service = _service()
     return {
@@ -141,7 +143,7 @@ async def list_fileboxes(user: dict = Depends(get_current_user)):
 
 @router.post("/{filebox_id}/renew")
 async def renew_filebox(filebox_id: str, req: FileBoxRenewRequest, user: dict = Depends(get_current_user)):
-    owner = str(user.get("username", "")).strip().lower()
+    owner = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
     tenant = str(user.get("tenant_id") or "default")
     meta = _service().renew(filebox_id, tenant_id=tenant, owner_id=owner, ttl_seconds=req.ttl_seconds)
     if not meta:
@@ -151,7 +153,7 @@ async def renew_filebox(filebox_id: str, req: FileBoxRenewRequest, user: dict = 
 
 @router.post("/{filebox_id}/permanent")
 async def make_filebox_permanent(filebox_id: str, user: dict = Depends(get_current_user)):
-    owner = str(user.get("username", "")).strip().lower()
+    owner = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
     tenant = str(user.get("tenant_id") or "default")
     meta = _service().make_permanent(filebox_id, tenant_id=tenant, owner_id=owner)
     if not meta:
@@ -161,7 +163,7 @@ async def make_filebox_permanent(filebox_id: str, user: dict = Depends(get_curre
 
 @router.delete("/{filebox_id}")
 async def delete_filebox(filebox_id: str, user: dict = Depends(get_current_user)):
-    owner = str(user.get("username", "")).strip().lower()
+    owner = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
     tenant = str(user.get("tenant_id") or "default")
     if not _service().delete(filebox_id, tenant_id=tenant, owner_id=owner):
         raise HTTPException(status_code=404, detail="FileBox not found or expired")

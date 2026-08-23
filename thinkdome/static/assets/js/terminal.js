@@ -384,15 +384,12 @@ except Exception as e:
             }
         }
         else if (cmd === 'ls' || cmd.startsWith('ls ') || cmd === 'dir' || cmd.startsWith('dir ')) {
-            const isDirCmd = cmd.startsWith('dir');
-            const cmdName = isDirCmd ? 'dir' : 'ls';
             const parts = cmd.split(/\s+/);
             const args = parts.slice(1);
 
             // The editor uses the persistent workspace service. Read from the
             // same source so terminal listings include editor-created files;
             // a fresh Docker tmpfs is intentionally empty at container start.
-            const listPath = args.find(arg => !arg.startsWith('-')) || state.terminalCwd || '.';
             const boxes = await window.API.listFileBoxes(token);
             if (!boxes.error) {
                 const folderEntries = (boxes.data?.folders || []).map(name => ({ name, type: 'dir' }));
@@ -405,115 +402,6 @@ except Exception as e:
                 return;
             }
             throw new Error(boxes.error || 'FileBox volume unavailable');
-            const listing = await window.API.listDir(listPath, token, sandboxId);
-            if (listing.error) throw new Error(listing.error);
-            if (!Array.isArray(listing.data)) {
-                throw new Error('Workspace listing returned an invalid response.');
-            }
-            const entries = listing.data;
-            const showHidden = args.some(arg => arg.includes('a'));
-            const visible = showHidden ? entries : entries.filter(entry => !String(entry.name || '').startsWith('.'));
-            const names = visible.map(entry => String(entry.name || entry.path || '')).filter(Boolean);
-            outLine.innerHTML = `<span class="cmd-out" style="white-space:pre-wrap;">${_escapeHtml(names.length ? names.join('    ') : '(empty directory)')}</span>`;
-            return;
-
-            const code = `
-import os, sys, datetime, stat
-
-def emulate_ls(args):
-    show_all = False
-    long_format = ${isDirCmd ? 'True' : 'False'}
-    reverse = False
-    sort_time = False
-    show_inode = False
-    human_readable = False
-    
-    paths = []
-    for arg in args:
-        if arg.startswith('-'):
-            flags = arg.lstrip('-')
-            for f in flags:
-                if f == 'a': show_all = True
-                elif f == 'l': long_format = True
-                elif f == 'r': reverse = True
-                elif f == 't': sort_time = True
-                elif f == 'i': show_inode = True
-                elif f == 'h': human_readable = True
-        else:
-            paths.append(arg)
-            
-    target_dir = paths[0] if paths else '.'
-    try:
-        entries = os.listdir(target_dir)
-    except Exception as e:
-        print(f"${cmdName}: cannot access '{target_dir}': {e}", file=sys.stderr)
-        sys.exit(1)
-        
-    if not show_all:
-        entries = [e for e in entries if not e.startswith('.')]
-        
-    details = []
-    for name in entries:
-        full_path = os.path.join(target_dir, name)
-        try:
-            st = os.stat(full_path)
-            mtime = st.st_mtime
-            size = st.st_size
-            inode = st.st_ino
-            is_dir = stat.S_ISDIR(st.st_mode)
-            mode_str = stat.filemode(st.st_mode)
-        except Exception:
-            mtime = 0
-            size = 0
-            inode = 0
-            is_dir = False
-            mode_str = '----------'
-            
-        details.append({
-            'name': name,
-            'is_dir': is_dir,
-            'mode_str': mode_str,
-            'size': size,
-            'mtime': mtime,
-            'inode': inode
-        })
-        
-    if sort_time:
-        details.sort(key=lambda x: x['mtime'], reverse=True)
-    else:
-        details.sort(key=lambda x: x['name'].lower())
-        
-    if reverse:
-        details.reverse()
-        
-    def get_size_str(size):
-        if not human_readable:
-            return str(size)
-        for unit in ['B', 'K', 'M', 'G']:
-            if size < 1024:
-                return f"{size:.1f}{unit}" if unit != 'B' else f"{size}{unit}"
-            size /= 1024
-        return f"{size:.1f}T"
-        
-    if long_format:
-        total_blocks = sum(d['size'] for d in details) // 512
-        print(f"total {total_blocks}")
-        for d in details:
-            inode_prefix = f"{d['inode']} " if show_inode else ""
-            mtime_dt = datetime.datetime.fromtimestamp(d['mtime'])
-            date_str = mtime_dt.strftime("%b %d %H:%M")
-            size_str = get_size_str(d['size']).rjust(8)
-            print(f"{inode_prefix}{d['mode_str']} 1 root root {size_str} {date_str} {d['name']}")
-    else:
-        output = []
-        for d in details:
-            inode_prefix = f"{d['inode']} " if show_inode else ""
-            output.append(f"{inode_prefix}{d['name']}")
-        print("    ".join(output) if output else "(empty directory)")
-
-emulate_ls(${JSON.stringify(args)})
-`;
-            await runCodeOnce(code, token, sandboxId, outLine);
         }
         else if (cmd.startsWith('mkdir ')) {
             const parts = cmd.split(/\s+/);

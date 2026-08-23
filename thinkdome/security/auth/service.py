@@ -8,6 +8,7 @@ import hashlib
 import secrets
 import logging
 import time
+import re
 from typing import Optional, Any, Dict, List
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
@@ -100,12 +101,39 @@ class AuthService:
                 logger.error(f"Failed to migrate api_keys.json: {e}")
 
     def _seed_default_admin(self) -> None:
-        """Create a default user 'admin' if no users exist."""
+        """Create a default user 'admin' if it does not exist."""
+        # A known password must never be created by a staging/production
+        # process. Production administrators are provisioned explicitly.
+        if self.settings.DEPLOYMENT_ENV.lower() not in {"development", "test"}:
+            logger.info("Skipping development default-admin seed in %s", self.settings.DEPLOYMENT_ENV)
+            return
         try:
-            row = self.db_service.fetch_one("SELECT COUNT(*) as count FROM users")
-            if row and row["count"] == 0:
-                self.register("admin", "admin123")
+            exists = self.db_service.fetch_one("SELECT 1 FROM users WHERE username = ?", ("admin",))
+            if not exists:
+                self.register("admin", "admin123", role="ADMIN")
                 logger.info("Default user 'admin' with password 'admin123' seeded in SQLite database.")
+            else:
+                # Repair databases created before RBAC role assignment was
+                # introduced. Authorization still comes from the role table.
+                from thinkdome.security.rbac.service import UserService
+                from thinkdome.security.repositories.role import RoleRepository
+                from thinkdome.security.rbac.models import Role
+                user_service = UserService()
+                user = user_service.user_repo.find_by_username("admin")
+                if not user:
+                    user = user_service.create_user(
+                        username="admin",
+                        email="admin@enterprise.local",
+                        password=secrets.token_urlsafe(32),
+                        actor="system",
+                    )
+                role_repo = RoleRepository()
+                role = role_repo.get_by_name("ADMIN")
+                if not role:
+                    role = Role(name="ADMIN", description="Platform administrator", is_active=True)
+                    role.save()
+                if not any(r.id == role.id for r in role_repo.get_user_roles(user.id)):
+                    user_service.assign_role_to_user(user.id, role.id, actor="system")
         except Exception as e:
             logger.error(f"Failed to seed default admin: {e}")
 
@@ -115,7 +143,7 @@ class AuthService:
     def register(self, username: str, password: str, role: str = "AGENT_STANDARD", actor_ip: str = "system") -> bool:
         """Register a new user in the SQLite database and log the audit trail."""
         username = username.strip().lower()
-        if not username or not password:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{2,49}", username) or not password:
             return False
         
         try:
@@ -149,7 +177,7 @@ class AuthService:
                         actor=username
                     )
                 role_repo = RoleRepository()
-                target_role = role_repo.find_by_name(role)
+                target_role = role_repo.get_by_name(role)
                 if target_role and user:
                     user_svc.assign_role_to_user(user.id, target_role.id, actor=username)
             except Exception as re:
@@ -188,10 +216,24 @@ class AuthService:
             if hashed == user["hashed_password"]:
                 # Generate session token
                 token = f"sk_thinkbox_session_{secrets.token_hex(24)}"
+                role = "AGENT_STANDARD"
+                try:
+                    from thinkdome.security.repositories.user import UserRepository
+                    from thinkdome.security.repositories.role import RoleRepository
+                    from thinkdome.security.identity.core import select_effective_role
+                    rbac_user = UserRepository().get_by_username(username)
+                    if rbac_user:
+                        role = select_effective_role(
+                            RoleRepository().get_user_roles(rbac_user.id),
+                            username=username,
+                        )
+                except Exception:
+                    logger.debug("RBAC role lookup unavailable for legacy login", exc_info=True)
                 self._active_sessions[token] = {
                     "username": username,
-                    "role": "ADMIN",  # Dashboard admin access
-                    "display_name": username
+                    "role": role,
+                    "display_name": username,
+                    "expires_at": time.time() + 900,
                 }
                 
                 # Log audit trail
@@ -339,10 +381,11 @@ class AuthService:
                 from thinkdome.security.identity.core import select_effective_role
                 rbac_user = UserRepository().get_by_username(username)
                 if rbac_user:
-                    role = select_effective_role(
+                    resolved_role = select_effective_role(
                         RoleRepository().get_user_roles(rbac_user.id),
                         username=username,
                     )
+                    role = resolved_role
             except Exception:
                 pass
             return {
@@ -368,7 +411,11 @@ class AuthService:
 
         # 3. Check legacy in-memory user sessions
         if token in self._active_sessions:
-            return self._active_sessions[token].copy()
+            session = self._active_sessions[token]
+            if float(session.get("expires_at", 0)) <= time.time():
+                self._active_sessions.pop(token, None)
+                return None
+            return session.copy()
 
         # RBAC sessions are persisted through the custom ORM repository.
         try:
@@ -427,6 +474,9 @@ class AuthService:
                 
                 identity = {
                     "username": "api_key_client",
+                    # Keep the legacy display/owner name for compatibility,
+                    # but provide a unique namespace for persistent storage.
+                    "workspace_id": f"api_key_{key_data.get('key_id')}",
                     "role": key_data.get("token_type", "LLM"), # LLM, WEB, SDK, CURL, ORCH, IDE
                     "display_name": key_data.get("display_name", "API Key Client"),
                     "key_id": key_data.get("key_id")

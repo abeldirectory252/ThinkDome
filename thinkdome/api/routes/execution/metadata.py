@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Body, Header, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status
 
 from thinkdome.core.error_codes import SandboxErrorCodes
+from thinkdome.core.dependencies import get_current_user
 
-router = APIRouter(tags=["Metadata"])
+router = APIRouter(tags=["Metadata"], dependencies=[Depends(get_current_user)])
 
 
 @router.patch(

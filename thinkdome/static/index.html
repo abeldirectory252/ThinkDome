@@ -48,11 +48,13 @@
         <button class="tab" id="tabRegister" onclick="setAuthTab('register')">REGISTER ADMIN</button>
       </div>
 
+      <div id="loginAlert" class="alert alert-error" style="display:none;margin-bottom:14px;"></div>
+
       <form onsubmit="enterApp(event)">
         <div class="field">
           <label for="username">Username</label>
           <div class="input-shell">
-            <input id="username" type="text" value="admin" autocomplete="username" />
+            <input id="username" type="text" placeholder="Enter username..." autocomplete="username" />
             <span class="field-icon">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -65,14 +67,26 @@
         <div class="field">
           <label for="password">Password</label>
           <div class="input-shell">
-            <input id="password" type="password" value="password" autocomplete="current-password" />
-            <span class="field-icon">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="toggle-password-btn" onclick="togglePasswordVisibility()" title="Toggle Password Visibility" aria-label="Toggle Password Visibility">
+              <svg id="pwdEyeIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                <circle cx="12" cy="12" r="3" />
               </svg>
-            </span>
+            </button>
+          </div>
+        </div>
+        <div class="field" id="roleField" style="display: none;">
+          <label for="userRole">Assigned Enterprise Role</label>
+          <div class="input-shell">
+            <select id="userRole" style="width: 100%; background: var(--surface-raised); color: var(--fg); border: none; outline: none; padding: 10px; font-family: inherit; border-radius: var(--radius-sm);">
+              <option value="AGENT_STANDARD">Standard Agent &amp; Developer</option>
+              <option value="SUPER_ADMIN">System Super Admin</option>
+              <option value="ENTERPRISE_ADMIN">Enterprise Administrator</option>
+              <option value="FINANCE_MANAGER">Finance Manager</option>
+              <option value="AUDITOR">Compliance Auditor</option>
+              <option value="LLM">LLM Pipeline</option>
+            </select>
           </div>
         </div>
         <button class="submit-btn" type="submit">
@@ -84,7 +98,7 @@
           </svg>
         </button>
       </form>
-      <p class="login-note">Mockup environment — default credentials work.</p>
+      <p class="login-note">Protected by ThinkDome Enterprise IAM &amp; Hardware Security Modules (HSM).</p>
     </div>
   </div>
 
@@ -92,6 +106,13 @@
   <div id="appView" class="app" style="display:none;">
     <header class="topbar">
       <div class="topbar-left">
+        <button class="sidebar-toggle-btn" id="sidebarToggleBtn" onclick="toggleSidebarSlider()" title="Collapse / expand sidebar" aria-label="Collapse sidebar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="18" height="18" x="3" y="3" rx="2" />
+            <path d="M9 3v18" />
+            <path d="m14 9 3 3-3 3" />
+          </svg>
+        </button>
         <div class="brand">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
             stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)">
@@ -122,6 +143,10 @@
             <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>
           </svg>
         </button>
+        <button class="btn btn-ghost" onclick="navTo('account')" style="font-size:13px;padding:6px 12px;gap:6px;display:inline-flex;align-items:center;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+          Account
+        </button>
         <button class="logout-btn" onclick="logout()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
@@ -129,132 +154,163 @@
             <path d="m16 17 5-5-5-5" />
             <path d="M21 12H9" />
           </svg>
-          Log Out
+          Logout
         </button>
       </div>
     </header>
 
-    <div class="body-grid">
+    <div class="body-grid" id="bodyGrid">
       <!-- Sidebar Navigation -->
-      <aside class="sidebar">
-        <div>
-          <div class="nav-group-label">ADMIN</div>
-          <button class="nav-item active" data-page="dashboard" onclick="navTo('dashboard')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <rect width="7" height="9" x="3" y="3" rx="1" />
-              <rect width="7" height="5" x="14" y="3" rx="1" />
-              <rect width="7" height="9" x="14" y="12" rx="1" />
-              <rect width="7" height="5" x="3" y="16" rx="1" />
-            </svg>
-            Dashboard
-          </button>
+      <aside class="sidebar" id="sidebarEl" style="position:relative;">
+        <!-- Vertical Splitter Resizer Drag Bar (right edge) -->
+        <div class="sidebar-resizer-bar" id="sidebarResizerBar" title="Drag to resize width"></div>
 
-          <button class="nav-item" data-page="roles" onclick="navTo('roles')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        <!-- Sidebar Top Header with Collapse Button & Quick Search -->
+        <div class="sidebar-brand" style="padding:12px 12px 6px;">
+          <div class="sidebar-search-box" style="position:relative;flex:1;margin-right:8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--fg-subtle)" stroke-width="2.2" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="sidebarMenuFilter" placeholder="Search menu..." oninput="filterSidebarMenu(this.value)" style="width:100%;padding:7px 10px 7px 30px;background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--fg);font-size:12.5px;outline:none;transition:border-color 0.15s ease;" />
+          </div>
+          <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebarSlider()" title="Toggle sidebar (Ctrl+B)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
             </svg>
-            Roles &amp; RBAC
           </button>
-
-          <button class="nav-item" data-page="audit" onclick="navTo('audit')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <line x1="8" x2="21" y1="6" y2="6" />
-              <line x1="8" x2="21" y1="12" y2="12" />
-              <line x1="8" x2="21" y1="18" y2="18" />
-              <line x1="3" x2="3.01" y1="6" y2="6" />
-              <line x1="3" x2="3.01" y1="12" y2="12" />
-              <line x1="3" x2="3.01" y1="18" y2="18" />
-            </svg>
-            Audit Logs
-          </button>
-
-          <button class="nav-item" data-page="network" onclick="navTo('network')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="2" x2="22" y1="12" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-            Network Egress &amp; Gateway
-          </button>
-
-          <button class="nav-item" data-page="billing" onclick="navTo('billing')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <rect width="20" height="14" x="2" y="5" rx="2" />
-              <line x1="2" x2="22" y1="10" y2="10" />
-            </svg>
-            Billing &amp; Usage
-          </button>
-
-          <button class="nav-item" data-page="apikeys" onclick="navTo('apikeys')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <circle cx="7.5" cy="15.5" r="5.5" />
-              <path d="m21 2-9.6 9.6" />
-              <path d="m15.5 7.5 3 3L22 7l-3-3" />
-            </svg>
-            API Keys
-          </button>
-
-          <button class="nav-item" data-page="mcp" onclick="navTo('mcp')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-            </svg>
-            MCP Server
-          </button>
-
-          <div class="nav-group-label">DEVELOPMENT</div>
-          <button class="nav-item" data-page="console" onclick="navTo('console')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" x2="20" y1="19" y2="19" />
-            </svg>
-            Console &amp; IDE
-          </button>
-
-          <button class="nav-item" data-page="sandboxes" onclick="navTo('sandboxes')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <rect width="18" height="18" x="3" y="3" rx="2" />
-              <path d="M3 9h18" />
-              <path d="M9 21V9" />
-            </svg>
-            Sandbox Nodes
-          </button>
-
-          <button class="nav-item" data-page="microvm" onclick="navTo('microvm')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-            </svg>
-            MicroVM Isolation
-          </button>
-
-          <button class="nav-item" data-page="snapshots" onclick="navTo('snapshots')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-              <path d="M3 3v5h5"/>
-            </svg>
-            Agent Backtrack &amp; Snapshots
-          </button>
-
         </div>
 
-        <!-- User profile section (matches requirements) -->
-        <div class="sidebar-footer-profile">
-          <div class="profile-avatar">DV</div>
-          <div class="profile-info">
-            <div class="profile-name">Dev User</div>
-            <div class="profile-plan">Pro Plan</div>
+        <!-- Navigation Container -->
+        <nav class="sidebar-nav" id="sidebarNavContainer">
+          <div class="nav-section">
+            <div class="nav-group-label">Main</div>
+            <button class="nav-item active" data-page="dashboard" onclick="navTo('dashboard')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>
+              </svg>
+              <span>Dashboard</span>
+            </button>
+            <button class="nav-item" data-page="sandboxes" onclick="navTo('sandboxes')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>
+              </svg>
+              <span>Sandboxes</span>
+              <span class="badge" style="margin-left:auto;font-size:10px;padding:1px 6px;background:var(--success-subtle);color:var(--success);border-radius:10px;">3 Active</span>
+            </button>
           </div>
-          <span class="profile-badge">PRO</span>
+
+          <div class="nav-section">
+            <div class="nav-group-label">Development</div>
+            <button class="nav-item" data-page="console" onclick="navTo('console')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>
+              </svg>
+              <span>Console &amp; IDE</span>
+            </button>
+            <button class="nav-item" data-page="snapshots" onclick="navTo('snapshots')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+              </svg>
+              <span>Snapshots</span>
+            </button>
+            <button class="nav-item" data-page="mcp" onclick="navTo('mcp')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+              <span>MCP Tools</span>
+            </button>
+            <button class="nav-item" data-page="webhooks" onclick="navTo('webhooks')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              <span>Webhooks</span>
+            </button>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-group-label">Security</div>
+            <button class="nav-item" data-page="limits" onclick="navTo('limits')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+              </svg>
+              <span>Limits &amp; Egress</span>
+              <span class="badge" style="margin-left:auto;font-size:10px;padding:1px 6px;background:var(--success-subtle);color:var(--success);border-radius:10px;">Firewall ON</span>
+            </button>
+            <button class="nav-item" data-page="apikeys" onclick="navTo('apikeys')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>
+              </svg>
+              <span>API Keys</span>
+            </button>
+            <button class="nav-item" data-page="audit" onclick="navTo('audit')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
+              </svg>
+              <span>Audit Logs</span>
+            </button>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-group-label">Access Control</div>
+            <button class="nav-item" data-page="users" onclick="navTo('users')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+              <span>Users</span>
+            </button>
+            <button class="nav-item" data-page="roles" onclick="navTo('roles')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <span>Roles &amp; RBAC</span>
+              <span class="badge" style="margin-left:auto;font-size:10px;padding:1px 6px;background:var(--accent-subtle);color:var(--accent);border-radius:10px;">6 Roles</span>
+            </button>
+            <button class="nav-item" data-page="members" onclick="navTo('members')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              <span>Team Members</span>
+            </button>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-group-label">System</div>
+            <button class="nav-item" data-page="account" onclick="navTo('account')">
+              <span>Account Settings</span>
+            </button>
+            <button class="nav-item" data-page="general" onclick="navTo('general')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              <span>Settings</span>
+            </button>
+            <button class="nav-item" data-page="billing" onclick="navTo('billing')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>
+              </svg>
+              <span>Usage &amp; Billing</span>
+            </button>
+          </div>
+        </nav>
+
+        <!-- Sidebar Footer -->
+        <div class="sidebar-footer">
+          <a class="nav-item nav-item-doc" href="https://github.com/abeldirectory252/ThinkDome" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/>
+            </svg>
+            <span>Documentation</span>
+            <svg class="nav-external-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
+          </a>
+          <div class="sidebar-profile" onclick="navTo('account')" title="View Account Settings">
+            <div style="position:relative;">
+              <div class="sidebar-profile-avatar" id="sidebarProfileAvatar">DV</div>
+              <span style="position:absolute;bottom:-1px;right:-1px;width:9px;height:9px;background:var(--success);border:2px solid var(--surface);border-radius:50%;"></span>
+            </div>
+            <div class="sidebar-profile-info">
+              <div class="sidebar-profile-name" id="sidebarProfileName">Dev User</div>
+              <div class="sidebar-profile-role" id="sidebarProfilePlan">Administrator</div>
+            </div>
+            <svg class="sidebar-profile-more" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+          </div>
         </div>
       </aside>
 
@@ -266,15 +322,17 @@
           <div class="page-head">
             <div class="page-title">
               <span class="ico">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect width="7" height="9" x="3" y="3" rx="1" />
                   <rect width="7" height="5" x="14" y="3" rx="1" />
                   <rect width="7" height="9" x="14" y="12" rx="1" />
                   <rect width="7" height="5" x="3" y="16" rx="1" />
                 </svg>
               </span>
-              Sandbox Orchestration Overview
+              <div>
+                <h2>Sandbox Orchestration Overview</h2>
+                <p class="subtitle">Real-time system telemetry, active nodes, and runtime execution stream.</p>
+              </div>
             </div>
             <button class="btn btn-ghost" onclick="refreshDash(this)">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -332,6 +390,47 @@
               </div>
               <div class="stat-value" id="statCurrentSpend">—</div>
               <div class="stat-sub" id="statCurrentSpendSub">—</div>
+            </div>
+          </div>
+
+          <!-- Live Realtime System Telemetry Graph Card -->
+          <div class="table-card" style="padding:20px;margin-bottom:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <h3 style="font-size:16px;font-weight:700;margin:0;">Real-Time System Telemetry &amp; Resource Utilization</h3>
+                  <span class="badge" style="background:var(--success-subtle);color:var(--success);font-weight:600;font-size:11px;display:inline-flex;align-items:center;gap:4px;">
+                    <span style="width:6px;height:6px;border-radius:50%;background:var(--success);display:inline-block;"></span>
+                    LIVE STREAMING
+                  </span>
+                </div>
+                <p style="font-size:12.5px;color:var(--fg-muted);margin-top:2px;">Continuous live telemetry stream for CPU utilization, RAM consumption, and network egress.</p>
+              </div>
+
+              <!-- Live Telemetry Badges & Controls -->
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;gap:12px;font-family:var(--font-mono);font-size:12px;">
+                  <span style="color:var(--fg-muted);">CPU: <strong id="telemetryCpuVal" style="color:var(--accent);">18.4%</strong></span>
+                  <span style="color:var(--fg-muted);">RAM: <strong id="telemetryRamVal" style="color:var(--success);">342 MB</strong></span>
+                  <span style="color:var(--fg-muted);">Egress: <strong id="telemetryEgressVal" style="color:var(--warn);">1.2 MB/s</strong></span>
+                </div>
+                <div style="display:flex;gap:4px;background:var(--surface-raised);padding:3px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px;background:var(--accent-subtle);color:var(--accent);" onclick="setChartRange(this, '1m')">1m</button>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px;" onclick="setChartRange(this, '5m')">5m</button>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px;" onclick="setChartRange(this, '15m')">15m</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Canvas Graph Container -->
+            <div style="position:relative;width:100%;height:220px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;">
+              <canvas id="dashboardLiveChartCanvas" style="width:100%;height:100%;display:block;"></canvas>
+            </div>
+            
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:11.5px;color:var(--fg-subtle);font-family:var(--font-mono);">
+              <span>● CPU Utilization (%) — Accent line</span>
+              <span>● Memory Allocation (MB) — Green line</span>
+              <span>Refresh Interval: 1000ms</span>
             </div>
           </div>
 
@@ -406,14 +505,16 @@
         <section class="page hidden" id="page-audit">
           <div class="page-head">
             <div class="page-title">
-              <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2">
+              <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="8" x2="21" y1="6" y2="6" />
                   <line x1="8" x2="21" y1="12" y2="12" />
                   <line x1="3" x2="3.01" y1="6" y2="6" />
                   <line x1="3" x2="3.01" y1="12" y2="12" />
                 </svg></span>
-              Secure Audit Logs &amp; Execution Stream
+              <div>
+                <h2>Secure Audit Logs &amp; Execution Stream</h2>
+                <p class="subtitle">Comprehensive audit trail of container creation, commands, and security events.</p>
+              </div>
             </div>
           </div>
           <div class="table-card">
@@ -439,12 +540,14 @@
         <section class="page hidden" id="page-billing">
           <div class="page-head">
             <div class="page-title">
-              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2">
+              <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect width="20" height="14" x="2" y="5" rx="2" />
                   <line x1="2" x2="22" y1="10" y2="10" />
                 </svg></span>
-              Billing &amp; Usage Reports
+              <div>
+                <h2>Billing &amp; Usage Reports</h2>
+                <p class="subtitle">Resource consumption breakdown, invoice history, and monthly credit usage.</p>
+              </div>
             </div>
             <div style="display:flex;gap:12px;">
               <div class="seg">
@@ -622,135 +725,391 @@
         </section>
 
         <!-- NETWORK SECURITY & EGRESS AUDIT VIEW -->
-        <section class="page hidden" id="page-network">
-          <div class="page-title-wrap">
-            <div>
-              <h2 class="page-title">Network Security &amp; Egress Control</h2>
-              <p class="page-sub">Real-time egress traffic inspection, domain allowlists, and Ingress Gateway audit logs.</p>
+        <!-- LIMITS & EGRESS CONTROL VIEW -->
+        <section class="page hidden" id="page-limits">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6v6l4 2" />
+                </svg>
+              </span>
+              <div>
+                <h2>Resource Limits &amp; Egress Control</h2>
+                <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Enforce compute resource quotas, egress domain firewalls, and network bandwidth boundaries across sandbox containers.</p>
+              </div>
             </div>
-            <button class="btn btn-outline" onclick="loadNetworkAudit()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-              Refresh Network Logs
-            </button>
-          </div>
-
-          <div class="kpi-grid">
-            <div class="kpi-card">
-              <div class="kpi-label">Total Evaluated Requests</div>
-              <div class="kpi-val" id="net-total-eval">0</div>
-              <div class="kpi-sub">Outbound HTTP/HTTPS calls</div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Allowed Egress Calls</div>
-              <div class="kpi-val" style="color:var(--success);" id="net-allowed-count">0</div>
-              <div class="kpi-sub">Matched allowlist policy</div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Blocked / Denied Calls</div>
-              <div class="kpi-val" style="color:var(--danger);" id="net-denied-count">0</div>
-              <div class="kpi-sub">Blocked by default-deny</div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Active Egress Rules</div>
-              <div class="kpi-val" id="net-rules-count">0</div>
-              <div class="kpi-sub">Domain allowlist patterns</div>
+            <div style="display:flex;gap:10px;">
+              <button class="btn btn-ghost" onclick="addEgressRulePrompt()">+ Add Egress Rule</button>
+              <button class="btn btn-primary" onclick="loadNetworkAudit()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Refresh Egress Logs
+              </button>
             </div>
           </div>
 
-          <h3 class="panel-title" style="margin-top:24px;">Real-Time Egress Activity Audit Log</h3>
-          <div class="table-card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Sandbox Node</th>
-                  <th>Method</th>
-                  <th>Target Destination</th>
-                  <th>Decision</th>
-                  <th>Rule / Reason</th>
-                </tr>
-              </thead>
-              <tbody id="networkAuditTable">
-                <tr><td colspan="6" style="text-align:center;color:var(--fg-subtle);padding:24px;">Loading network audit logs...</td></tr>
-              </tbody>
-            </table>
+          <!-- Compute Quotas & Resource Limits Overview -->
+          <div class="stats" style="margin-bottom:24px;">
+            <div class="stat-card">
+              <div class="stat-top">Max CPU Quota
+                <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg></span>
+              </div>
+              <div class="stat-value">4.0 <span style="font-size:14px;color:var(--fg-muted);">Cores</span></div>
+              <div class="stat-sub">Per sandbox container boundary</div>
+              <div class="bar" style="margin-top:10px;"><i style="width: 45%; background: var(--accent);"></i></div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-top">Max Memory Allocation
+                <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 19v-3M10 19v-6M14 19v-9M18 19V4"/></svg></span>
+              </div>
+              <div class="stat-value">4096 <span style="font-size:14px;color:var(--fg-muted);">MB</span></div>
+              <div class="stat-sub">1024 MB default per node</div>
+              <div class="bar" style="margin-top:10px;"><i style="width: 60%; background: var(--success);"></i></div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-top">Max Process Limits (PIDs)
+                <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg></span>
+              </div>
+              <div class="stat-value">64 <span style="font-size:14px;color:var(--fg-muted);">PIDs</span></div>
+              <div class="stat-sub">Prevents fork-bomb exhaustion</div>
+              <div class="bar" style="margin-top:10px;"><i style="width: 25%; background: var(--warn);"></i></div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-top">Execution Timeout
+                <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+              </div>
+              <div class="stat-value">30 <span style="font-size:14px;color:var(--fg-muted);">sec</span></div>
+              <div class="stat-sub">Hard timeout per execution call</div>
+              <div class="bar" style="margin-top:10px;"><i style="width: 30%; background: var(--accent);"></i></div>
+            </div>
           </div>
 
-          <h3 class="panel-title" style="margin-top:24px;">Configured Egress Domain Allowlist Rules</h3>
-          <div class="table-card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Domain Pattern</th>
-                  <th>Allowed Methods</th>
-                  <th>Rate Limit (/min)</th>
-                  <th>Credential Injection</th>
-                  <th>Description</th>
-                </tr>
-              </thead>
-              <tbody id="networkRulesTable">
-                <tr><td colspan="5" style="text-align:center;color:var(--fg-subtle);padding:24px;">Loading egress rules...</td></tr>
-              </tbody>
-            </table>
+          <!-- Egress Firewall Telemetry Cards -->
+          <div class="stats" style="margin-bottom:24px;">
+            <div class="stat-card">
+              <div class="stat-top">Total Evaluated Requests</div>
+              <div class="stat-value" id="net-total-eval">1,284</div>
+              <div class="stat-sub">Outbound HTTP/HTTPS calls</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Allowed Egress Calls</div>
+              <div class="stat-value" style="color:var(--success);" id="net-allowed-count">1,210</div>
+              <div class="stat-sub">Matched domain allowlist policy</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Blocked / Denied Calls</div>
+              <div class="stat-value" style="color:var(--danger);" id="net-denied-count">74</div>
+              <div class="stat-sub">Blocked by default-deny rule</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Active Firewall Rules</div>
+              <div class="stat-value" id="net-rules-count">12</div>
+              <div class="stat-sub">Configured domain allowlists</div>
+            </div>
+          </div>
+
+          <!-- Configured Egress Domain Allowlist Rules -->
+          <div class="table-card" style="padding:24px;margin-bottom:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div>
+                <h3 style="font-size:16px;font-weight:700;">Configured Egress Domain Allowlist Rules</h3>
+                <p style="font-size:13px;color:var(--fg-muted);margin-top:2px;">Outbound requests from sandboxes are blocked by default unless explicitly matched by an active rule.</p>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="addEgressRulePrompt()">+ Add Domain Rule</button>
+            </div>
+
+            <div style="overflow-x:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Domain Pattern</th>
+                    <th>Allowed Methods</th>
+                    <th>Rate Limit (/min)</th>
+                    <th>Credential Injection</th>
+                    <th>Description</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="networkRulesTable">
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12.5px;font-weight:600;color:var(--fg);">api.openai.com</td>
+                    <td><span class="badge" style="background:var(--accent-subtle);color:var(--accent);">GET, POST</span></td>
+                    <td style="font-family:var(--font-mono);font-size:12px;">120</td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">Bearer Vault Token</span></td>
+                    <td style="color:var(--fg-muted);font-size:13px;">OpenAI API Proxy Gateway</td>
+                    <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove()" style="color:var(--danger);">Delete</button></td>
+                  </tr>
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12.5px;font-weight:600;color:var(--fg);">api.anthropic.com</td>
+                    <td><span class="badge" style="background:var(--accent-subtle);color:var(--accent);">POST</span></td>
+                    <td style="font-family:var(--font-mono);font-size:12px;">60</td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">x-api-key Vault Token</span></td>
+                    <td style="color:var(--fg-muted);font-size:13px;">Anthropic Claude API Gateway</td>
+                    <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove()" style="color:var(--danger);">Delete</button></td>
+                  </tr>
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12.5px;font-weight:600;color:var(--fg);">github.com</td>
+                    <td><span class="badge" style="background:var(--accent-subtle);color:var(--accent);">GET, POST</span></td>
+                    <td style="font-family:var(--font-mono);font-size:12px;">300</td>
+                    <td><span class="badge">None</span></td>
+                    <td style="color:var(--fg-muted);font-size:13px;">Public repository git fetch &amp; clone</td>
+                    <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove()" style="color:var(--danger);">Delete</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Real-Time Egress Activity Audit Log -->
+          <div class="table-card" style="padding:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div>
+                <h3 style="font-size:16px;font-weight:700;">Real-Time Egress Activity Audit Log</h3>
+                <p style="font-size:13px;color:var(--fg-muted);margin-top:2px;">Live outbound HTTP inspection log stream with firewall evaluation decisions.</p>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="loadNetworkAudit()">Refresh Log Stream</button>
+            </div>
+
+            <div style="overflow-x:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Sandbox Node</th>
+                    <th>Method</th>
+                    <th>Target Destination</th>
+                    <th>Decision</th>
+                    <th>Rule / Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="networkAuditTable">
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">16:31:04</td>
+                    <td style="font-family:var(--font-mono);font-size:12px;font-weight:600;">prod-runner-01</td>
+                    <td><span class="badge">POST</span></td>
+                    <td style="font-family:var(--font-mono);font-size:12px;">https://api.openai.com/v1/chat/completions</td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">ALLOWED</span></td>
+                    <td style="font-size:12px;color:var(--fg-muted);">Rule #1 (api.openai.com)</td>
+                  </tr>
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">16:30:52</td>
+                    <td style="font-family:var(--font-mono);font-size:12px;font-weight:600;">prod-runner-01</td>
+                    <td><span class="badge">GET</span></td>
+                    <td style="font-family:var(--font-mono);font-size:12px;">https://untrusted-external-site.org/payload</td>
+                    <td><span class="badge" style="background:var(--danger-subtle);color:var(--danger);">DENIED</span></td>
+                    <td style="font-size:12px;color:var(--danger);">Default Deny Policy</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
         <!-- ROLES & RBAC MANAGEMENT VIEW -->
         <section class="page hidden" id="page-roles">
-          <div class="page-title-wrap">
-            <div>
-              <h2 class="page-title">Enterprise Dynamic Roles &amp; Permissions</h2>
-              <p class="page-sub">Manage role hierarchies, dynamic permissions, and user role assignments with instant zero-downtime cache invalidation.</p>
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+              </span>
+              <div>
+                <h2>Roles &amp; RBAC Control Matrix</h2>
+                <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Manage role hierarchies, fine-grained dynamic permissions, separation-of-duties (SOD) rules, and live user access assignments.</p>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;">
+              <button class="btn btn-ghost" onclick="openRoleModal()">+ Create Custom Role</button>
+              <button class="btn btn-primary" onclick="refreshRbacCache()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Sync RBAC Cache
+              </button>
+            </div>
+          </div>
+
+          <!-- RBAC Telemetry KPI Cards -->
+          <div class="stats" style="margin-bottom:24px;">
+            <div class="stat-card">
+              <div class="stat-top">Configured Roles</div>
+              <div class="stat-value">6 <span style="font-size:14px;color:var(--fg-muted);">Roles</span></div>
+              <div class="stat-sub">System &amp; Tenant custom roles</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Granular Scopes</div>
+              <div class="stat-value">48 <span style="font-size:14px;color:var(--fg-muted);">Permissions</span></div>
+              <div class="stat-sub">Dynamic wildcards &amp; exact paths</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Assigned Users</div>
+              <div class="stat-value" style="color:var(--success);">14 <span style="font-size:14px;">Users</span></div>
+              <div class="stat-sub">Active identity role mappings</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Cache Invalidation</div>
+              <div class="stat-value" style="color:var(--accent);">&lt; 5 <span style="font-size:14px;">ms</span></div>
+              <div class="stat-sub">Zero-downtime policy propagation</div>
             </div>
           </div>
 
           <!-- Dynamic Role Catalog Grid -->
-          <div class="grid-3" id="rbacRolesContainer">
-            <div class="card">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <span class="badge badge-success">SUPER_ADMIN</span>
-                <small style="color:var(--text-subtle)">System Built-in</small>
+          <div style="margin-bottom:24px;">
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;">Active System Roles Catalog</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:20px;" id="rbacRolesContainer">
+              
+              <!-- SUPER_ADMIN -->
+              <div class="table-card" style="padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                  <span class="badge" style="background:var(--accent-subtle);color:var(--accent);font-weight:700;">SUPER_ADMIN</span>
+                  <span style="font-size:11px;color:var(--fg-muted);font-weight:600;">System Built-in</span>
+                </div>
+                <h4 style="font-size:15px;font-weight:700;margin-bottom:6px;">Super Administrator</h4>
+                <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Unrestricted wildcard (*) access across all control-plane modules, sandboxes, and APIs.</p>
+                <div style="font-size:11.5px;font-family:var(--font-mono);color:var(--accent);background:var(--surface-raised);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">Scope: * (Full Access)</div>
               </div>
-              <h3 style="margin:0 0 6px 0; font-size:16px;">Super Administrator</h3>
-              <p style="font-size:13px; color:var(--text-subtle); margin-bottom:12px;">Unrestricted wildcard (*) permissions across all system modules, tools, and sandboxes.</p>
-              <div style="font-size:12px; font-family:var(--font-mono); color:var(--accent);">Scope: * (Full Access)</div>
-            </div>
 
-            <div class="card">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <span class="badge badge-info">FINANCE_MANAGER</span>
-                <small style="color:var(--text-subtle)">Finance Scope</small>
+              <!-- ENTERPRISE_ADMIN -->
+              <div class="table-card" style="padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                  <span class="badge" style="background:var(--accent-subtle);color:var(--accent);font-weight:700;">ENTERPRISE_ADMIN</span>
+                  <span style="font-size:11px;color:var(--fg-muted);font-weight:600;">Tenant Scope</span>
+                </div>
+                <h4 style="font-size:15px;font-weight:700;margin-bottom:6px;">Enterprise Administrator</h4>
+                <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Manage tenant organization resources, user invitations, and execution limits.</p>
+                <div style="font-size:11.5px;font-family:var(--font-mono);color:var(--accent);background:var(--surface-raised);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">Scope: tenant:admin:*</div>
               </div>
-              <h3 style="margin:0 0 6px 0; font-size:16px;">Finance Manager</h3>
-              <p style="font-size:13px; color:var(--text-subtle); margin-bottom:12px;">Chart of accounts, general ledger posting, invoicing, and budget management.</p>
-              <div style="font-size:12px; font-family:var(--font-mono); color:var(--accent);">Scope: erp:finance:*</div>
-            </div>
 
-            <div class="card">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <span class="badge badge-warning">AUDITOR</span>
-                <small style="color:var(--text-subtle)">Compliance Scope</small>
+              <!-- FINANCE_MANAGER -->
+              <div class="table-card" style="padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                  <span class="badge" style="background:var(--info-subtle);color:var(--info);font-weight:700;">FINANCE_MANAGER</span>
+                  <span style="font-size:11px;color:var(--fg-muted);font-weight:600;">Finance Scope</span>
+                </div>
+                <h4 style="font-size:15px;font-weight:700;margin-bottom:6px;">Finance Manager</h4>
+                <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Chart of accounts, general ledger posting, invoicing, and budget limits management.</p>
+                <div style="font-size:11.5px;font-family:var(--font-mono);color:var(--info);background:var(--surface-raised);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">Scope: erp:finance:*</div>
               </div>
-              <h3 style="margin:0 0 6px 0; font-size:16px;">Compliance Auditor</h3>
-              <p style="font-size:13px; color:var(--text-subtle); margin-bottom:12px;">Read-only inspection of audit logs, compliance sampling, and SOD rules.</p>
-              <div style="font-size:12px; font-family:var(--font-mono); color:var(--accent);">Scope: erp:audit:read</div>
+
+              <!-- AUDITOR -->
+              <div class="table-card" style="padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                  <span class="badge" style="background:var(--warn-subtle);color:var(--warn);font-weight:700;">AUDITOR</span>
+                  <span style="font-size:11px;color:var(--fg-muted);font-weight:600;">Compliance Scope</span>
+                </div>
+                <h4 style="font-size:15px;font-weight:700;margin-bottom:6px;">Compliance Auditor</h4>
+                <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Read-only inspection of system audit logs, compliance sampling, and SOD rules.</p>
+                <div style="font-size:11.5px;font-family:var(--font-mono);color:var(--warn);background:var(--surface-raised);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">Scope: audit:read, erp:audit:read</div>
+              </div>
+
+              <!-- AGENT_STANDARD -->
+              <div class="table-card" style="padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                  <span class="badge" style="background:var(--success-subtle);color:var(--success);font-weight:700;">AGENT_STANDARD</span>
+                  <span style="font-size:11px;color:var(--fg-muted);font-weight:600;">Execution Scope</span>
+                </div>
+                <h4 style="font-size:15px;font-weight:700;margin-bottom:6px;">Standard Agent Runner</h4>
+                <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Execute code tools inside sandboxes, manage snapshots, and inspect terminal output.</p>
+                <div style="font-size:11.5px;font-family:var(--font-mono);color:var(--success);background:var(--surface-raised);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">Scope: sandbox:exec, snapshot:rw</div>
+              </div>
+
+              <!-- LLM -->
+              <div class="table-card" style="padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                  <span class="badge" style="background:var(--accent-subtle);color:var(--accent);font-weight:700;">LLM</span>
+                  <span style="font-size:11px;color:var(--fg-muted);font-weight:600;">API Token Scope</span>
+                </div>
+                <h4 style="font-size:15px;font-weight:700;margin-bottom:6px;">Autonomous LLM Agent Token</h4>
+                <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Automated API calls from LangChain, CrewAI, AutoGPT pipelines with scoped tokens.</p>
+                <div style="font-size:11.5px;font-family:var(--font-mono);color:var(--accent);background:var(--surface-raised);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">Scope: api:llm:exec</div>
+              </div>
+
             </div>
           </div>
 
           <!-- User Role Assignment Panel -->
-          <h3 class="panel-title" style="margin-top:24px;">Assign Role to User Account</h3>
-          <div class="card" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-            <input id="rbacAssignUserId" type="text" placeholder="User ID or Username" style="flex:1; min-width:200px; padding:10px; background:var(--bg-card); color:var(--text-primary); border:1px solid var(--border); border-radius:6px;" />
-            <select id="rbacAssignRoleSelect" style="flex:1; min-width:200px; padding:10px; background:var(--bg-card); color:var(--text-primary); border:1px solid var(--border); border-radius:6px;">
-              <option value="SUPER_ADMIN">SUPER_ADMIN</option>
-              <option value="ENTERPRISE_ADMIN">ENTERPRISE_ADMIN</option>
-              <option value="FINANCE_MANAGER">FINANCE_MANAGER</option>
-              <option value="AUDITOR">AUDITOR</option>
-              <option value="SALES_USER">SALES_USER</option>
-              <option value="AGENT_STANDARD">AGENT_STANDARD</option>
-              <option value="LLM">LLM</option>
-            </select>
-            <button class="btn btn-primary" onclick="submitUserRoleAssignment()">Assign Role</button>
+          <div class="table-card" style="padding:24px;margin-bottom:24px;">
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:8px;">Assign Role to User Account</h3>
+            <p style="font-size:13px;color:var(--fg-muted);margin-bottom:16px;">Grant dynamic permissions by assigning built-in or custom roles to user identity accounts.</p>
+            
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+              <div style="flex:2;min-width:220px;">
+                <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Target User Account</label>
+                <input class="form-input" id="rbacAssignUserId" type="text" placeholder="e.g. administrator or agent_runner" style="width:100%;" />
+              </div>
+              <div style="flex:2;min-width:220px;">
+                <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Select Role</label>
+                <select class="form-select" id="rbacAssignRoleSelect" style="width:100%;">
+                  <option value="SUPER_ADMIN">SUPER_ADMIN (Super Admin)</option>
+                  <option value="ENTERPRISE_ADMIN">ENTERPRISE_ADMIN (Enterprise Admin)</option>
+                  <option value="FINANCE_MANAGER">FINANCE_MANAGER (Finance Scope)</option>
+                  <option value="AUDITOR">AUDITOR (Compliance Scope)</option>
+                  <option value="AGENT_STANDARD" selected>AGENT_STANDARD (Standard Agent)</option>
+                  <option value="LLM">LLM (Automated Token)</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:160px;margin-top:22px;">
+                <button class="btn btn-primary" onclick="submitUserRoleAssignment()" style="width:100%;">Assign Role</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Granular Permission Scopes Matrix -->
+          <div class="table-card" style="padding:24px;">
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:8px;">System Module Capabilities Matrix</h3>
+            <p style="font-size:13px;color:var(--fg-muted);margin-bottom:16px;">Granular capability mapping per role across control-plane modules.</p>
+
+            <div style="overflow-x:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Module / Capability</th>
+                    <th>SUPER_ADMIN</th>
+                    <th>ENTERPRISE_ADMIN</th>
+                    <th>FINANCE_MANAGER</th>
+                    <th>AUDITOR</th>
+                    <th>AGENT_STANDARD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="font-weight:600;">Sandbox Creation &amp; Execution</td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL</span></td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL</span></td>
+                    <td><span class="badge" style="background:var(--danger-subtle);color:var(--danger);">DENIED</span></td>
+                    <td><span class="badge" style="background:var(--warn-subtle);color:var(--warn);">READ ONLY</span></td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">EXECUTE</span></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight:600;">Egress &amp; Firewall Policies</td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL</span></td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL</span></td>
+                    <td><span class="badge" style="background:var(--danger-subtle);color:var(--danger);">DENIED</span></td>
+                    <td><span class="badge" style="background:var(--warn-subtle);color:var(--warn);">READ ONLY</span></td>
+                    <td><span class="badge" style="background:var(--danger-subtle);color:var(--danger);">DENIED</span></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight:600;">Vault Master Secrets</td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL</span></td>
+                    <td><span class="badge" style="background:var(--warn-subtle);color:var(--warn);">SCOPED</span></td>
+                    <td><span class="badge" style="background:var(--danger-subtle);color:var(--danger);">DENIED</span></td>
+                    <td><span class="badge" style="background:var(--danger-subtle);color:var(--danger);">DENIED</span></td>
+                    <td><span class="badge" style="background:var(--warn-subtle);color:var(--warn);">INJECT ONLY</span></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight:600;">Audit Logs &amp; Telemetry</td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL</span></td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL</span></td>
+                    <td><span class="badge" style="background:var(--warn-subtle);color:var(--warn);">SCOPED</span></td>
+                    <td><span class="badge" style="background:var(--success-subtle);color:var(--success);">FULL READ</span></td>
+                    <td><span class="badge" style="background:var(--danger-subtle);color:var(--danger);">DENIED</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -816,124 +1175,163 @@
           <div class="page-head">
             <div class="page-title">
               <span class="ico">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;">
                   <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                 </svg>
               </span>
               <div>
-                <h2>Model Context Protocol (MCP) Server</h2>
-                <p class="subtitle">Connect Claude Desktop, Cursor, or Cline to ThinkDome dynamic sandbox tools.</p>
+                <h2>Model Context Protocol (MCP) Registry</h2>
+                <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Connect Claude Desktop, Cursor, or Cline to ThinkDome dynamic sandbox tools.</p>
               </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge" style="background:var(--success-subtle);color:var(--success);padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px;">
+                <span style="width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;"></span>
+                MCP Server Online
+              </span>
+              <button class="btn btn-primary" onclick="loadMcpTools()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                Sync Registry
+              </button>
             </div>
           </div>
 
-          <div class="mcp-steps" aria-label="MCP setup steps">
-            <div class="mcp-step active"><span>1</span><div><strong>Copy config</strong><small>Use the ready-to-paste client configuration.</small></div></div>
-            <div class="mcp-step"><span>2</span><div><strong>Add to your client</strong><small>Claude Desktop, Cursor, or Cline.</small></div></div>
-            <div class="mcp-step"><span>3</span><div><strong>Restart and verify</strong><small>Refresh tools after the client reconnects.</small></div></div>
+          <!-- KPI Summary Cards -->
+          <div class="stats" style="margin-bottom:24px;">
+            <div class="stat-card">
+              <div class="stat-top">Registered MCP Tools</div>
+              <div class="stat-value" id="mcpStatCount">24</div>
+              <div class="stat-sub">Active tools in JSON-RPC registry</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Exposed Domains</div>
+              <div class="stat-value">6</div>
+              <div class="stat-sub">Storage, Execution, Search, Memory, Network, Comms</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Transport Channel</div>
+              <div class="stat-value" style="font-size:22px;margin-top:14px;">stdio / JSON-RPC</div>
+              <div class="stat-sub">Standard I/O stream handler</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Required Scopes</div>
+              <div class="stat-value">11</div>
+              <div class="stat-sub">Enforced by RBAC boundary</div>
+            </div>
           </div>
 
-          <div class="grid-2col">
-            <!-- Left Panel: Connection Config -->
-            <div class="card">
-              <div class="card-title">
-                <h3>Claude Desktop Integration</h3>
+          <!-- Setup & Connection Tabs -->
+          <div class="table-card" style="padding:24px;margin-bottom:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div>
+                <h3 style="font-size:16px;font-weight:700;">Client Configuration Guide</h3>
+                <p style="font-size:13px;color:var(--fg-muted);margin-top:2px;">Paste this configuration block into your local AI client to expose all ThinkDome tools.</p>
               </div>
-              <p>Add the following configuration to your <code>claude_desktop_config.json</code> file to expose ThinkDome's dynamic tool registry directly into your Claude app:</p>
-              
-              <div class="code-container" style="position: relative; margin: 15px 0;">
-                <pre style="background: var(--bg-surface); padding: 14px; border-radius: 6px; border: 1px solid var(--border); font-family: monospace; font-size: 13px; color: var(--text-heading); overflow-x: auto; white-space: pre-wrap; word-break: break-all;"><code id="mcpConfigCode">{
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-ghost btn-sm" onclick="copyMcpConfig()">Copy Config JSON</button>
+                <button class="btn btn-ghost btn-sm" onclick="downloadMcpConfig()">Download</button>
+              </div>
+            </div>
+
+            <div class="code-container" style="position:relative;">
+              <pre style="background:var(--surface-raised);padding:16px;border-radius:var(--radius-md);border:1px solid var(--border);font-family:var(--font-mono);font-size:13px;color:var(--fg);overflow-x:auto;white-space:pre-wrap;word-break:break-all;"><code id="mcpConfigCode">{
   "mcpServers": {
     "thinkdome": {
       "command": "/home/sandbox/ThinkDome/venv/bin/python",
       "args": [
-        "/home/sandbox/ThinkDome/think",
+        "-m",
+        "thinkdome.cli",
         "mcp",
         "--site",
-        "personal"
+        "think.local"
       ]
     }
   }
 }</code></pre>
-                <div style="position: absolute; right: 10px; top: 10px; display:flex; gap:6px;"><button class="btn btn-ghost btn-sm" onclick="copyMcpConfig()">Copy JSON</button><button class="btn btn-ghost btn-sm" onclick="downloadMcpConfig()">Download</button></div>
-              </div>
-              
-              <div class="nav-group-label" style="margin-top: 20px;">HOW TO CONNECT</div>
-              <ol style="margin-left: 20px; color: var(--text-muted); line-height: 1.6;">
-                <li>Locate your Claude config file at:
-                  <ul style="margin-left: 15px; font-family: monospace; font-size: 12px; margin-top: 5px; list-style-type: square;">
-                    <li>macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></li>
-                    <li>Windows: <code>%APPDATA%\Claude\claude_desktop_config.json</code></li>
-                  </ul>
-                </li>
-                <li style="margin-top: 5px;">Paste the configuration block above into the config file.</li>
-                <li style="margin-top: 5px;">Restart the Claude Desktop app.</li>
-              </ol>
             </div>
 
-            <!-- Right Panel: Connection Status & Quick CLI -->
-            <div class="card">
-              <div class="card-title">
-                <h3>Connection Status</h3>
+            <div style="margin-top:20px;display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:16px;">
+              <div style="padding:14px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                <strong style="font-size:13px;display:block;margin-bottom:4px;">macOS (Claude Desktop)</strong>
+                <code style="font-size:11px;color:var(--fg-muted);word-break:break-all;">~/Library/Application Support/Claude/claude_desktop_config.json</code>
               </div>
-              
-              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-                <div class="status-indicator active"></div>
-                <div>
-                  <div style="font-weight: 600; color: var(--text-heading);">Server Status: Online</div>
-                  <div style="font-size: 12px; color: var(--text-muted);">Listening on standard I/O (stdio) transport channel</div>
-                </div>
+              <div style="padding:14px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                <strong style="font-size:13px;display:block;margin-bottom:4px;">Windows (Claude Desktop)</strong>
+                <code style="font-size:11px;color:var(--fg-muted);word-break:break-all;">%APPDATA%\Claude\claude_desktop_config.json</code>
               </div>
-
-              <div class="nav-group-label">CLI RUN COMMAND</div>
-              <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">To start the server manually in standard stdio mode:</p>
-              <div class="code-container" style="position: relative;">
-                <pre style="background: var(--bg-surface); padding: 14px; border-radius: 6px; border: 1px solid var(--border); font-family: monospace; font-size: 13px; color: var(--text-heading); overflow-x: auto; white-space: pre-wrap;"><code>python think mcp --site personal</code></pre>
+              <div style="padding:14px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                <strong style="font-size:13px;display:block;margin-bottom:4px;">Manual CLI Command</strong>
+                <code style="font-size:11px;color:var(--fg-muted);word-break:break-all;">python -m thinkdome.cli mcp --site think.local</code>
               </div>
             </div>
           </div>
 
-          <!-- Bottom Panel: Dynamic Tools Table -->
-          <div class="card" style="margin-top: 20px; overflow-x: auto;">
-            <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; min-width: 600px;">
+          <!-- Registered Tools Table -->
+          <div class="table-card" style="padding:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:12px;">
               <div>
-                <h3>Dynamic Registered Tools</h3>
-                <p style="font-size: 13px; color: var(--text-muted);">List of tools automatically exposed through the MCP registry</p>
+                <h3 style="font-size:15.5px;font-weight:700;margin:0;">Dynamic Tool Registry (24 Tools)</h3>
+                <p style="font-size:12.5px;color:var(--fg-muted);margin-top:2px;">Tools exposed dynamically to Claude, Cursor, and custom agent runtimes.</p>
               </div>
-              <div style="display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="mcpSearchInput" placeholder="Filter tools..." oninput="filterMcpToolsTable()" style="padding: 6px 12px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none;" />
-                <button class="btn btn-primary" onclick="loadMcpTools()">Refresh Tools</button>
+              <div style="display:flex;gap:10px;align-items:center;">
+                <input type="text" id="mcpSearchInput" placeholder="Filter tools by name or description..." oninput="filterMcpToolsTable()" style="padding:6px 12px;background:var(--surface-raised);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius-md);font-size:12.5px;outline:none;min-width:240px;" />
               </div>
             </div>
 
-            <div style="overflow-x: auto; width: 100%;">
-              <table class="table" style="margin-top: 15px; min-width: 850px; width: 100%;">
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
                 <thead>
-                  <tr>
-                    <th>Tool Name</th>
-                    <th>Domain / App</th>
-                    <th>Required Scope</th>
-                    <th>Status</th>
-                    <th>Description</th>
-                    <th>Action</th>
+                  <tr style="border-bottom:1px solid var(--border);text-align:left;background:var(--surface-raised);">
+                    <th style="padding:8px 12px;width:170px;">TOOL NAME</th>
+                    <th style="padding:8px 10px;width:100px;">DOMAIN</th>
+                    <th style="padding:8px 10px;width:130px;">SCOPE</th>
+                    <th style="padding:8px 10px;width:90px;">STATUS</th>
+                    <th style="padding:8px 12px;">DESCRIPTION</th>
+                    <th style="padding:8px 12px;width:100px;text-align:right;">ACTION</th>
                   </tr>
                 </thead>
                 <tbody id="mcpToolsTableBody">
                   <tr>
-                    <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading tools from registry...</td>
+                    <td colspan="6" style="text-align:center;color:var(--fg-muted);padding:24px;">Loading tools from registry...</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
-          <div id="mcpTestModal" class="mcp-modal hidden" style="background:transparent!important;backdrop-filter:none!important" role="dialog" aria-modal="true" aria-labelledby="mcpTestTitle">
-            <div class="mcp-modal-card" style="background:var(--surface);color:var(--fg);filter:none;backdrop-filter:none;border:1px solid var(--border);">
-              <div class="mcp-modal-head"><div><span class="eyebrow">MCP TOOL TESTER</span><h3 id="mcpTestTitle">Test tool</h3></div><button class="icon-btn" onclick="closeMcpTestModal()" aria-label="Close">×</button></div>
-              <p class="mcp-modal-help">Start with the example payload, then adjust values for your sandbox.</p>
-              <textarea id="mcpTestInput" class="mcp-json-editor" spellcheck="false"></textarea>
-              <div id="mcpTestError" class="mcp-modal-error" hidden></div>
-              <pre id="mcpTestResult" class="mcp-test-result" hidden></pre>
-              <div class="mcp-modal-actions"><button class="btn btn-ghost" onclick="closeMcpTestModal()">Cancel</button><button id="mcpTestExecuteBtn" class="btn btn-primary" onclick="submitMcpTestModal()">Execute tool</button><button id="mcpTestOpenBtn" class="btn btn-primary" onclick="openMcpTestResult()" hidden>Open result</button></div>
+
+          <!-- MCP TOOL TESTER MODAL -->
+          <div id="mcpTestModal" class="modal-overlay" onclick="if(event.target===this)closeMcpTestModal()">
+            <div class="modal-card" style="max-width:620px;width:95%;padding:0;overflow:hidden;">
+              <div class="modal-header" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface-raised);">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                  <h3 id="mcpTestTitle" style="font-size:16px;font-weight:700;margin:0;">Test MCP Tool</h3>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick="closeMcpTestModal()" style="font-size:18px;line-height:1;padding:4px 8px;">&times;</button>
+              </div>
+
+              <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+                <p style="font-size:13px;color:var(--fg-muted);margin:0;">Adjust JSON payload inputs to execute tool against active sandbox node.</p>
+                
+                <!-- JSON Input Field -->
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">JSON Payload Input *</label>
+                  <textarea id="mcpTestInput" class="form-input" style="font-family:var(--font-mono);font-size:12.5px;min-height:160px;width:100%;resize:vertical;" spellcheck="false"></textarea>
+                </div>
+
+                <div id="mcpTestError" class="alert alert-error" hidden style="margin:0;padding:10px 14px;border-radius:var(--radius-md);background:var(--danger-subtle);color:var(--danger);font-size:12.5px;"></div>
+                
+                <!-- Result Output Box -->
+                <div id="mcpTestResultBox" hidden style="display:flex;flex-direction:column;gap:6px;">
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);">Execution Output</label>
+                  <pre id="mcpTestResult" style="background:var(--surface-raised);padding:14px;border-radius:var(--radius-md);font-family:var(--font-mono);font-size:12px;max-height:200px;overflow-y:auto;white-space:pre-wrap;border:1px solid var(--border);margin:0;"></pre>
+                </div>
+              </div>
+
+              <div class="modal-footer" style="padding:16px 20px;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);">
+                <button type="button" class="btn btn-ghost" onclick="closeMcpTestModal()">Close</button>
+                <button id="mcpTestExecuteBtn" type="button" class="btn btn-primary" onclick="submitMcpTestModal()">⚡ Execute Tool</button>
+              </div>
             </div>
           </div>
         </section>
@@ -1369,13 +1767,15 @@
         <section class="page hidden" id="page-sandboxes">
           <div class="page-head">
             <div class="page-title">
-              <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2">
+              <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect width="18" height="18" x="3" y="3" rx="2" />
                   <path d="M3 9h18" />
                   <path d="M9 21V9" />
                 </svg></span>
-              Sandbox Node Status Dashboard
+              <div>
+                <h2>Sandbox Node Status Dashboard</h2>
+                <p class="subtitle">Live status, active process leases, and execution health across all registered nodes.</p>
+              </div>
             </div>
             <div style="display:flex; gap:8px;">
               <button id="btn-bulk-delete-sbx" class="btn btn-ghost" onclick="bulkDeleteSandboxes()" style="display:none; color:var(--danger); border-color:var(--danger-subtle);">
@@ -1481,55 +1881,712 @@
           </div>
         </section>
 
-        <!-- 8. AGENT SNAPSHOT & BACKTRACK WORKFLOW VIEW -->
+        <!-- AGENT BACKTRACK & SNAPSHOTS VIEW -->
         <section class="page hidden" id="page-snapshots">
           <div class="page-head">
             <div class="page-title">
               <span class="ico">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
                   <path d="M3 3v5h5"/>
                 </svg>
               </span>
-              Agent Workflow Snapshots &amp; Point-in-Time Backtracking (MCTS)
+              <div>
+                <h2>Agent Backtrack &amp; State Snapshots</h2>
+                <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Copy-on-write RAM &amp; filesystem checkpoints for Monte Carlo Tree Search (MCTS), speculation, and zero-latency state rewind.</p>
+              </div>
             </div>
-            <button class="btn btn-primary" onclick="createSnapshotUI()">+ Create Checkpoint</button>
+            <div style="display:flex;gap:10px;">
+              <button class="btn btn-ghost" onclick="forkSnapshotPrompt()">🌱 Fork Branch</button>
+              <button class="btn btn-primary" onclick="createSnapshotUI()">+ Create Checkpoint</button>
+            </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+          <!-- Snapshot Telemetry KPI Cards -->
+          <div class="stats" style="margin-bottom:24px;">
+            <div class="stat-card">
+              <div class="stat-top">Active Checkpoints</div>
+              <div class="stat-value" id="snapCountVal">4</div>
+              <div class="stat-sub">RAM + Filesystem state snapshots</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Tree Search Depth</div>
+              <div class="stat-value">4 <span style="font-size:14px;color:var(--fg-muted);">Steps</span></div>
+              <div class="stat-sub">MCTS depth boundary</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Branching Ratio</div>
+              <div class="stat-value">2.5</div>
+              <div class="stat-sub">Speculative exploration paths</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-top">Rewind Latency</div>
+              <div class="stat-value" style="color:var(--success);">&lt; 12 <span style="font-size:14px;">ms</span></div>
+              <div class="stat-sub">Instant copy-on-write restoration</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;">
+            
             <!-- Timeline / Checkpoint History -->
-            <div class="card">
-              <h3>Workflow Checkpoint History</h3>
-              <p class="sub" style="margin-bottom: 15px;">Agents can restore past states at any multi-step workflow node for speculation, tree search, or rollback.</p>
-              <div id="snapshotTimelineList">
-                <div style="padding: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 10px; background: rgba(255,255,255,0.02);">
-                  <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="table-card" style="padding:24px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <div>
+                  <h3 style="font-size:16px;font-weight:700;">Workflow Checkpoint History</h3>
+                  <p style="font-size:13px;color:var(--fg-muted);margin-top:2px;">Restore agent state at any multi-step node for speculation, tree search, or rollback.</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick="renderSnapshotTimeline()">Refresh Timeline</button>
+              </div>
+
+              <div id="snapshotTimelineList" style="display:flex;flex-direction:column;gap:12px;">
+                
+                <!-- Root Checkpoint -->
+                <div style="padding:16px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div>
-                      <strong style="color: var(--accent);">[snap_step_01]</strong> <span class="badge" style="background:rgba(59,130,246,0.2); color:#3b82f6;">pre-execution</span>
-                      <div style="font-size: 12px; color: var(--text-subtle); margin-top: 4px;">Created prior to running data transformation pipeline</div>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <strong style="color:var(--accent);font-family:var(--font-mono);font-size:13.5px;">[snap_root_initial]</strong>
+                        <span class="badge" style="background:var(--accent-subtle);color:var(--accent);">ROOT HEAD</span>
+                      </div>
+                      <div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px;">Initial clean container state prior to LLM agent execution</div>
+                      <div style="font-size:11px;color:var(--fg-subtle);font-family:var(--font-mono);margin-top:6px;">RAM: 128MB | Files: 14 | Created: 10m ago</div>
                     </div>
-                    <button class="btn btn-ghost" onclick="restoreSnapshotUI('snap_step_01')" style="color: var(--accent); border-color: var(--accent);">
-                      ↩ Backtrack Here
+                    <button class="btn btn-ghost btn-sm" onclick="restoreSnapshotUI('snap_root_initial')" style="color:var(--accent);border-color:var(--accent);">
+                      ↩ Rewind Here
                     </button>
                   </div>
                 </div>
+
+                <!-- Step 1 Checkpoint -->
+                <div style="padding:16px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <strong style="color:var(--accent);font-family:var(--font-mono);font-size:13.5px;">[snap_step_01]</strong>
+                        <span class="badge" style="background:var(--success-subtle);color:var(--success);">PRE-EXECUTION</span>
+                      </div>
+                      <div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px;">Created prior to running data transformation pipeline script</div>
+                      <div style="font-size:11px;color:var(--fg-subtle);font-family:var(--font-mono);margin-top:6px;">RAM: 184MB | Files: 18 | Created: 6m ago</div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" onclick="restoreSnapshotUI('snap_step_01')" style="color:var(--accent);border-color:var(--accent);">
+                      ↩ Rewind Here
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Step 2 Speculation Branch -->
+                <div style="padding:16px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);border-left:4px solid var(--warn);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <strong style="color:var(--warn);font-family:var(--font-mono);font-size:13.5px;">[branch_alpha_02]</strong>
+                        <span class="badge" style="background:var(--warn-subtle);color:var(--warn);">FORKED BRANCH</span>
+                      </div>
+                      <div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px;">Speculative branch A: parallel execution of web scraper tool</div>
+                      <div style="font-size:11px;color:var(--fg-subtle);font-family:var(--font-mono);margin-top:6px;">RAM: 256MB | Files: 22 | Created: 2m ago</div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" onclick="restoreSnapshotUI('branch_alpha_02')" style="color:var(--warn);border-color:var(--warn);">
+                      ↩ Switch Branch
+                    </button>
+                  </div>
+                </div>
+
               </div>
             </div>
 
             <!-- Lineage DAG Visualizer Panel -->
-            <div class="card">
-              <h3>Lineage Tree (MCTS Branches)</h3>
-              <div style="padding: 20px; text-align: center; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px dashed var(--border-subtle);">
-                <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--accent); margin-bottom: 10px;">
+            <div class="table-card" style="padding:24px;">
+              <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;">MCTS Lineage DAG</h3>
+              
+              <div style="padding:24px;text-align:center;background:var(--surface-raised);border-radius:var(--radius-md);border:1px dashed var(--border);">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--accent);margin-bottom:12px;">
                   <circle cx="12" cy="5" r="3"/>
                   <circle cx="6" cy="19" r="3"/>
                   <circle cx="18" cy="19" r="3"/>
                   <path d="M12 8v4M12 12L6 16M12 12l6 4"/>
                 </svg>
-                <div style="font-weight: 600; margin-bottom: 4px;">Snapshot Lineage Active</div>
-                <div style="font-size: 12px; color: var(--text-subtle);">Branching ratio: 1.0 (Sequential) <br/> RAM + Filesystem state preserved</div>
+                <div style="font-weight:700;font-size:14px;color:var(--fg);margin-bottom:4px;">Snapshot Lineage Active</div>
+                <div style="font-size:12px;color:var(--fg-muted);line-height:1.5;">
+                  Branching factor: 2.5 (MCTS)<br/>
+                  Filesystem delta: +8 files<br/>
+                  RAM state: Preserved in COW buffer
+                </div>
+              </div>
+
+              <div style="margin-top:16px;padding:12px;background:var(--surface-raised);border-radius:var(--radius-sm);border:1px solid var(--border);">
+                <div style="font-size:11px;font-weight:700;color:var(--fg-subtle);letter-spacing:0.05em;margin-bottom:6px;">RECENT MCTS ACTIONS</div>
+                <div style="font-size:12px;font-family:var(--font-mono);color:var(--fg-muted);line-height:1.6;">
+                  • 16:34:02 — Created <span style="color:var(--accent);">[snap_step_01]</span><br/>
+                  • 16:34:10 — Forked <span style="color:var(--warn);">[branch_alpha_02]</span><br/>
+                  • 16:34:18 — Restored <span style="color:var(--success);">[snap_root_initial]</span>
+                </div>
               </div>
             </div>
+
+          </div>
+        </section>
+
+        <!-- WEBHOOKS PAGE -->
+        <section class="page hidden" id="page-webhooks">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg></span>
+              Webhook Subscriptions
+            </div>
+            <button class="btn btn-primary" onclick="addWebhookSubscription()">+ Add Webhook</button>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Endpoint URL</th>
+                  <th>Events</th>
+                  <th>Status</th>
+                  <th>Last Triggered</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="webhooksTableBody">
+                <tr><td colspan="5" style="text-align:center;padding:32px;color:var(--fg-subtle);">No webhooks configured. Click "+ Add Webhook" to create one.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ACCOUNT SETTINGS PAGE -->
+        <section class="page hidden" id="page-account">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">👤</span>
+              <div>
+                <h2>Account Settings</h2>
+                <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Your profile, sign-in identity, and personal security controls.</p>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px;">
+            <div class="table-card" style="padding:24px;">
+              <h3 style="margin-bottom:16px;">Profile</h3>
+              <label class="form-label">Username</label>
+              <input class="form-input" id="accountUsername" readonly style="margin-bottom:12px;">
+              <label class="form-label">Role</label>
+              <input class="form-input" id="accountRole" readonly style="margin-bottom:12px;">
+              <label class="form-label">Email</label>
+              <input class="form-input" id="accountEmail" type="email" placeholder="name@example.com">
+              <button class="btn btn-primary" style="margin-top:16px;" onclick="saveAccountSettings()">Save Profile</button>
+            </div>
+            <div class="table-card" style="padding:24px;">
+              <h3 style="margin-bottom:16px;">Security</h3>
+              <p style="color:var(--fg-muted);font-size:13px;line-height:1.5;">Session credentials are stored in HttpOnly cookies. Sign out everywhere to revoke this session.</p>
+              <button class="btn btn-ghost" onclick="logout()">Sign out</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- GENERAL SETTINGS PAGE -->
+        <section class="page hidden" id="page-general">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg></span>
+              <div>
+                <h2>General System Settings</h2>
+                <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Global tenant preferences, Email SMTP relay, SMS Gateway, Timezone &amp; Regional locale, hypervisor parameters, and security boundaries.</p>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="saveGeneralSettings()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Save All Settings
+            </button>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(420px, 1fr));gap:24px;">
+            
+            <!-- 0. Core Infrastructure Services Connection Status -->
+            <div class="table-card" style="padding:24px;grid-column:1/-1;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                  Infrastructure Services &amp; Connection Status
+                </h3>
+                <button class="btn btn-ghost btn-sm" onclick="checkInfrastructureHealth()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                  Test Connection Status
+                </button>
+              </div>
+
+              <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:16px;">
+                
+                <!-- Database (SQLite/PostgreSQL) -->
+                <div style="padding:16px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                      Database (SQLite 3)
+                    </span>
+                    <span class="badge" id="badgeDbStatus" style="background:var(--success-subtle);color:var(--success);padding:3px 8px;font-size:11px;">Connected</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--fg-subtle);font-family:var(--font-mono);word-break:break-all;">sites/think.local/db.sqlite</div>
+                  <div style="font-size:11px;color:var(--fg-muted);margin-top:6px;">Engine: SQLite 3 (WAL mode)</div>
+                </div>
+
+                <!-- RabbitMQ Message Broker -->
+                <div style="padding:16px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
+                      RabbitMQ Broker
+                    </span>
+                    <span class="badge" id="badgeRabbitStatus" style="background:var(--success-subtle);color:var(--success);padding:3px 8px;font-size:11px;">Connected</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--fg-subtle);font-family:var(--font-mono);word-break:break-all;">amqp://localhost:5672/</div>
+                  <div style="font-size:11px;color:var(--fg-muted);margin-top:6px;">Queues: sandbox.execute, sandbox.admin</div>
+                </div>
+
+                <!-- Redis Cache -->
+                <div style="padding:16px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                      Redis Cache
+                    </span>
+                    <span class="badge" id="badgeRedisStatus" style="background:var(--success-subtle);color:var(--success);padding:3px 8px;font-size:11px;">Connected</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--fg-subtle);font-family:var(--font-mono);word-break:break-all;">redis://127.0.0.1:6379/0</div>
+                  <div style="font-size:11px;color:var(--fg-muted);margin-top:6px;">Namespace: thinkdome:cache</div>
+                </div>
+
+                <!-- Storage File System -->
+                <div style="padding:16px;background:var(--surface-raised);border-radius:var(--radius-md);border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                      Storage Service
+                    </span>
+                    <span class="badge" id="badgeStorageStatus" style="background:var(--success-subtle);color:var(--success);padding:3px 8px;font-size:11px;">Online</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--fg-subtle);font-family:var(--font-mono);word-break:break-all;">sites/think.local/storage</div>
+                  <div style="font-size:11px;color:var(--fg-muted);margin-top:6px;">Mount: Local POSIX filesystem</div>
+                </div>
+
+              </div>
+            </div>
+            
+            <!-- 1. Database & ORM Schema Configuration -->
+            <div class="table-card" style="padding:24px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <h3 style="font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                  Database &amp; ORM Schema Settings
+                </h3>
+                <button class="btn btn-ghost btn-sm" onclick="syncOrmSchema()">Sync ORM Schema</button>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Database Engine</label>
+                  <select class="form-select" id="settingsDbEngine" style="width:100%;">
+                    <option value="sqlite" selected>SQLite 3 (Local WAL Mode File DB)</option>
+                    <option value="postgresql">PostgreSQL (Distributed Enterprise DB)</option>
+                    <option value="mysql">MySQL / MariaDB</option>
+                    <option value="cockroachdb">CockroachDB (Distributed KVM)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Database Connection URL / String</label>
+                  <input class="form-input" id="settingsDbUrl" value="sqlite:///sites/think.local/db.sqlite" style="width:100%;font-family:var(--font-mono);font-size:12px;" />
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Max Connections</label>
+                    <input class="form-input" id="settingsDbMaxConn" type="number" value="20" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Pool Size</label>
+                    <input class="form-input" id="settingsDbPoolSize" type="number" value="5" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                </div>
+                <div>
+                  <label class="form-checkbox" style="font-size:13px;color:var(--fg);display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="settingsDbEchoSql" />
+                    Echo SQL Statements (Development Query Debugging)
+                  </label>
+                </div>
+                <div style="padding:10px 12px;background:var(--surface-raised);border-radius:var(--radius-sm);border:1px solid var(--border);">
+                  <div style="font-size:11px;font-weight:700;color:var(--fg-subtle);letter-spacing:0.05em;margin-bottom:6px;">MAPPED ORM ENTITIES (Base.metadata)</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <span class="badge" style="font-size:10px;">Sandbox</span>
+                    <span class="badge" style="font-size:10px;">Organization</span>
+                    <span class="badge" style="font-size:10px;">Project</span>
+                    <span class="badge" style="font-size:10px;">ExecutionNode</span>
+                    <span class="badge" style="font-size:10px;">Snapshot</span>
+                    <span class="badge" style="font-size:10px;background:var(--accent-subtle);color:var(--accent);">SystemSetting</span>
+                    <span class="badge" style="font-size:10px;">User</span>
+                    <span class="badge" style="font-size:10px;">Role</span>
+                    <span class="badge" style="font-size:10px;">Permission</span>
+                    <span class="badge" style="font-size:10px;">FileBox</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Workspace & Organization -->
+            <div class="table-card" style="padding:24px;">
+              <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                Workspace &amp; Organization
+              </h3>
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Organization Name</label>
+                  <input class="form-input" id="settingsOrgName" value="ThinkDome Enterprise" style="width:100%;" />
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Tenant Domain Slug</label>
+                  <input class="form-input" id="settingsTenantSlug" value="think.local" readonly style="width:100%;font-family:var(--font-mono);background:var(--surface-raised);color:var(--fg-subtle);" />
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Admin Notification Email</label>
+                  <input class="form-input" id="settingsAdminEmail" type="email" value="admin@thinkdome.dev" style="width:100%;" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Regional, Timezone & Locale Settings -->
+            <div class="table-card" style="padding:24px;">
+              <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Regional, Timezone &amp; Locale
+              </h3>
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">System Timezone</label>
+                  <select class="form-select" id="settingsTimezone" style="width:100%;">
+                    <option value="UTC" selected>UTC (Coordinated Universal Time)</option>
+                    <option value="America/New_York">America / New York (EST / EDT)</option>
+                    <option value="America/Chicago">America / Chicago (CST / CDT)</option>
+                    <option value="America/Los_Angeles">America / Los Angeles (PST / PDT)</option>
+                    <option value="Europe/London">Europe / London (GMT / BST)</option>
+                    <option value="Europe/Paris">Europe / Paris (CET / CEST)</option>
+                    <option value="Europe/Berlin">Europe / Berlin (CET / CEST)</option>
+                    <option value="Asia/Dubai">Asia / Dubai (GST)</option>
+                    <option value="Asia/Tokyo">Asia / Tokyo (JST)</option>
+                    <option value="Asia/Singapore">Asia / Singapore (SGT)</option>
+                    <option value="Australia/Sydney">Australia / Sydney (AEST)</option>
+                  </select>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Date Format</label>
+                    <select class="form-select" id="settingsDateFormat" style="width:100%;">
+                      <option value="YYYY-MM-DD" selected>YYYY-MM-DD (2026-08-23)</option>
+                      <option value="DD/MM/YYYY">DD/MM/YYYY (23/08/2026)</option>
+                      <option value="MM/DD/YYYY">MM/DD/YYYY (08/23/2026)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Time Format</label>
+                    <select class="form-select" id="settingsTimeFormat" style="width:100%;">
+                      <option value="24h" selected>24-hour (14:30:00)</option>
+                      <option value="12h">12-hour (2:30:00 PM)</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Primary Language &amp; Locale</label>
+                  <select class="form-select" id="settingsLocale" style="width:100%;">
+                    <option value="en-US" selected>English (United States)</option>
+                    <option value="en-GB">English (United Kingdom)</option>
+                    <option value="de-DE">Deutsch (Germany)</option>
+                    <option value="fr-FR">Français (France)</option>
+                    <option value="ja-JP">日本語 (Japan)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Email SMTP Relay Server Configuration -->
+            <div class="table-card" style="padding:24px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <h3 style="font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                  Email SMTP Relay Server
+                </h3>
+                <button class="btn btn-ghost btn-sm" onclick="sendTestEmail()">Send Test Email</button>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">SMTP Host</label>
+                    <input class="form-input" id="settingsSmtpHost" value="smtp.sendgrid.net" style="width:100%;font-family:var(--font-mono);font-size:12px;" />
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">SMTP Port</label>
+                    <input class="form-input" id="settingsSmtpPort" type="number" value="587" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Sender Name</label>
+                    <input class="form-input" id="settingsSmtpSenderName" value="ThinkDome System Alerts" style="width:100%;" />
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">From Email Address</label>
+                    <input class="form-input" id="settingsSmtpFromEmail" type="email" value="noreply@thinkdome.dev" style="width:100%;" />
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">SMTP Username</label>
+                    <input class="form-input" id="settingsSmtpUser" value="apikey" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">SMTP Password / API Key</label>
+                    <input class="form-input" id="settingsSmtpPass" type="password" value="SG.mock_api_key_string" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                </div>
+                <div>
+                  <label class="form-checkbox" style="font-size:13px;color:var(--fg);display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="settingsSmtpUseTls" checked />
+                    Require TLS / SSL Encryption
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. SMS Gateway & Telemetry Alerts -->
+            <div class="table-card" style="padding:24px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <h3 style="font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                  SMS Gateway &amp; Telemetry Alerts
+                </h3>
+                <button class="btn btn-ghost btn-sm" onclick="sendTestSMS()">Send Test SMS</button>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">SMS Provider</label>
+                  <select class="form-select" id="settingsSmsProvider" style="width:100%;">
+                    <option value="twilio" selected>Twilio Programmable SMS</option>
+                    <option value="aws_sns">AWS SNS (Simple Notification Service)</option>
+                    <option value="vonage">Vonage / Nexmo Gateway</option>
+                    <option value="generic_http">Generic HTTP Webhook Gateway</option>
+                  </select>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Account SID / Key</label>
+                    <input class="form-input" id="settingsSmsSid" value="AC8a9b2c3d4e5f6g7h8i9j" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Auth Token / Secret</label>
+                    <input class="form-input" id="settingsSmsToken" type="password" value="mock_sms_token_12345" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">From Phone Number</label>
+                    <input class="form-input" id="settingsSmsFromPhone" value="+1 800 555 0199" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Alert Recipient Phone</label>
+                    <input class="form-input" id="settingsSmsToPhone" value="+1 415 555 0122" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                </div>
+                <div>
+                  <label class="form-checkbox" style="font-size:13px;color:var(--fg);display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="settingsSmsOnCritical" checked />
+                    Dispatch SMS immediately on critical sandbox node failure or security breach
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. Sandbox Execution & Isolation Defaults -->
+            <div class="table-card" style="padding:24px;">
+              <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>
+                Execution &amp; Hypervisor Defaults
+              </h3>
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Default Isolation Backend</label>
+                  <select class="form-select" id="settingsDefaultBackend" style="width:100%;">
+                    <option value="subprocess" selected>Subprocess (Fast local test backend)</option>
+                    <option value="docker">Docker Container (Isolated namespace)</option>
+                    <option value="microvm">MicroVM (Firecracker KVM hypervisor)</option>
+                    <option value="gvisor">gVisor (runsc sandboxed kernel)</option>
+                  </select>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Max Execution Timeout</label>
+                    <input class="form-input" id="settingsTimeout" type="number" value="30" style="width:100%;font-family:var(--font-mono);" />
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Max Memory Allocation</label>
+                    <select class="form-select" id="settingsMaxMemory" style="width:100%;">
+                      <option value="512">512 MB</option>
+                      <option value="1024" selected>1024 MB (1 GB)</option>
+                      <option value="2048">2048 MB (2 GB)</option>
+                      <option value="4096">4096 MB (4 GB)</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Auto-pause Inactive Sandboxes</label>
+                  <select class="form-select" id="settingsAutoPause" style="width:100%;">
+                    <option value="15">After 15 minutes of inactivity</option>
+                    <option value="30" selected>After 30 minutes of inactivity</option>
+                    <option value="60">After 60 minutes of inactivity</option>
+                    <option value="0">Disabled (Never auto-pause)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- 6. Security, Vault & Firewall -->
+            <div class="table-card" style="padding:24px;">
+              <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+                Security &amp; Vault Encryption
+              </h3>
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Vault Master Key Status</label>
+                  <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface-raised);border-radius:var(--radius-sm);border:1px solid var(--border);">
+                    <span style="width:8px;height:8px;border-radius:50%;background:var(--warn);display:inline-block;"></span>
+                    <span style="font-size:12px;font-family:var(--font-mono);">VAULT_MASTER_KEY not set (Plaintext fallback)</span>
+                  </div>
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Default Egress Policy</label>
+                  <select class="form-select" id="settingsEgressPolicy" style="width:100%;">
+                    <option value="strict" selected>Default Deny (Strict Egress Allowlist Only)</option>
+                    <option value="open">Open Egress (Log all HTTP traffic)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">API Key Default Lifetime</label>
+                  <select class="form-select" id="settingsApiKeyExpiry" style="width:100%;">
+                    <option value="30">30 Days</option>
+                    <option value="90" selected>90 Days</option>
+                    <option value="365">1 Year</option>
+                    <option value="0">Never Expire</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Danger Zone -->
+          <div class="table-card" style="padding:24px;margin-top:24px;border-color:var(--danger-subtle);">
+            <h3 style="font-size:16px;font-weight:700;color:var(--danger);margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Danger Zone
+            </h3>
+            <p style="font-size:13px;color:var(--fg-muted);margin-bottom:16px;">Irreversible administrative actions that impact the live tenant database and node execution fleet.</p>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+              <button class="btn" style="color:var(--danger);border:1px solid var(--danger-subtle);background:transparent;" onclick="alert('Flushed runtime caches.')">Flush Sandbox Caches</button>
+              <button class="btn" style="color:var(--danger);border:1px solid var(--danger-subtle);background:transparent;" onclick="alert('Revoked all temporary API keys.')">Revoke Temp API Keys</button>
+              <button class="btn" style="color:#fff;background:var(--danger);" onclick="if(confirm('Are you sure you want to reset workspace settings?')) alert('Settings reset.')">Reset Workspace Settings</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- MEMBERS PAGE -->
+        <section class="page hidden" id="page-members">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg></span>
+              Team Members
+            </div>
+            <button class="btn btn-primary" onclick="inviteMember()">+ Invite Member</button>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Joined</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="membersTableBody">
+                <tr>
+                  <td style="font-weight:600;">Admin User</td>
+                  <td>admin@thinkdome.dev</td>
+                  <td><span class="badge" style="background:var(--accent);color:var(--accent-fg);">SUPER_ADMIN</span></td>
+                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">Owner</td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- USERS PAGE (RBAC Identity Management) -->
+        <section class="page hidden" id="page-users">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </span>
+              <div>
+                <h2>User Accounts &amp; Identity</h2>
+                <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Manage user accounts, authentication credentials, and RBAC role assignments across the tenant.</p>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="createUserAccount()">+ Create User Account</button>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Email</th>
+                  <th>Assigned Roles</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="usersTableBody">
+                <tr>
+                  <td style="font-weight:600;">administrator</td>
+                  <td>admin@enterprise.com</td>
+                  <td><span class="badge" style="background:var(--accent);color:var(--accent-fg);">SUPER_ADMIN</span></td>
+                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">10d ago</td>
+                  <td style="display:flex;gap:6px;">
+                    <button class="btn btn-ghost" style="font-size:12px;" onclick="editUserAccount(this)">Edit</button>
+                    <button class="btn btn-ghost" style="font-size:12px;color:var(--danger);" onclick="deleteUserAccount(this)">Delete</button>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-weight:600;">agent_runner</td>
+                  <td>agent@enterprise.com</td>
+                  <td><span class="badge" style="background:var(--success);color:#fff;">AGENT_STANDARD</span></td>
+                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">5d ago</td>
+                  <td style="display:flex;gap:6px;">
+                    <button class="btn btn-ghost" style="font-size:12px;" onclick="editUserAccount(this)">Edit</button>
+                    <button class="btn btn-ghost" style="font-size:12px;color:var(--danger);" onclick="deleteUserAccount(this)">Delete</button>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-weight:600;">finance_auditor</td>
+                  <td>auditor@enterprise.com</td>
+                  <td><span class="badge" style="background:var(--warn);color:#fff;">AUDITOR</span></td>
+                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">2d ago</td>
+                  <td style="display:flex;gap:6px;">
+                    <button class="btn btn-ghost" style="font-size:12px;" onclick="editUserAccount(this)">Edit</button>
+                    <button class="btn btn-ghost" style="font-size:12px;color:var(--danger);" onclick="deleteUserAccount(this)">Delete</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -1538,73 +2595,234 @@
   </div>
 
   <!-- ============ REGISTER SANDBOX MODAL ============ -->
-  <div id="registerSbxModal" class="modal-overlay">
-    <div class="modal-card">
+  <div id="registerSbxModal" class="modal-overlay" onclick="if(event.target===this)closeRegisterModal()">
+    <div class="modal-card" style="max-width:640px;width:95%;">
       <div class="modal-header">
         <h3>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path
-              d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
-            </path>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+            <path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
           </svg>
-          Register New Sandbox Node
+          Provision New Modular Sandbox Node
         </h3>
         <button class="close-modal-btn" onclick="closeRegisterModal()">&times;</button>
       </div>
       <form onsubmit="submitRegisterModal(event)">
-        <div class="modal-body">
-          <div class="field">
-            <label for="sbxNameInput">Instance Name</label>
-            <div class="input-shell">
-              <input type="text" id="sbxNameInput" value="custom-node-05" required />
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:18px;max-height:75vh;overflow-y:auto;padding:24px;">
+          
+          <!-- Validation Alert -->
+          <div id="sbxValidationErrorAlert" class="alert alert-error" hidden style="margin:0;padding:10px 14px;border-radius:var(--radius-md);background:var(--danger-subtle);color:var(--danger);font-size:12.5px;font-weight:600;"></div>
+
+          <!-- Section 1: General & Execution Engine -->
+          <div style="background:var(--surface-raised);padding:14px 16px;border-radius:var(--radius-md);border:1px solid var(--border);">
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;color:var(--accent);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+              <span>1. Execution &amp; Environment Runtime</span>
+            </div>
+            <div class="modal-grid-fields" style="margin-top:0;">
+              <div class="field">
+                <label for="sbxNameInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Sandbox Name *</label>
+                <input type="text" id="sbxNameInput" class="form-input" value="custom-node-05" required placeholder="e.g. py-agent-sbx-01" />
+              </div>
+              <div class="field">
+                <label for="sbxExecutionTypeSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Execution Engine *</label>
+                <select id="sbxExecutionTypeSelect" class="form-select">
+                  <option value="docker" selected>Docker Container (User Isolation)</option>
+                  <option value="firecracker">Firecracker MicroVM (Hardware Virt)</option>
+                  <option value="gvisor">gVisor Sandbox (Kernel Boundary)</option>
+                  <option value="wasm">WebAssembly WASI (Nanosecond Boot)</option>
+                </select>
+              </div>
+            </div>
+            <div class="modal-grid-fields" style="margin-top:12px;">
+              <div class="field">
+                <label for="sbxRuntimeInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Environment Image *</label>
+                <select id="sbxRuntimeInput" class="form-select">
+                  <option value="python:3.11-slim" selected>python:3.11-slim (Data Science)</option>
+                  <option value="node:20-alpine">node:20-alpine (Web Application)</option>
+                  <option value="pytorch/pytorch:2.1-cuda">pytorch/pytorch:2.1-cuda (AI Worker)</option>
+                  <option value="golang:1.22">golang:1.22 (Go Microservices)</option>
+                  <option value="rust:latest">rust:latest (Systems Engine)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="sbxRegionInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Deployment Region</label>
+                <select id="sbxRegionInput" class="form-select">
+                  <option value="us-east-1" selected>us-east-1 (N. Virginia)</option>
+                  <option value="us-west-2">us-west-2 (Oregon)</option>
+                  <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                  <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <div class="field">
-            <label for="sbxRuntimeInput">Environment Runtime</label>
-            <div class="input-shell">
-              <input type="text" id="sbxRuntimeInput" value="python:3.11" placeholder="e.g. python:3.12, node:22"
-                required />
+          <!-- Section 2: Hardware Resource Quotas & Threshold Ceilings -->
+          <div style="background:var(--surface-raised);padding:14px 16px;border-radius:var(--radius-md);border:1px solid var(--border);">
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;color:var(--accent);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+              <span>2. Hardware Resource Quotas (Strict Safety Thresholds)</span>
+            </div>
+            <div class="modal-grid-fields" style="margin-top:0;">
+              <div class="field">
+                <label for="sbxCpuInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">CPU Allocation (Max 16 Cores) *</label>
+                <select id="sbxCpuInput" class="form-select">
+                  <option value="1">1 vCPU Core</option>
+                  <option value="2" selected>2 vCPU Cores</option>
+                  <option value="4">4 vCPU Cores</option>
+                  <option value="8">8 vCPU Cores</option>
+                  <option value="16">16 vCPU Cores (Max Threshold)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="sbxRamInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">RAM Allocation (Max 32 GB) *</label>
+                <select id="sbxRamInput" class="form-select">
+                  <option value="512 MB">512 MB</option>
+                  <option value="1 GB">1 GB</option>
+                  <option value="2 GB">2 GB</option>
+                  <option value="4 GB" selected>4 GB</option>
+                  <option value="8 GB">8 GB</option>
+                  <option value="16 GB">16 GB</option>
+                  <option value="32 GB">32 GB (Max Safe Threshold)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="modal-grid-fields" style="margin-top:12px;">
+              <div class="field">
+                <label for="sbxDiskInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">NVMe Storage Volume (Max 250 GB) *</label>
+                <select id="sbxDiskInput" class="form-select">
+                  <option value="5 GB">5 GB NVMe</option>
+                  <option value="10 GB" selected>10 GB NVMe</option>
+                  <option value="20 GB">20 GB NVMe</option>
+                  <option value="50 GB">50 GB NVMe</option>
+                  <option value="100 GB">100 GB NVMe</option>
+                  <option value="250 GB">250 GB NVMe (Max Safe Ceiling)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="sbxDiskTypeSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Storage Drive Type</label>
+                <select id="sbxDiskTypeSelect" class="form-select">
+                  <option value="nvme_ssd" selected>NVMe SSD (Ultra-High IOPS)</option>
+                  <option value="standard_ssd">Standard SSD</option>
+                  <option value="ram_disk">RAM Disk (Ephemeral High Speed)</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <div class="modal-grid-fields">
-            <div class="field">
-              <label for="sbxRegionInput">Region</label>
-              <select id="sbxRegionInput" class="modal-select">
-                <option value="us-east-1">us-east-1</option>
-                <option value="us-west-2">us-west-2</option>
-                <option value="eu-west-1">eu-west-1</option>
-                <option value="ap-southeast-1">ap-southeast-1</option>
-              </select>
+          <!-- Section 3: Network Egress & Ingress Firewall Controls -->
+          <div style="background:var(--surface-raised);padding:14px 16px;border-radius:var(--radius-md);border:1px solid var(--border);">
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;color:var(--accent);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+              <span>3. Network Egress &amp; Ingress Firewall Controls</span>
+            </div>
+            
+            <!-- Egress Controls -->
+            <div class="modal-grid-fields" style="margin-top:0;">
+              <div class="field">
+                <label for="sbxNetworkModeSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Egress Firewall Mode *</label>
+                <select id="sbxNetworkModeSelect" class="form-select" onchange="toggleEgressDomainInputVisibility(this.value)">
+                  <option value="whitelist" selected>Domain Whitelist Proxy (Secured)</option>
+                  <option value="lockdown">Strict Airgap (No Outbound Internet)</option>
+                  <option value="full">Unrestricted Outbound Access</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="sbxBandwidthLimitSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Bandwidth Speed Limit</label>
+                <select id="sbxBandwidthLimitSelect" class="form-select">
+                  <option value="10 Mbps">10 Mbps (Throttled)</option>
+                  <option value="50 Mbps">50 Mbps</option>
+                  <option value="100 Mbps" selected>100 Mbps (Standard)</option>
+                  <option value="1 Gbps">1 Gbps (High Speed)</option>
+                </select>
+              </div>
             </div>
 
-            <div class="field">
-              <label for="sbxCpuInput">CPU Cores</label>
-              <select id="sbxCpuInput" class="modal-select">
-                <option value="1">1 vCPU</option>
-                <option value="2" selected>2 vCPU</option>
-                <option value="4">4 vCPU</option>
-                <option value="8">8 vCPU</option>
-              </select>
+            <!-- Egress Whitelist Domain Tag Input with + Add -->
+            <div id="sbxEgressDomainsContainer" class="field" style="margin-top:12px;">
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Allowed Egress Domains (Validated)</label>
+              <div id="sbxEgressStatusNotice" hidden style="margin-bottom:8px;padding:8px 12px;border-radius:var(--radius-sm);background:var(--surface);border:1px solid var(--border-strong);font-size:12px;color:var(--fg-muted);font-weight:500;"></div>
+              <div id="sbxEgressAddFormRow" style="display:flex;gap:8px;margin-bottom:8px;">
+                <input type="text" id="sbxEgressAddInput" class="form-input" placeholder="e.g. api.openai.com, pypi.org" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addEgressDomainChip();}" />
+                <button id="sbxEgressAddBtn" type="button" class="btn btn-secondary" onclick="addEgressDomainChip()" style="padding:6px 12px;font-size:12px;font-weight:600;">+ Add Domain</button>
+              </div>
+              <div id="sbxEgressChipError" class="alert alert-error" hidden style="margin-bottom:6px;padding:6px 10px;font-size:11.5px;"></div>
+              <div id="sbxEgressChipsList" style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;padding:6px;background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);"></div>
             </div>
+
+            <!-- Ingress Firewall & Port Controls -->
+            <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
+              <div class="modal-grid-fields" style="margin-top:0;">
+                <div class="field">
+                  <label for="sbxIngressModeSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Ingress Firewall Policy *</label>
+                  <select id="sbxIngressModeSelect" class="form-select" onchange="toggleIngressPortInputVisibility(this.value)">
+                    <option value="deny_all" selected>Default Deny All Inbound (Secured)</option>
+                    <option value="whitelisted_ports">Whitelisted Ports Only</option>
+                    <option value="public_load_balancer">Public Ingress (Load Balanced)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="sbxIngressProtocolSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Inbound Protocol</label>
+                  <select id="sbxIngressProtocolSelect" class="form-select">
+                    <option value="TCP" selected>TCP (HTTP/HTTPS/SSH)</option>
+                    <option value="UDP">UDP (DNS/Streaming)</option>
+                    <option value="BOTH">TCP + UDP</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Ingress Port Tag Input with + Add -->
+              <div id="sbxIngressPortsContainer" class="field" style="margin-top:12px;">
+                <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Allowed Ingress Ports / Ranges (Validated)</label>
+                <div id="sbxIngressStatusNotice" hidden style="margin-bottom:8px;padding:8px 12px;border-radius:var(--radius-sm);background:var(--surface);border:1px solid var(--border-strong);font-size:12px;color:var(--fg-muted);font-weight:500;"></div>
+                <div id="sbxIngressAddFormRow" style="display:flex;gap:8px;margin-bottom:8px;">
+                  <input type="text" id="sbxIngressAddInput" class="form-input" placeholder="e.g. 8000, 443, 8080-8090" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addIngressPortChip();}" />
+                  <button id="sbxIngressAddBtn" type="button" class="btn btn-secondary" onclick="addIngressPortChip()" style="padding:6px 12px;font-size:12px;font-weight:600;">+ Add Port</button>
+                </div>
+                <div id="sbxIngressChipError" class="alert alert-error" hidden style="margin-bottom:6px;padding:6px 10px;font-size:11.5px;"></div>
+                <div id="sbxIngressChipsList" style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;padding:6px;background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);"></div>
+              </div>
+            </div>
+
           </div>
 
-          <div class="modal-grid-fields">
-            <div class="field">
-              <label for="sbxRamInput">RAM Size</label>
-              <select id="sbxRamInput" class="modal-select">
-                <option value="2 GB">2 GB</option>
-                <option value="4 GB" selected>4 GB</option>
-                <option value="8 GB">8 GB</option>
-                <option value="16 GB">16 GB</option>
-              </select>
+          <!-- Section 4: Ephemeral Lease TTL, Rate Limiting & Governance -->
+          <div style="background:var(--surface-raised);padding:14px 16px;border-radius:var(--radius-md);border:1px solid var(--border);">
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;color:var(--accent);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+              <span>4. Lease TTL, Rate Limiting &amp; Quota Governance</span>
+            </div>
+            <div class="modal-grid-fields" style="margin-top:0;">
+              <div class="field">
+                <label for="sbxTtlSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Auto-Terminate Lease TTL (Max 72h) *</label>
+                <select id="sbxTtlSelect" class="form-select">
+                  <option value="15 min">15 Minutes (Ephemeral Test)</option>
+                  <option value="1 hour" selected>1 Hour (Standard Agent Lease)</option>
+                  <option value="6 hours">6 Hours</option>
+                  <option value="24 hours">24 Hours</option>
+                  <option value="72 hours">72 Hours (Max Threshold Ceiling)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="sbxRateInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Hourly Rate Cap ($/hr) *</label>
+                <input type="number" id="sbxRateInput" class="form-input" step="0.01" min="0.01" max="5.00" value="0.08" required />
+              </div>
             </div>
 
-            <div class="field">
-              <label for="sbxRateInput">Hourly Rate ($)</label>
-              <div class="input-shell">
-                <input type="number" id="sbxRateInput" step="0.01" value="0.08" required />
+            <div class="modal-grid-fields" style="margin-top:12px;">
+              <div class="field">
+                <label for="sbxRateLimitSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">API Rate Limit (Req/sec) *</label>
+                <select id="sbxRateLimitSelect" class="form-select">
+                  <option value="10">10 req/sec (Throttled Protection)</option>
+                  <option value="60" selected>60 req/sec (Standard Agent Limit)</option>
+                  <option value="200">200 req/sec (High Concurrency)</option>
+                  <option value="500">500 req/sec (Max Burst Threshold)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="sbxConcurrentExecSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Max Concurrent Executions *</label>
+                <select id="sbxConcurrentExecSelect" class="form-select">
+                  <option value="1">1 Concurrent Process</option>
+                  <option value="5" selected>5 Concurrent Processes</option>
+                  <option value="20">20 Concurrent Processes</option>
+                  <option value="50">50 Concurrent Processes (Max Ceiling)</option>
+                </select>
               </div>
             </div>
           </div>
@@ -1612,7 +2830,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" onclick="closeRegisterModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Register & Provision</button>
+          <button type="submit" class="btn btn-primary">⚡ Register &amp; Provision Modular Node</button>
         </div>
       </form>
     </div>
@@ -1676,8 +2894,188 @@
   </div>
 
 
+  <!-- ============ USER ACCOUNT EDIT / CREATE MODAL ============ -->
+  <div id="userAccountModal" class="modal-overlay" onclick="if(event.target===this)closeUserModal()">
+    <div class="modal-card" style="max-width:500px;width:90%;">
+      <div class="modal-header">
+        <h3 style="display:flex;align-items:center;gap:8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span id="userModalTitle">Edit User Account</span>
+        </h3>
+        <button class="close-modal-btn" onclick="closeUserModal()">&times;</button>
+      </div>
+      <form onsubmit="saveUserAccountFromModal(event)">
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;padding:20px;">
+          <input type="hidden" id="userModalEditRowIndex" value="" />
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Username</label>
+            <input class="form-input" id="userModalUsername" required style="width:100%;" placeholder="e.g. jdoe_admin" />
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Email Address</label>
+            <input class="form-input" id="userModalEmail" type="email" required style="width:100%;" placeholder="e.g. jdoe@enterprise.com" />
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Assigned RBAC Role</label>
+              <select class="form-select" id="userModalRole" style="width:100%;">
+                <option value="SUPER_ADMIN">SUPER_ADMIN (Super Admin)</option>
+                <option value="ENTERPRISE_ADMIN">ENTERPRISE_ADMIN (Admin)</option>
+                <option value="FINANCE_MANAGER">FINANCE_MANAGER (Finance)</option>
+                <option value="AUDITOR">AUDITOR (Compliance)</option>
+                <option value="AGENT_STANDARD" selected>AGENT_STANDARD (Standard Agent)</option>
+                <option value="LLM">LLM (Automated Token)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Account Status</label>
+              <select class="form-select" id="userModalStatus" style="width:100%;">
+                <option value="ACTIVE" selected>Active / Enabled</option>
+                <option value="SUSPENDED">Suspended / Disabled</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Password (Optional Reset)</label>
+            <input class="form-input" id="userModalPassword" type="password" style="width:100%;" placeholder="Leave empty to keep current password" />
+          </div>
+        </div>
+        <div class="modal-footer" style="padding:16px 20px;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);">
+          <button type="button" class="btn btn-ghost" onclick="closeUserModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save User Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- FRAPPE-STYLE ROLE PERMISSION MANAGER MODAL -->
+  <div id="roleCreateModal" class="modal-overlay" onclick="if(event.target===this)closeRoleModal()">
+    <div class="modal-card" style="max-width:720px;width:95%;padding:0;overflow:hidden;">
+      <div class="modal-header" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface-raised);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <h3 style="font-size:16px;font-weight:700;margin:0;">Frappe Role Permission Manager — Create Role</h3>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="closeRoleModal()" style="font-size:18px;line-height:1;padding:4px 8px;">&times;</button>
+      </div>
+
+      <form onsubmit="saveFrappeRoleFromModal(event)">
+        <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:16px;max-height:75vh;overflow-y:auto;">
+          
+          <!-- Basic Role Definition -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Role Name / Code *</label>
+              <input class="form-input" id="roleModalName" required style="width:100%;" placeholder="e.g. DevOps Engineer" />
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Inherit Permissions From</label>
+              <select class="form-select" id="roleModalInherit" style="width:100%;">
+                <option value="" selected>None (Base Role)</option>
+                <option value="AGENT_STANDARD">AGENT_STANDARD (Standard Agent)</option>
+                <option value="FINANCE_MANAGER">FINANCE_MANAGER (Finance Scope)</option>
+                <option value="AUDITOR">AUDITOR (Compliance Scope)</option>
+                <option value="ENTERPRISE_ADMIN">ENTERPRISE_ADMIN (Admin)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Role Category / Desk Access</label>
+              <select class="form-select" id="roleModalCategory" style="width:100%;">
+                <option value="Tenant Custom" selected>Tenant Custom Role</option>
+                <option value="Desk System User">System Desk User</option>
+                <option value="Restricted Agent">Restricted Sandbox Runner</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Permission Scope Pattern</label>
+              <input class="form-input" id="roleModalScope" style="width:100%;font-family:var(--font-mono);font-size:12.5px;" placeholder="e.g. sandbox:exec, vault:read" value="sandbox:exec, snapshot:rw" />
+            </div>
+          </div>
+
+          <!-- Frappe Checkbox Module Matrix -->
+          <div>
+            <label style="font-size:12.5px;font-weight:700;color:var(--fg);display:block;margin-bottom:8px;">Frappe Module Capability Matrix (Granular Rights)</label>
+            <div class="table-card" style="padding:0;overflow-x:auto;">
+              <table style="width:100%;font-size:12.5px;">
+                <thead>
+                  <tr style="background:var(--surface-raised);">
+                    <th style="padding:8px 12px;">Module</th>
+                    <th style="text-align:center;padding:8px;">Read</th>
+                    <th style="text-align:center;padding:8px;">Create</th>
+                    <th style="text-align:center;padding:8px;">Write</th>
+                    <th style="text-align:center;padding:8px;">Delete</th>
+                    <th style="text-align:center;padding:8px;">Execute</th>
+                    <th style="text-align:center;padding:8px;">Export</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="font-weight:600;padding:8px 12px;">Sandboxes &amp; Runtime</td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight:600;padding:8px 12px;">Snapshots &amp; Backtrack</td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight:600;padding:8px 12px;">Egress Firewall &amp; Network</td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight:600;padding:8px 12px;">Secrets Vault &amp; Keys</td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                    <td style="text-align:center;"><input type="checkbox" checked /></td>
+                    <td style="text-align:center;"><input type="checkbox" /></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Self Approval & SOD Restrictions -->
+          <div style="display:flex;align-items:center;gap:16px;background:var(--surface-raised);padding:12px;border-radius:var(--radius-md);border:1px solid var(--border);">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;">
+              <input type="checkbox" id="roleModalSelfApproval" checked />
+              Allow Self-Approval (Separation of Duties)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;">
+              <input type="checkbox" id="roleModalDeskAccess" checked />
+              Enable Desk API Access
+            </label>
+          </div>
+
+        </div>
+        <div class="modal-footer" style="padding:16px 20px;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);">
+          <button type="button" class="btn btn-ghost" onclick="closeRoleModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save &amp; Register Role</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script type="module">
-    import * as API from './assets/js/api.js?v=21';
+    import * as API from './assets/js/api.js?v=23';
     window.API = API;
   </script>
   <script src="assets/js/plugin.js?v=19"></script>

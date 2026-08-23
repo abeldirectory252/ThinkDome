@@ -5,6 +5,32 @@
  */
 
 const API_BASE = "";
+let refreshRequest = null;
+
+async function refreshAccessToken() {
+    // Keep the refresh token in its HTTP-only cookie; this avoids persisting
+    // long-lived credentials in localStorage. Share a pending refresh so a
+    // dashboard render does not rotate the one-time token more than once.
+    if (!refreshRequest) {
+        refreshRequest = fetch(API_BASE + "/v1/auth/refresh", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+        })
+            .then(async (response) => {
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (!data?.access_token) return null;
+                localStorage.setItem("thinkdome_token", data.access_token);
+                return data.access_token;
+            })
+            .catch(() => null)
+            .finally(() => {
+                refreshRequest = null;
+            });
+    }
+    return refreshRequest;
+}
 
 // ─────────────────────────────────────────────
 // Internal Helpers
@@ -20,7 +46,7 @@ const API_BASE = "";
  * @param {string} [sandboxId] - Optional X-Sandbox-Id header value
  * @returns {Promise<{ data: any, error: string|null }>}
  */
-async function apiFetch(endpoint, options = {}, token = "", sandboxId = "") {
+async function apiFetch(endpoint, options = {}, token = "", sandboxId = "", retryAfterRefresh = true) {
     const headers = {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -35,8 +61,15 @@ async function apiFetch(endpoint, options = {}, token = "", sandboxId = "") {
             headers,
         });
 
-        // Auto-logout on 401
+        // Access JWTs are deliberately short-lived. Refresh from the HTTP-only
+        // cookie and retry the original request once before reporting logout.
         if (response.status === 401) {
+            if (retryAfterRefresh) {
+                const refreshedToken = await refreshAccessToken();
+                if (refreshedToken) {
+                    return apiFetch(endpoint, options, refreshedToken, sandboxId, false);
+                }
+            }
             return { data: null, error: "UNAUTHORIZED" };
         }
 
@@ -125,6 +158,10 @@ export async function assignUserRole(userId, roleId, token) {
  */
 export async function logout(token) {
     return apiFetch("/v1/auth/logout", { method: "POST" }, token);
+}
+
+export async function getCurrentUser(token = localStorage.getItem("thinkdome_token") || "") {
+    return apiFetch("/v1/auth/me", { method: "GET" }, token);
 }
 
 // ─────────────────────────────────────────────

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
+from thinkdome.core.dependencies import get_current_user
 
-router = APIRouter(tags=["Network Audit"])
+router = APIRouter(tags=["Network Audit"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

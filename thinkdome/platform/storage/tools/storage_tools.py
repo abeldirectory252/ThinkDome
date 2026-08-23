@@ -11,6 +11,12 @@ from thinkdome.platform.orchestration.orchestrator_models import (
 )
 
 
+def _owner(ctx) -> str:
+    identity = getattr(ctx, "identity", None)
+    metadata = getattr(identity, "metadata", {}) or {}
+    return str(metadata.get("workspace_id") or ctx.username).strip().lower()
+
+
 @register_tool
 class ReadFileTool(BaseTool):
     name = "read_file"
@@ -31,11 +37,12 @@ class ReadFileTool(BaseTool):
             raise FileNotFoundError(f"File not found in FileBox: {path}")
         service = FileBoxService()
         tenant = getattr(getattr(ctx, "identity", None), "tenant_id", None) or "default"
-        meta = next((m for m in service.list(tenant_id=tenant, owner_id=ctx.username)
+        owner = _owner(ctx)
+        meta = next((m for m in service.list(tenant_id=tenant, owner_id=owner)
                      if m.folder == folder and m.filename == filename), None)
         if not meta:
             raise FileNotFoundError(f"File not found in FileBox: {path}")
-        result = service.read(meta.id, tenant_id=tenant, owner_id=ctx.username)
+        result = service.read(meta.id, tenant_id=tenant, owner_id=owner)
         if result is None:
             raise FileNotFoundError(f"File not found in FileBox: {path}")
         return result[0].decode("utf-8")
@@ -60,11 +67,12 @@ class WriteFileTool(BaseTool):
         folder, filename = (parts[0], parts[1]) if len(parts) == 2 else ("workspace", parts[0])
         tenant = getattr(getattr(ctx, "identity", None), "tenant_id", None) or "default"
         service = FileBoxService()
-        available = list(service.ensure_layout(tenant_id=tenant, owner_id=ctx.username).keys())
+        owner = _owner(ctx)
+        available = list(service.ensure_layout(tenant_id=tenant, owner_id=owner).keys())
         if folder not in available or not filename:
             folders = ", ".join(f"/{name}" for name in available)
             raise ValueError(f"Invalid FileBox path. Available folders: {folders}. Use '/<folder>/<filename>'.")
-        service.create(tenant_id=tenant, owner_id=ctx.username, filename=filename,
+        service.create(tenant_id=tenant, owner_id=owner, filename=filename,
                                 content=content.encode("utf-8"), permanent=True,
                                 folder=folder, override=True, conflict="override")
         return json.dumps({"status": "success", "bytes_written": len(content)})
@@ -85,7 +93,8 @@ class ListDirTool(BaseTool):
         from thinkdome.platform.storage.filebox.service import FileBoxService, DEFAULT_FOLDERS
         tenant = getattr(getattr(ctx, "identity", None), "tenant_id", None) or "default"
         service = FileBoxService()
-        folders = service.ensure_layout(tenant_id=tenant, owner_id=ctx.username)
+        owner = _owner(ctx)
+        folders = service.ensure_layout(tenant_id=tenant, owner_id=owner)
         logical = str(path).strip().strip("/")
         if logical in {"", "."}:
             entries = [{"name": name, "path": name, "type": "dir", "size_bytes": 0} for name in folders]
@@ -94,7 +103,7 @@ class ListDirTool(BaseTool):
             if folder not in DEFAULT_FOLDERS:
                 raise FileNotFoundError(f"Directory not found in FileBox: {path}")
             entries = []
-        for item in service.list(tenant_id=tenant, owner_id=ctx.username):
+        for item in service.list(tenant_id=tenant, owner_id=owner):
             if logical in {"", "."} or logical == item.folder:
                 entries.append({"name": item.filename, "path": f"{item.folder}/{item.filename}", "type": "file", "size_bytes": item.size_bytes})
         return json.dumps(entries, indent=2)
@@ -105,7 +114,7 @@ class ListDirTool(BaseTool):
             raise ValueError(f"Path is not a directory: {path}")
         
         user_workspace = ctx.workspace_dir
-        cipher = workspace_cipher(ctx.username)
+        cipher = workspace_cipher(_owner(ctx))
         entries = []
         for entry in sorted(safe_path.iterdir()):
             try:

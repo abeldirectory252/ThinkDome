@@ -8,6 +8,12 @@ from thinkdome.platform.orchestration.tools import BaseTool, register_tool, get_
 from thinkdome.sandbox.core.models import ExecuteRequest
 from thinkdome.platform.orchestration.orchestrator_models import RunCodeInput, ShellExecInput
 
+
+def _owner(ctx) -> str:
+    identity = getattr(ctx, "identity", None)
+    metadata = getattr(identity, "metadata", {}) or {}
+    return str(metadata.get("workspace_id") or ctx.username).strip().lower()
+
 @register_tool
 class RunCodeTool(BaseTool):
     name = "run_code"
@@ -22,6 +28,7 @@ class RunCodeTool(BaseTool):
         language = tool_input.get("language", "python")
         stdin = tool_input.get("stdin")
         ctx = get_context()
+        owner = _owner(ctx)
 
         # Enforce sandbox timeout if present
         timeout_ms = 5000
@@ -35,8 +42,8 @@ class RunCodeTool(BaseTool):
 
         # Load env vars and inject credentials from vault if available
         env_vars = dict(tool_input.get("env_vars") or {})
-        if ctx.credential_vault and ctx.username and ctx.sandbox_id:
-            vault_secrets = ctx.credential_vault.inject_into_env(ctx.username, ctx.sandbox_id)
+        if ctx.credential_vault and owner and ctx.sandbox_id:
+            vault_secrets = ctx.credential_vault.inject_into_env(owner, ctx.sandbox_id)
             env_vars.update(vault_secrets)
 
         exec_req = ExecuteRequest(
@@ -50,7 +57,7 @@ class RunCodeTool(BaseTool):
             memory_limit_mb=ctx.sandbox_limits.get("memory_mb") if ctx.sandbox_limits else None,
             cpu_cores=ctx.sandbox_limits.get("cpu_cores") if ctx.sandbox_limits else None,
             timeout_ms=timeout_ms,
-            username=ctx.username,
+            username=owner,
         )
         
         resp = await ctx.execution_service.execute(exec_req)
@@ -69,7 +76,7 @@ class RunCodeTool(BaseTool):
                 stdout=resp.stdout,
                 stderr=resp.stderr,
                 exit_code=resp.exit_code,
-                token_id=ctx.username,
+                token_id=owner,
             )
             if scan_res.has_findings:
                 result_dict["security_findings"] = [f.to_dict() for f in scan_res.findings]
@@ -92,6 +99,7 @@ class ShellExecTool(BaseTool):
         cwd = tool_input.get("cwd")
         timeout_sec = min(tool_input.get("timeout", 30), 300)
         ctx = get_context()
+        owner = _owner(ctx)
 
         # Build wrapper python script to execute the command inside the sandbox environment.
         # This routes the execution to run with cgroups, seccomp, and VPC network limits.
@@ -190,7 +198,7 @@ class SnapshotSandboxTool(BaseTool):
             sandbox_id=sandbox_id,
             tag=tag,
             description=description,
-            owner=ctx.username,
+            owner=owner,
             workspace_path=workspace_path,
         )
         return json.dumps(meta, indent=2)
@@ -231,7 +239,7 @@ class ListSnapshotsTool(BaseTool):
         sandbox_id = tool_input.get("sandbox_id") or ctx.sandbox_id
         from thinkdome.sandbox.snapshots.service import SnapshotService
         svc = getattr(ctx.execution_service, "snapshot_service", None) or SnapshotService()
-        snaps = svc.list_snapshots(sandbox_id=sandbox_id, owner=ctx.username)
+        snaps = svc.list_snapshots(sandbox_id=sandbox_id, owner=_owner(ctx))
         return json.dumps({"snapshots": snaps}, indent=2)
 
 

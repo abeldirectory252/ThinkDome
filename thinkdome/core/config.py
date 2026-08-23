@@ -83,10 +83,27 @@ class Settings(BaseSettings):
             raise RuntimeError("subprocess execution backend is forbidden in production/staging")
         if self.EXECUTOR_BACKEND.lower() == "docker" and "@sha256:" not in self.EXECUTOR_IMAGE:
             raise RuntimeError("production Docker executor images must use an immutable @sha256 digest")
+        secure_runtime = (self.SECURE_RUNTIME_TYPE or "").lower()
+        if secure_runtime not in {"gvisor", "kata", "microvm", "firecracker"}:
+            raise RuntimeError(
+                "production/staging requires an explicitly configured hardened sandbox runtime "
+                "(SECURE_RUNTIME_TYPE=gvisor, kata, microvm, or firecracker)"
+            )
+        if self.EXECUTOR_BACKEND.lower() == "docker" and secure_runtime not in {"gvisor", "kata"}:
+            raise RuntimeError(
+                "Docker production execution requires SECURE_RUNTIME_TYPE=gvisor or kata"
+            )
         if self.NODE_ID and not self.CONTROL_PLANE_INTERNAL_URL:
             raise RuntimeError("production node agents require CONTROL_PLANE_INTERNAL_URL")
         if not (self.WORKSPACE_MASTER_KEY or self.VAULT_MASTER_KEY):
             raise RuntimeError("production workspaces require WORKSPACE_MASTER_KEY or VAULT_MASTER_KEY")
+        if "thinkdome:thinkdome@" in self.DATABASE_URL:
+            raise RuntimeError("production database must not use the default credentials")
+        if "guest:guest@" in self.RABBITMQ_URL:
+            raise RuntimeError("production RabbitMQ must not use the default credentials")
+        jwt_secret = self.JWT_SECRET_KEY or self.SECRET_KEY
+        if not jwt_secret or len(jwt_secret) < 32:
+            raise RuntimeError("production JWT signing secret must be configured with at least 32 characters")
     # Comma-separated origins. Empty disables cross-origin browser requests;
     # same-origin dashboard traffic requires no CORS exception.
     CORS_ALLOW_ORIGINS: str = ""
@@ -153,6 +170,8 @@ class Settings(BaseSettings):
 
     # Security
     API_KEY: Optional[str] = None  # Optional: set to enable API key auth
+    JWT_SECRET_KEY: Optional[str] = None
+    SECRET_KEY: Optional[str] = None
 
     # ── Production Infrastructure ──
     DATABASE_URL: str = "postgresql://thinkdome:thinkdome@localhost:5432/thinkdome"

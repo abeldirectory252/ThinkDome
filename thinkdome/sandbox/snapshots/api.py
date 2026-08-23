@@ -4,10 +4,10 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 
-from thinkdome.core.dependencies import get_snapshot_service
+from thinkdome.core.dependencies import get_snapshot_service, get_current_user
 from thinkdome.sandbox.snapshots.service import SnapshotService
 
-router = APIRouter(tags=["snapshots"])
+router = APIRouter(tags=["snapshots"], dependencies=[Depends(get_current_user)])
 
 
 class CreateSnapshotRequest(BaseModel):

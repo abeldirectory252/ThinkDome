@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from thinkdome.core.error_codes import SandboxErrorCodes
+from thinkdome.core.dependencies import get_current_user
 
-router = APIRouter(tags=["Diagnostics"])
+router = APIRouter(tags=["Diagnostics"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

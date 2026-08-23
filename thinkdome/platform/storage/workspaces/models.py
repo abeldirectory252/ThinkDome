@@ -22,6 +22,7 @@ class WorkspaceInfo(BaseModel):
     quota_mb: int
     used_mb: float = 0.0
     file_count: int = 0
+    owner_id: Optional[str] = None
 
 
 class WorkspaceListResponse(BaseModel):

@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from thinkdome.core.dependencies import get_auth_service, get_current_admin, get_current_user
 from thinkdome.security.auth.service import AuthService
 
-router = APIRouter(prefix="/v1/api-keys", tags=["API Keys"])
+# API keys are account-wide credentials; listing or revoking them must never be
+# available to an ordinary sandbox user.
+router = APIRouter(
+    prefix="/v1/api-keys",
+    tags=["API Keys"],
+    dependencies=[Depends(get_current_admin)],
+)
 
 
 class CreateApiKeyRequest(BaseModel):

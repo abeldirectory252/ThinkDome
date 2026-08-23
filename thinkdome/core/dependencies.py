@@ -75,10 +75,6 @@ async def get_current_user(
     if not token:
         token = request.headers.get("X-Session-Token")
 
-    # Fallback to query parameter (useful for SSE or file downloads)
-    if not token:
-        token = request.query_params.get("token")
-
     # Fallback to cookies
     if not token:
         token = request.cookies.get("session_token")

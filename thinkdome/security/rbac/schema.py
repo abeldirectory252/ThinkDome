@@ -17,7 +17,7 @@ def initialize_rbac_schema(db: DatabaseService) -> None:
     """Ensure all RBAC SQLAlchemy metadata tables exist in the current database engine."""
     try:
         from thinkdome.core.kernel.kernel import Kernel
-        kernel = Kernel.get_instance("personal")
+        kernel = Kernel.current()
         if not kernel.initialized:
             kernel.initialize()
         Base.metadata.create_all(kernel.db_engine)

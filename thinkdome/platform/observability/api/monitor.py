@@ -63,15 +63,15 @@ async def monitor_websocket(websocket: WebSocket):
     """WebSocket endpoint for real-time metrics streaming.
 
     Clients connect and receive metrics broadcasts every poll interval.
-    Authentication is checked via query parameter: ?token=<api_key>
+    Authentication is checked from the HttpOnly session cookie.
     """
     monitor = getattr(websocket.app.state, "monitor_service", None)
     if not monitor:
         await websocket.close(code=1013, reason="Monitor service not available")
         return
 
-    # Authenticate via query param
-    token = websocket.query_params.get("token")
+    # Do not accept bearer tokens in URLs; browser history/proxies may log them.
+    token = websocket.cookies.get("session_token")
     if token:
         auth_service = getattr(websocket.app.state, "auth_service", None)
         if auth_service:

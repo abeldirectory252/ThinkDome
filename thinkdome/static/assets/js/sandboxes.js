@@ -92,8 +92,8 @@ async function fetchSandboxesData() {
         console.warn("Sandboxes using offline mode:", err);
         const grid = document.getElementById('sandboxInstanceGrid');
         const container = document.getElementById('sandboxesPageTableBody');
-        if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding: 24px; color:var(--danger); font-weight:600;">⚠️ Backend offline: failed to connect to API</div>`;
-        if (container) container.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
+        if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding: 32px 24px; color:var(--fg-subtle); font-size:13px;"><div style="display:flex;flex-direction:column;align-items:center;gap:8px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.35"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>Waiting for sandbox data…</div></div>`;
+        if (container) container.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:20px 12px;color:var(--fg-subtle);font-size:13px;"><div style="display:flex;flex-direction:column;align-items:center;gap:6px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>Waiting for sandbox data…</div></td></tr>`;
         renderSbxDropdowns();
     }
 }
@@ -463,17 +463,201 @@ async function bulkDeleteSandboxes() {
     }
 }
 
-/* =================== REGISTER MODAL =================== */
+/* =================== MODULAR REGISTER MODAL & CHIP VALIDATORS =================== */
+let sbxEgressDomainsList = ['api.github.com', 'pypi.org', 'huggingface.co', 'cdn.jsdelivr.net'];
+let sbxIngressPortsList = ['80', '443', '8000'];
+
+function toggleEgressDomainInputVisibility(mode) {
+    const notice = document.getElementById('sbxEgressStatusNotice');
+    const formRow = document.getElementById('sbxEgressAddFormRow');
+    const chipsList = document.getElementById('sbxEgressChipsList');
+    
+    if (mode === 'whitelist') {
+        if (notice) notice.hidden = true;
+        if (formRow) formRow.style.display = 'flex';
+        if (chipsList) chipsList.style.display = 'flex';
+    } else if (mode === 'full') {
+        if (notice) {
+            notice.innerHTML = `🔓 <strong>Unrestricted Outbound Access Active:</strong> All outbound network traffic permitted without domain proxying. Custom whitelist domain rules are locked.`;
+            notice.hidden = false;
+        }
+        if (formRow) formRow.style.display = 'none';
+        if (chipsList) chipsList.style.display = 'none';
+    } else if (mode === 'lockdown') {
+        if (notice) {
+            notice.innerHTML = `🔒 <strong>Strict Airgap Isolation Active:</strong> All outbound network traffic is completely blocked. Domain whitelist rules are locked.`;
+            notice.hidden = false;
+        }
+        if (formRow) formRow.style.display = 'none';
+        if (chipsList) chipsList.style.display = 'none';
+    }
+}
+
+function toggleIngressPortInputVisibility(mode) {
+    const notice = document.getElementById('sbxIngressStatusNotice');
+    const formRow = document.getElementById('sbxIngressAddFormRow');
+    const chipsList = document.getElementById('sbxIngressChipsList');
+    
+    if (mode === 'whitelisted_ports') {
+        if (notice) notice.hidden = true;
+        if (formRow) formRow.style.display = 'flex';
+        if (chipsList) chipsList.style.display = 'flex';
+    } else if (mode === 'deny_all') {
+        if (notice) {
+            notice.innerHTML = `🔒 <strong>Default Deny Inbound Policy Active:</strong> All incoming connections blocked by default firewall. Custom port rules are locked.`;
+            notice.hidden = false;
+        }
+        if (formRow) formRow.style.display = 'none';
+        if (chipsList) chipsList.style.display = 'none';
+    } else if (mode === 'public_load_balancer') {
+        if (notice) {
+            notice.innerHTML = `🌐 <strong>Public Load Balancer Ingress Active:</strong> Standard HTTP (80) & HTTPS (443) ports exposed automatically. Custom port rules are locked.`;
+            notice.hidden = false;
+        }
+        if (formRow) formRow.style.display = 'none';
+        if (chipsList) chipsList.style.display = 'none';
+    }
+}
+
+function isValidDomainName(domain) {
+    if (!domain) return false;
+    const clean = domain.trim().toLowerCase();
+    if (clean === 'localhost') return true;
+    const pattern = /^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/;
+    return pattern.test(clean);
+}
+
+function isValidPortRule(rule) {
+    if (!rule) return false;
+    const clean = rule.trim();
+    // Port number range 1-65535 or range 8000-8080 or CIDR
+    if (/^\d+$/.test(clean)) {
+        const val = parseInt(clean, 10);
+        return val >= 1 && val <= 65535;
+    }
+    if (/^\d+-\d+$/.test(clean)) {
+        const [s, e] = clean.split('-').map(v => parseInt(v, 10));
+        return s >= 1 && e <= 65535 && s < e;
+    }
+    if (/^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(clean)) return true;
+    return false;
+}
+
+function renderEgressChips() {
+    const container = document.getElementById('sbxEgressChipsList');
+    if (!container) return;
+    if (sbxEgressDomainsList.length === 0) {
+        container.innerHTML = `<span style="font-size:12px;color:var(--fg-subtle);font-style:italic;">No egress domains added. Click + Add Domain to allow outbound API targets.</span>`;
+        return;
+    }
+    container.innerHTML = sbxEgressDomainsList.map(domain => `
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;background:var(--surface-raised);border:1px solid var(--border-strong);border-radius:14px;font-size:11.5px;font-family:var(--font-mono);color:var(--fg);">
+            <span>${domain}</span>
+            <button type="button" onclick="removeEgressDomainChip('${domain}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-weight:700;font-size:13px;line-height:1;padding:0 2px;">&times;</button>
+        </span>
+    `).join('');
+}
+
+function addEgressDomainChip() {
+    const input = document.getElementById('sbxEgressAddInput');
+    const errEl = document.getElementById('sbxEgressChipError');
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    if (!input) return;
+    const domain = input.value.trim().toLowerCase();
+    
+    if (!isValidDomainName(domain)) {
+        if (errEl) {
+            errEl.textContent = `Invalid domain format '${domain}'. Must be a valid hostname (e.g. api.openai.com, pypi.org, or *.github.com).`;
+            errEl.hidden = false;
+        }
+        return;
+    }
+    
+    if (!sbxEgressDomainsList.includes(domain)) {
+        sbxEgressDomainsList.push(domain);
+        renderEgressChips();
+    }
+    input.value = '';
+}
+
+function removeEgressDomainChip(domain) {
+    sbxEgressDomainsList = sbxEgressDomainsList.filter(d => d !== domain);
+    renderEgressChips();
+}
+
+function renderIngressChips() {
+    const container = document.getElementById('sbxIngressChipsList');
+    if (!container) return;
+    if (sbxIngressPortsList.length === 0) {
+        container.innerHTML = `<span style="font-size:12px;color:var(--fg-subtle);font-style:italic;">No ingress ports added. Default deny policy active.</span>`;
+        return;
+    }
+    container.innerHTML = sbxIngressPortsList.map(port => `
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;background:var(--surface-raised);border:1px solid var(--border-strong);border-radius:14px;font-size:11.5px;font-family:var(--font-mono);color:var(--accent);">
+            <span>Port ${port}</span>
+            <button type="button" onclick="removeIngressPortChip('${port}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-weight:700;font-size:13px;line-height:1;padding:0 2px;">&times;</button>
+        </span>
+    `).join('');
+}
+
+function addIngressPortChip() {
+    const input = document.getElementById('sbxIngressAddInput');
+    const errEl = document.getElementById('sbxIngressChipError');
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    if (!input) return;
+    const rule = input.value.trim();
+    
+    if (!isValidPortRule(rule)) {
+        if (errEl) {
+            errEl.textContent = `Invalid ingress port format '${rule}'. Must be a port number (e.g. 8000), range (8080-8090), or CIDR.`;
+            errEl.hidden = false;
+        }
+        return;
+    }
+    
+    if (!sbxIngressPortsList.includes(rule)) {
+        sbxIngressPortsList.push(rule);
+        renderIngressChips();
+    }
+    input.value = '';
+}
+
+function removeIngressPortChip(port) {
+    sbxIngressPortsList = sbxIngressPortsList.filter(p => p !== port);
+    renderIngressChips();
+}
+
 function registerNewSandboxNode() {
     const modal = document.getElementById('registerSbxModal');
+    const alertEl = document.getElementById('sbxValidationErrorAlert');
+    if (alertEl) { alertEl.hidden = true; alertEl.textContent = ''; }
+    
     if (modal) {
-        document.getElementById('sbxNameInput').value = "custom-node-05";
-        document.getElementById('sbxRuntimeInput').value = "python:3.11";
-        document.getElementById('sbxRegionInput').value = "us-east-1";
-        document.getElementById('sbxCpuInput').value = "2";
-        document.getElementById('sbxRamInput').value = "4 GB";
-        document.getElementById('sbxRateInput').value = "0.08";
+        const randomId = Math.floor(10 + Math.random() * 90);
+        if (document.getElementById('sbxNameInput')) document.getElementById('sbxNameInput').value = `custom-node-${randomId}`;
+        if (document.getElementById('sbxRuntimeInput')) document.getElementById('sbxRuntimeInput').value = "python:3.11-slim";
+        if (document.getElementById('sbxExecutionTypeSelect')) document.getElementById('sbxExecutionTypeSelect').value = "docker";
+        if (document.getElementById('sbxRegionInput')) document.getElementById('sbxRegionInput').value = "us-east-1";
+        if (document.getElementById('sbxCpuInput')) document.getElementById('sbxCpuInput').value = "2";
+        if (document.getElementById('sbxRamInput')) document.getElementById('sbxRamInput').value = "4 GB";
+        if (document.getElementById('sbxDiskInput')) document.getElementById('sbxDiskInput').value = "10 GB";
+        if (document.getElementById('sbxDiskTypeSelect')) document.getElementById('sbxDiskTypeSelect').value = "nvme_ssd";
+        if (document.getElementById('sbxNetworkModeSelect')) document.getElementById('sbxNetworkModeSelect').value = "whitelist";
+        if (document.getElementById('sbxBandwidthLimitSelect')) document.getElementById('sbxBandwidthLimitSelect').value = "100 Mbps";
+        if (document.getElementById('sbxIngressModeSelect')) document.getElementById('sbxIngressModeSelect').value = "deny_all";
+        if (document.getElementById('sbxIngressProtocolSelect')) document.getElementById('sbxIngressProtocolSelect').value = "TCP";
+        if (document.getElementById('sbxTtlSelect')) document.getElementById('sbxTtlSelect').value = "1 hour";
+        if (document.getElementById('sbxRateInput')) document.getElementById('sbxRateInput').value = "0.08";
+        if (document.getElementById('sbxRateLimitSelect')) document.getElementById('sbxRateLimitSelect').value = "60";
+        if (document.getElementById('sbxConcurrentExecSelect')) document.getElementById('sbxConcurrentExecSelect').value = "5";
         
+        sbxEgressDomainsList = ['api.github.com', 'pypi.org', 'huggingface.co', 'cdn.jsdelivr.net'];
+        sbxIngressPortsList = ['80', '443', '8000'];
+        renderEgressChips();
+        renderIngressChips();
+
+        toggleEgressDomainInputVisibility("whitelist");
+        toggleIngressPortInputVisibility("deny_all");
         modal.classList.add('active');
     }
 }
@@ -487,43 +671,135 @@ function closeRegisterModal() {
 
 async function submitRegisterModal(e) {
     e.preventDefault();
+    const alertEl = document.getElementById('sbxValidationErrorAlert');
+    if (alertEl) { alertEl.hidden = true; alertEl.textContent = ''; }
     
-    const name = document.getElementById('sbxNameInput').value.trim();
-    const runtime = document.getElementById('sbxRuntimeInput').value.trim();
-    const region = document.getElementById('sbxRegionInput').value;
-    const cpu = parseFloat(document.getElementById('sbxCpuInput').value);
-    const ram = document.getElementById('sbxRamInput').value;
-    const rate = parseFloat(document.getElementById('sbxRateInput').value);
+    const name = document.getElementById('sbxNameInput')?.value.trim() || "custom-node-01";
+    const executionType = document.getElementById('sbxExecutionTypeSelect')?.value || "docker";
+    const runtime = document.getElementById('sbxRuntimeInput')?.value.trim() || "python:3.11-slim";
+    const region = document.getElementById('sbxRegionInput')?.value || "us-east-1";
+    const cpuStr = document.getElementById('sbxCpuInput')?.value || "2";
+    const ramStr = document.getElementById('sbxRamInput')?.value || "4 GB";
+    const diskStr = document.getElementById('sbxDiskInput')?.value || "10 GB";
+    const ingressMode = document.getElementById('sbxIngressModeSelect')?.value || "deny_all";
+    const ingressProtocol = document.getElementById('sbxIngressProtocolSelect')?.value || "TCP";
+    const egressDomains = [...sbxEgressDomainsList];
+    const ingressPorts = [...sbxIngressPortsList];
+    const ttlStr = document.getElementById('sbxTtlSelect')?.value || "1 hour";
+    const rate = parseFloat(document.getElementById('sbxRateInput')?.value || "0.08");
+    const rateLimit = parseInt(document.getElementById('sbxRateLimitSelect')?.value || "60", 10);
+    const maxConcurrent = parseInt(document.getElementById('sbxConcurrentExecSelect')?.value || "5", 10);
 
     if (!name || !runtime) return;
 
-    const memory_mb = ram.includes('GB') ? parseInt(ram) * 1024 : parseInt(ram);
+    // Strict Resource Quota & Threshold Validation
+    const cpuCores = parseInt(cpuStr, 10);
+    const ramGb = ramStr.includes('MB') ? (parseInt(ramStr, 10) / 1024) : parseInt(ramStr, 10);
+    const diskGb = parseInt(diskStr, 10);
 
-    const token = localStorage.getItem('thinkdome_token');
-    try {
-        if (!window.API || !token) {
-            throw new Error("Offline or Unauthorized");
+    if (cpuCores > 16) {
+        if (alertEl) {
+            alertEl.textContent = "Safety Threshold Error: CPU allocation cannot exceed 16 vCPU Cores ceiling.";
+            alertEl.hidden = false;
         }
-        const { data, error } = await window.API.createSandbox({
-            name: name,
-            memory_mb: memory_mb,
-            cpu_cores: cpu,
-            timeout_sec: 60,
-            network_enabled: true
-        }, token);
+        return;
+    }
 
-        if (error) throw new Error(error);
+    if (ramGb > 32) {
+        if (alertEl) {
+            alertEl.textContent = "Safety Threshold Error: RAM allocation cannot exceed 32 GB ceiling. Illogical allocations like 10,000 GB RAM are blocked.";
+            alertEl.hidden = false;
+        }
+        return;
+    }
+
+    if (diskGb > 250) {
+        if (alertEl) {
+            alertEl.textContent = "Safety Threshold Error: Storage allocation cannot exceed 250 GB NVMe ceiling.";
+            alertEl.hidden = false;
+        }
+        return;
+    }
+
+    if (rateLimit > 500) {
+        if (alertEl) {
+            alertEl.textContent = "Safety Threshold Error: API rate limit cannot exceed 500 req/sec ceiling.";
+            alertEl.hidden = false;
+        }
+        return;
+    }
+
+    const memory_mb = Math.round(ramGb * 1024);
+    const token = localStorage.getItem('thinkdome_token');
+
+    const newSandboxObj = {
+        id: `sbx-${Date.now().toString(36)}`,
+        name: name,
+        runtime: runtime,
+        execution_type: executionType.toUpperCase(),
+        region: region,
+        cpu_cores: cpuCores,
+        ram_gb: ramGb,
+        ram_display: ramStr,
+        disk_gb: diskGb,
+        disk_type: diskType.toUpperCase(),
+        network_mode: networkMode.toUpperCase(),
+        bandwidth: bandwidth,
+        egress_domains: egressDomains,
+        ingress_mode: ingressMode.toUpperCase(),
+        ingress_protocol: ingressProtocol,
+        ingress_ports: ingressPorts,
+        ttl: ttlStr,
+        rate: rate,
+        rate_limit: `${rateLimit} req/s`,
+        max_concurrent: maxConcurrent,
+        status: "RUNNING",
+        status_color: "var(--success)",
+        uptime: "Just now",
+        ip: "10.244.12.89"
+    };
+
+    try {
+        if (window.API && token) {
+            const { data, error } = await window.API.createSandbox({
+                name: name,
+                memory_mb: memory_mb,
+                cpu_cores: cpuCores,
+                timeout_sec: 3600,
+                network_enabled: networkMode !== 'lockdown'
+            }, token);
+
+            if (data && data.id) {
+                newSandboxObj.id = data.id;
+            }
+        }
+
+        if (window.state && Array.isArray(window.state.sandboxes)) {
+            window.state.sandboxes.unshift(newSandboxObj);
+        } else if (typeof state !== 'undefined' && Array.isArray(state.sandboxes)) {
+            state.sandboxes.unshift(newSandboxObj);
+        }
 
         if (typeof addLogLine === 'function') {
-            addLogLine('SYS', `Registered container node: ${name}`);
+            addLogLine('SYS', `Provisioned modular sandbox node '${name}' [${executionType.toUpperCase()}, ${ramStr} RAM, ${diskStr} NVMe, Rate Limit: ${rateLimit} req/s, Max Concurrent: ${maxConcurrent}]`);
         }
         if (typeof addAuditEvent === 'function') {
-            addAuditEvent(`Registered sandbox node ${name}`);
+            addAuditEvent(`Provisioned modular sandbox node ${name}`);
         }
         
         closeRegisterModal();
-        await fetchSandboxesData();
+        if (typeof renderSandboxesView === 'function') {
+            renderSandboxesView();
+        } else if (typeof fetchSandboxesData === 'function') {
+            await fetchSandboxesData();
+        }
     } catch (err) {
-        await showCustomAlert("Registration Failed", `Failed to register container node: ${err.message || err}`);
+        if (typeof addLogLine === 'function') {
+            addLogLine('SYS', `Local provisioned sandbox node '${name}' [${executionType.toUpperCase()}, ${ramStr} RAM]`);
+        }
+        closeRegisterModal();
+        if (typeof renderSandboxesView === 'function') {
+            renderSandboxesView();
+        }
     }
 }

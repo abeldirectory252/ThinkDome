@@ -86,7 +86,9 @@ ROLE_WEB = Role.WEB.value
 
 ADMIN_ROLES = {Role.SUPER_ADMIN.value, Role.ENTERPRISE_ADMIN.value, Role.ADMIN.value, Role.ORCH.value, Role.IDE.value}
 DEFAULT_ADMIN_USERNAMES = {"admin", "administrator"}
-GLOBAL_SANDBOX_OWNERS = {"admin", "administrator", "anonymous", "api_key_client"}
+# No non-admin identity is globally trusted.  Sandboxes must be owned by the
+# authenticated username/key or accessed through an explicit admin role.
+GLOBAL_SANDBOX_OWNERS: set[str] = set()
 
 # A user may have several assigned roles.  Never rely on database insertion
 # order when choosing the role carried into tool authorization: a default
@@ -114,16 +116,9 @@ def select_effective_role(
 ) -> str:
     """Return the highest-privilege role deterministically.
 
-    Legacy installations may contain an AGENT_STANDARD mapping for the
-    reserved administrator accounts.  Preserve their established bootstrap
-    privilege while still preferring explicitly assigned higher roles.
+    Authorization is derived exclusively from persisted role assignments.
     """
     names = {str(role.name if hasattr(role, "name") else role).upper() for role in (roles or [])}
-    normalized_user = str(username or "").strip().lower()
-    if normalized_user == "administrator" and not names.intersection(ADMIN_ROLES):
-        return Role.SUPER_ADMIN.value
-    if normalized_user == "admin" and not names.intersection(ADMIN_ROLES):
-        return Role.ADMIN.value
     for role_name in ROLE_PRIORITY:
         if role_name in names:
             return role_name
@@ -200,6 +195,10 @@ class UserIdentity:
         raw_perms = data.get("permissions") or []
         permissions = set(raw_perms) if isinstance(raw_perms, (list, set, tuple)) else set()
 
+        metadata = dict(data.get("metadata", {}) or {})
+        if data.get("workspace_id"):
+            metadata["workspace_id"] = data["workspace_id"]
+
         return cls(
             username=username,
             tenant_id=tenant_id,
@@ -207,7 +206,7 @@ class UserIdentity:
             permissions=permissions,
             token_type=token_type,
             key_id=data.get("key_id"),
-            metadata=data.get("metadata", {}),
+            metadata=metadata,
         )
 
     def is_admin(self) -> bool:
@@ -285,6 +284,8 @@ class RolePolicyEngine:
         allowed = {identity.username, identity.key_id}.union(GLOBAL_SANDBOX_OWNERS)
         if identity.metadata and "key_id" in identity.metadata:
             allowed.add(identity.metadata["key_id"])
+        if identity.metadata and identity.metadata.get("workspace_id"):
+            allowed.add(str(identity.metadata["workspace_id"]))
 
         return owner in allowed
 

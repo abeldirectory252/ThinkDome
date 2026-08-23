@@ -27,7 +27,7 @@ class FileService:
         self._metadata: dict[str, FileMetadata] = {}
         logger.info(f"FileService initialized: {self.storage_dir}")
 
-    def upload(self, filename: str, content: bytes, content_type: Optional[str] = None) -> FileMetadata:
+    def upload(self, filename: str, content: bytes, content_type: Optional[str] = None, owner_id: Optional[str] = None) -> FileMetadata:
         """Store an uploaded file and return metadata."""
         if len(content) > self.max_size:
             raise ValueError(
@@ -50,6 +50,7 @@ class FileService:
             content_type=content_type,
             sha256=sha,
             created_at=now,
+            owner_id=owner_id,
         )
         self._metadata[file_id] = meta
         logger.info(f"File uploaded: {file_id} ({safe_name}, {len(content)} bytes)")
@@ -58,31 +59,32 @@ class FileService:
     def get_metadata(self, file_id: str) -> Optional[FileMetadata]:
         return self._metadata.get(file_id)
 
-    def get_content(self, file_id: str) -> Optional[tuple[bytes, FileMetadata]]:
+    def get_content(self, file_id: str, owner_id: Optional[str] = None) -> Optional[tuple[bytes, FileMetadata]]:
         meta = self._metadata.get(file_id)
-        if not meta:
+        if not meta or (owner_id is not None and meta.owner_id != owner_id):
             return None
         file_path = self.storage_dir / file_id / meta.filename
         if not file_path.exists():
             return None
         return file_path.read_bytes(), meta
 
-    def list_files(self) -> list[FileMetadata]:
-        return list(self._metadata.values())
+    def list_files(self, owner_id: Optional[str] = None) -> list[FileMetadata]:
+        return [m for m in self._metadata.values() if owner_id is None or m.owner_id == owner_id]
 
-    def delete(self, file_id: str, hard: bool = True) -> bool:
-        meta = self._metadata.pop(file_id, None)
-        if not meta:
+    def delete(self, file_id: str, hard: bool = True, owner_id: Optional[str] = None) -> bool:
+        meta = self._metadata.get(file_id)
+        if not meta or (owner_id is not None and meta.owner_id != owner_id):
             return False
+        self._metadata.pop(file_id, None)
         if hard:
             dir_path = self.storage_dir / file_id
             if dir_path.exists():
                 shutil.rmtree(dir_path)
         return True
 
-    def update(self, file_id: str, content: bytes) -> Optional[FileMetadata]:
+    def update(self, file_id: str, content: bytes, owner_id: Optional[str] = None) -> Optional[FileMetadata]:
         meta = self._metadata.get(file_id)
-        if not meta:
+        if not meta or (owner_id is not None and meta.owner_id != owner_id):
             return None
         file_path = self.storage_dir / file_id / meta.filename
         file_path.write_bytes(content)
@@ -96,7 +98,7 @@ class FileService:
         if not result:
             return None
         content, old_meta = result
-        return self.upload(new_path, content, old_meta.content_type)
+        return self.upload(new_path, content, old_meta.content_type, old_meta.owner_id)
 
     def move_file(self, file_id: str, new_path: str) -> Optional[FileMetadata]:
         new_meta = self.copy_file(file_id, new_path)

@@ -2,6 +2,24 @@
 
 let authMode = 'login';
 
+function togglePasswordVisibility() {
+    const pwdInput = document.getElementById('password');
+    const eyeIcon = document.getElementById('pwdEyeIcon');
+    if (!pwdInput) return;
+
+    if (pwdInput.type === 'password') {
+        pwdInput.type = 'text';
+        if (eyeIcon) {
+            eyeIcon.innerHTML = `<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>`;
+        }
+    } else {
+        pwdInput.type = 'password';
+        if (eyeIcon) {
+            eyeIcon.innerHTML = `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`;
+        }
+    }
+}
+
 // 1. Tab switching behavior
 function setAuthTab(mode) {
     authMode = mode;
@@ -48,11 +66,13 @@ async function enterApp(e) {
     const password = passwordInput.value.trim();
     const selectedRole = roleInput ? roleInput.value : 'AGENT_STANDARD';
 
+    const loginAlert = document.getElementById('loginAlert');
+    if (loginAlert) loginAlert.style.display = 'none';
+
     if (!username || !password) {
-        if (typeof showCustomAlert === 'function') {
-            await showCustomAlert("Validation Error", "Please fill in all credentials.");
-        } else {
-            alert("Please fill in all credentials.");
+        if (loginAlert) {
+            loginAlert.textContent = "Please enter both username and password to authenticate.";
+            loginAlert.style.display = 'block';
         }
         return;
     }
@@ -75,8 +95,10 @@ async function enterApp(e) {
                 throw new Error(error);
             }
             localStorage.setItem('thinkdome_user_role', selectedRole);
-            if (typeof showCustomAlert === 'function') {
-                await showCustomAlert("Registration Success", `Account registered with role '${selectedRole}'! You can now log in.`);
+            if (loginAlert) {
+                loginAlert.className = 'alert alert-success';
+                loginAlert.textContent = `Account registered with role '${selectedRole}'! You can now log in.`;
+                loginAlert.style.display = 'block';
             } else {
                 alert(`Account registered with role '${selectedRole}'! You can now log in.`);
             }
@@ -120,7 +142,11 @@ async function enterApp(e) {
             }
         }
     } catch (err) {
-        if (typeof showCustomAlert === 'function') {
+        if (loginAlert) {
+            loginAlert.className = 'alert alert-error';
+            loginAlert.textContent = err.message || "Authentication failed.";
+            loginAlert.style.display = 'block';
+        } else if (typeof showCustomAlert === 'function') {
             await showCustomAlert("Authentication Failure", err.message || "Request failed.");
         } else {
             alert("Authentication Failure: " + (err.message || "Request failed."));

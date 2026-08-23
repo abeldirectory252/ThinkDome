@@ -11,12 +11,14 @@ Layer 6: Network Egress Control â€” Default network=none, optional proxy fo
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import logging
 import tarfile
 import time
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Optional, AsyncGenerator
 
 import docker
@@ -552,7 +554,8 @@ class PythonDockerExecutor(BaseExecutor):
             return None
         project_root = Path(__file__).resolve().parents[4]
 
-        workspace = project_root / "storage" / "workspaces" / username
+        namespace = hashlib.sha256(str(username).encode("utf-8")).hexdigest()[:32]
+        workspace = project_root / "storage" / "workspaces" / namespace
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
 
@@ -575,6 +578,8 @@ class PythonDockerExecutor(BaseExecutor):
         """Extract new/modified files from /workspace."""
         output_files: dict[str, bytes] = {}
         input_names = set(input_files.keys())
+        max_total = int(getattr(self.settings, "MAX_OUTPUT_BYTES", 1_048_576))
+        total = 0
 
         try:
             archive_stream, _ = container.get_archive("/workspace")
@@ -591,11 +596,17 @@ class PythonDockerExecutor(BaseExecutor):
                     name = member.name
                     if name.startswith("workspace/"):
                         name = name[len("workspace/"):]
-                    if not name or name in input_names:
+                    path = PurePosixPath(name)
+                    if (not name or name in input_names or path.is_absolute()
+                            or any(part in {"", ".", ".."} for part in path.parts)):
                         continue
+                    if total >= max_total:
+                        break
                     f = tar.extractfile(member)
                     if f:
-                        output_files[name] = f.read()
+                        content = f.read(max_total - total)
+                        output_files[name] = content
+                        total += len(content)
         except Exception as e:
             logger.debug(f"Could not extract workspace files: {e}")
 

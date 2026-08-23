@@ -7,35 +7,26 @@ verifying JWT session context and permissions.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
-from pydantic import BaseModel
+import re
+from typing import Any, Dict
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from thinkdome.core.kernel.kernel import Kernel
 from thinkdome.core.metadata.metadata import get_doctype_model
+from thinkdome.core.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(get_current_user)])
+
+_DOCTYPE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 
 
-# Helper dependency to resolve the authenticated user from JWT or API key
-def get_current_user(authorization: str = Header(None)) -> Dict[str, Any]:
-    """Inspect request headers to resolve credentials and session roles."""
-    if not authorization:
-        # For simplicity in local testing/dry-run, default to mock admin if no token
-        return {"username": "admin", "role": "ADMIN"}
-    
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication scheme",
-        )
-    token = authorization.split(" ")[1]
-    
-    # In a full production implementation, verify JWT signature or query database keys.
-    # We will simulate a successful validation returning credentials.
-    return {"username": "authenticated_user", "role": "USER", "token": token}
+def _validate_doctype(doctype: str) -> str:
+    """Reject malformed model names before metadata lookup."""
+    if not _DOCTYPE_RE.fullmatch(doctype):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid DocType")
+    return doctype
 
 
 # ── Dynamic Metadata-Driven CRUD ──────────────────────────────────────────────
@@ -48,6 +39,9 @@ async def list_records(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Retrieve list of records matching the DocType schema."""
+    _validate_doctype(doctype)
+    if limit < 1 or limit > 1000 or offset < 0:
+        raise HTTPException(status_code=400, detail="Invalid pagination")
     model_class = get_doctype_model(doctype.capitalize())
     if not model_class:
         raise HTTPException(
@@ -57,8 +51,9 @@ async def list_records(
 
     # Permission check: standard user can only list their own resources
     query = model_class.query().limit(limit).offset(offset)
+    owner = user.get("workspace_id", user.get("username"))
     if user.get("role") != "ADMIN" and "owner" in model_class._fields:
-        query = query.filter(owner=user["username"])
+        query = query.filter(owner=owner)
 
     records = query.all()
     return [r.to_dict() for r in records]
@@ -71,6 +66,7 @@ async def create_record(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Create a new model record based on payload values."""
+    _validate_doctype(doctype)
     model_class = get_doctype_model(doctype.capitalize())
     if not model_class:
         raise HTTPException(
@@ -80,7 +76,7 @@ async def create_record(
 
     # Automatically bind owner to authenticated username
     if "owner" in model_class._fields:
-        payload["owner"] = user["username"]
+        payload["owner"] = user.get("workspace_id", user.get("username"))
 
     try:
         instance = model_class(**payload)
@@ -100,6 +96,7 @@ async def get_record(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Retrieve a single record detail by id."""
+    _validate_doctype(doctype)
     model_class = get_doctype_model(doctype.capitalize())
     if not model_class:
         raise HTTPException(
@@ -115,7 +112,8 @@ async def get_record(
         )
 
     # Owner permission enforcement
-    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != user["username"]:
+    owner = user.get("workspace_id", user.get("username"))
+    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to requested resource",
@@ -132,6 +130,7 @@ async def update_record(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Modify attribute fields on an existing record."""
+    _validate_doctype(doctype)
     model_class = get_doctype_model(doctype.capitalize())
     if not model_class:
         raise HTTPException(
@@ -146,7 +145,8 @@ async def update_record(
             detail="Record not found",
         )
 
-    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != user["username"]:
+    owner = user.get("workspace_id", user.get("username"))
+    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied to edit record",
@@ -155,6 +155,10 @@ async def update_record(
     try:
         # Apply updates
         for k, v in payload.items():
+            # Ownership is immutable for ordinary users; otherwise a caller
+            # could update a record they own and transfer it to another user.
+            if k == "owner" and user.get("role") != "ADMIN":
+                continue
             if k in record._fields:
                 record._values[k] = v
         record.save()
@@ -173,6 +177,7 @@ async def delete_record(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Deletes or soft-deletes a record from the database."""
+    _validate_doctype(doctype)
     model_class = get_doctype_model(doctype.capitalize())
     if not model_class:
         raise HTTPException(
@@ -187,7 +192,8 @@ async def delete_record(
             detail="Record not found",
         )
 
-    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != user["username"]:
+    owner = user.get("workspace_id", user.get("username"))
+    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied to delete record",

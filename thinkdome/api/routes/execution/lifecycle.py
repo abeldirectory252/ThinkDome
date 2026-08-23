@@ -8,12 +8,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from thinkdome.core.error_codes import SandboxErrorCodes
+from thinkdome.core.dependencies import get_current_user
 
-router = APIRouter(tags=["Lifecycle"])
+router = APIRouter(tags=["Lifecycle"], dependencies=[Depends(get_current_user)])
 
 
 class RenewExpirationRequest(BaseModel):

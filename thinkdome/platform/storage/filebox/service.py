@@ -19,6 +19,7 @@ from .container import BoxContainer
 
 DEFAULT_FOLDERS = ("workspace", "uploads", "artifacts", "cache", "tmp", "logs")
 DEFAULT_QUOTA_BYTES = 10 * 1024 * 1024 * 1024
+_NAMESPACE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 logger = logging.getLogger(__name__)
 
 
@@ -40,8 +41,18 @@ class FileBoxService:
             kernel.initialize()
         Base.metadata.create_all(kernel.db_engine)
 
+    @staticmethod
+    def _validate_namespace(tenant_id: str, owner_id: str) -> None:
+        """Reject path-unsafe tenant/user identifiers before filesystem use."""
+        for label, value in (("tenant_id", tenant_id), ("owner_id", owner_id)):
+            if not isinstance(value, str) or not _NAMESPACE_COMPONENT.fullmatch(value):
+                raise ValueError(
+                    f"{label} must be a single alphanumeric namespace component"
+                )
+
     def ensure_layout(self, *, tenant_id: str, owner_id: str) -> dict[str, Path]:
         """Create the standard semantic folders for one owner namespace."""
+        self._validate_namespace(tenant_id, owner_id)
         owner_root = self.root / tenant_id / owner_id
         volume = self.get_volume(tenant_id=tenant_id, owner_id=owner_id)
         if volume is not None:

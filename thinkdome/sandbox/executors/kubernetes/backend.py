@@ -171,7 +171,8 @@ class KubernetesBackend(ExecutorBackend):
         self,
         handle: SandboxHandle,
         command: list[str],
-        user: str = "sandboxuser",
+        # Match the non-root UID baked into the executor image.
+        user: str = "1000",
         env_vars: Optional[Dict[str, str]] = None,
         timeout_ms: int = 10000,
     ) -> ExecutionResult:

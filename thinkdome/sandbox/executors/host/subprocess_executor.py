@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import sys
@@ -31,7 +32,8 @@ class SubprocessExecutor(BaseExecutor):
         """Return the persistent workspace directory for a specific user."""
         if not username:
             return None
-        workspace = _PROJECT_ROOT / "storage" / "workspaces" / username
+        namespace = hashlib.sha256(str(username).encode("utf-8")).hexdigest()[:32]
+        workspace = _PROJECT_ROOT / "storage" / "workspaces" / namespace
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
 
@@ -39,7 +41,8 @@ class SubprocessExecutor(BaseExecutor):
         """Return the PYTHONUSERBASE directory for persistent pip packages."""
         if not username:
             return None
-        pip_base = _PROJECT_ROOT / "storage" / "workspaces" / username / ".pip_packages"
+        namespace = hashlib.sha256(str(username).encode("utf-8")).hexdigest()[:32]
+        pip_base = _PROJECT_ROOT / "storage" / "workspaces" / namespace / ".pip_packages"
         pip_base.mkdir(parents=True, exist_ok=True)
         return pip_base
 

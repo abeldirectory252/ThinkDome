@@ -47,7 +47,7 @@ def get_mcp_server(
 ) -> Server:
     """Create and configure low-level MCP server instance with dynamic RBAC identity and audit logging."""
     if identity is not None:
-        username = identity.username
+        username = str(identity.metadata.get("workspace_id") or identity.username)
         if identity.roles:
             caller_role = next(iter(identity.roles))
 
@@ -231,7 +231,8 @@ def run_mcp_server(site_name: str) -> None:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Start ThinkDome MCP Server")
-    parser.add_argument("--site", default="personal", help="Site config target")
+    import os
+    parser.add_argument("--site", default=os.environ.get("THINKDOME_SITE", "think.local"), help="Site config target")
     args = parser.parse_args()
 
     run_mcp_server(args.site)

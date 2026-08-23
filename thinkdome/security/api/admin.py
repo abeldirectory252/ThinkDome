@@ -20,6 +20,11 @@ from thinkdome.platform.billing.service import BillingService
 
 router = APIRouter(tags=["admin"])
 
+
+def _principal(user: dict) -> str:
+    """Stable per-user namespace, including API-key identities."""
+    return str(user.get("workspace_id", user.get("username", "anonymous"))).strip().lower()
+
 # In-memory filesystem backend registry (placeholder)
 _fs_backends: dict[str, dict] = {
     "local": {
@@ -213,9 +218,11 @@ async def update_user_quota(user_id: str, quota: dict, _admin: dict = Depends(ge
 
 class CreateSandboxRequest(BaseModel):
     name: str = Field(..., max_length=100, json_schema_extra={"example": "ML Sandbox"})
-    memory_mb: int = Field(256)
-    cpu_cores: float = Field(1.0)
-    timeout_sec: int = Field(30)
+    # Keep resource requests within the scheduler/container contract.  E2B
+    # similarly bounds sandbox lifetime instead of accepting arbitrary TTLs.
+    memory_mb: int = Field(256, gt=0, le=65536)
+    cpu_cores: float = Field(1.0, gt=0, le=64)
+    timeout_sec: int = Field(30, ge=1, le=86400)
     network_enabled: bool = Field(False)
 
 @router.get("/sandboxes")
@@ -226,7 +233,7 @@ async def list_sandboxes(
     """List sandboxes. Admins see all; users see their own."""
     from thinkdome.security.identity.core import UserIdentity
     identity = UserIdentity.from_dict(user)
-    owner = None if identity.is_admin() else identity.username
+    owner = None if identity.is_admin() else _principal(user)
     return auth_svc.db_service.list_sandboxes(owner=owner)
 
 @router.post("/sandboxes", status_code=201)
@@ -247,7 +254,7 @@ async def create_sandbox(
     res = auth_svc.db_service.create_sandbox(
         sandbox_id=sandbox_id,
         name=req.name,
-        owner=user.get("username", "anonymous"),
+        owner=_principal(user),
         memory_mb=req.memory_mb,
         cpu_cores=req.cpu_cores,
         timeout_sec=req.timeout_sec,
@@ -257,7 +264,7 @@ async def create_sandbox(
     
     # Log audit event
     auth_svc.db_service.log_audit(
-        actor=user.get("username", "anonymous"),
+        actor=_principal(user),
         action="create_sandbox",
         ip_address=request.client.host if request.client else "unknown",
         details={
@@ -283,7 +290,7 @@ async def toggle_sandbox(
         raise HTTPException(status_code=404, detail="Sandbox not found.")
         
     # Check permissions (only owner or admin)
-    if user.get("role") != "ADMIN" and sb["owner"] != user.get("username"):
+    if user.get("role") != "ADMIN" and sb["owner"] != _principal(user):
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this sandbox.")
         
     new_status = "stopped" if sb["status"] == "active" else "active"
@@ -291,7 +298,7 @@ async def toggle_sandbox(
     
     # Log audit event
     auth_svc.db_service.log_audit(
-        actor=user.get("username", "anonymous"),
+        actor=_principal(user),
         action="toggle_sandbox",
         ip_address=request.client.host if request.client else "unknown",
         details={"sandbox_id": sandbox_id, "status": new_status}
@@ -311,14 +318,14 @@ async def delete_sandbox(
         raise HTTPException(status_code=404, detail="Sandbox not found.")
         
     # Check permissions (only owner or admin)
-    if user.get("role") != "ADMIN" and sb["owner"] != user.get("username"):
+    if user.get("role") != "ADMIN" and sb["owner"] != _principal(user):
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this sandbox.")
         
     auth_svc.db_service.delete_sandbox(sandbox_id)
     
     # Log audit event
     auth_svc.db_service.log_audit(
-        actor=user.get("username", "anonymous"),
+        actor=_principal(user),
         action="delete_sandbox",
         ip_address=request.client.host if request.client else "unknown",
         details={"sandbox_id": sandbox_id}
@@ -335,7 +342,7 @@ async def get_billing_report(
     user: dict = Depends(get_current_user)
 ):
     """Retrieve billing and usage reports."""
-    return billing_svc.get_billing_data(cycle=cycle, username=user.get("username", "anonymous"))
+    return billing_svc.get_billing_data(cycle=cycle, username=_principal(user))
 
 
 @router.post("/billing/invoice")
@@ -345,7 +352,7 @@ async def compile_invoice(
     user: dict = Depends(get_current_user)
 ):
     """Compile PDF invoice for a given billing cycle."""
-    invoice_id, _ = billing_svc.compile_invoice_pdf(cycle=cycle, username=user.get("username", "anonymous"))
+    invoice_id, _ = billing_svc.compile_invoice_pdf(cycle=cycle, username=_principal(user))
     
     # We construct a secure download URL passing the session token as query parameter
     return {
@@ -527,5 +534,3 @@ async def trigger_kill_switch(
         "purged_count": purged_count,
         "message": f"Kill switch triggered by {actor}."
     }
-
-

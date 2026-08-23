@@ -74,7 +74,7 @@ async def orchestrate_tool(
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=error_res)
 
     # Ensure there is an active sandbox environment provisioned
-    username = current_user.get("username", "anonymous")
+    username = current_user.get("workspace_id", current_user.get("username", "anonymous"))
     key_id = current_user.get("key_id")
     db = request.app.state.db_service
     from thinkdome.security.identity.core import UserIdentity, is_sandbox_accessible
@@ -198,5 +198,4 @@ async def list_tools():
             "input_schema": schema
         })
     return response
-
 

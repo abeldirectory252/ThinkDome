@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, List, Set
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +25,7 @@ from thinkdome.core.events.events import bus as event_bus
 from thinkdome.core.kernel.kernel import Kernel
 from thinkdome.core.config import get_settings
 from thinkdome.core.logging import setup_logging
+from thinkdome.core.dependencies import get_current_user
 
 # ── Original API Router Imports ───────────────────────────────────────────────
 from thinkdome.platform.observability.api.health import router as health_router
@@ -39,6 +40,7 @@ from thinkdome.platform.observability.api.observability import router as observa
 from thinkdome.security.api.auth import router as auth_router
 from thinkdome.platform.orchestration.api import router as orchestrator_router
 from thinkdome.platform.observability.api.monitor import router as monitor_router
+from thinkdome.api.routes.control_plane import router as control_plane_router
 
 # ── Original Service Imports ──────────────────────────────────────────────────
 from thinkdome.sandbox.core.service import ExecutionService
@@ -60,11 +62,14 @@ app = FastAPI(
     version="0.2.0",
 )
 
-# Enable CORS for frontend dashboard
+# Enable only explicitly configured browser origins.  Wildcard origins with
+# credentials would permit unintended cross-site API calls and are rejected by
+# browsers for credentialed requests anyway.
+_cors_origins = get_settings().cors_allow_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=bool(_cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -82,17 +87,25 @@ app.include_router(languages_router, prefix="/v1")
 app.include_router(admin_router, prefix="/v1/admin")
 app.include_router(observability_router, prefix="/v1")
 app.include_router(monitor_router, prefix="/v1")
+app.include_router(control_plane_router, prefix="/v1")
 
 # ── Mount Dynamic Metadata CRUD Router (/api prefix) ──────────────────────────
 app.include_router(api_router)
 
 # ── Mount Static Frontend Files ───────────────────────────────────────────────
 static_dir = Path(__file__).resolve().parents[2] / "static"
-app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+compiled_console_dir = static_dir / "console"
+
+if (compiled_console_dir / "assets").exists():
+    app.mount("/console/assets", StaticFiles(directory=str(compiled_console_dir / "assets")), name="console_assets")
+if (static_dir / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
 
 
 @app.get("/")
-async def serve_dashboard():
+@app.get("/console")
+@app.get("/console/{full_path:path}")
+async def serve_dashboard(full_path: str = ""):
     index_path = static_dir / "index.html"
     return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
 
@@ -101,6 +114,16 @@ async def serve_dashboard():
 async def serve_login():
     login_path = static_dir / "login.html"
     return HTMLResponse(content=login_path.read_text(encoding="utf-8"))
+
+
+@app.get("/styles.css")
+@app.get("/assets/css/styles.css")
+async def serve_styles():
+    from fastapi.responses import FileResponse
+    css_path = static_dir / "assets" / "css" / "styles.css"
+    if not css_path.exists():
+        css_path = static_dir / "styles.css"
+    return FileResponse(str(css_path), media_type="text/css")
 
 
 @app.get("/orchestrator_schema.json")
@@ -123,11 +146,21 @@ async def serve_hosted_site(site_id: str, filename: str = "index.html"):
     from pathlib import Path
     import os
 
-    base_dir = Path(os.getcwd()) / "storage" / "hosted_sites" / site_id
+    hosted_root = (Path(os.getcwd()) / "storage" / "hosted_sites").resolve()
+    base_dir = (hosted_root / site_id).resolve()
+    if hosted_root not in base_dir.parents:
+        return HTMLResponse(content="Hosted site not found", status_code=404)
     if not base_dir.exists():
-        base_dir = Path(__file__).resolve().parents[3] / "storage" / "hosted_sites" / site_id
+        hosted_root = (Path(__file__).resolve().parents[3] / "storage" / "hosted_sites").resolve()
+        base_dir = (hosted_root / site_id).resolve()
+        if hosted_root not in base_dir.parents:
+            return HTMLResponse(content="Hosted site not found", status_code=404)
 
-    target_file = base_dir / (filename if filename else "index.html")
+        base_dir = base_dir.resolve()
+        target_file = (base_dir / (filename if filename else "index.html")).resolve()
+        if base_dir not in target_file.parents and target_file != base_dir:
+            # Never allow a hosted-site URL to traverse outside its site root.
+            target_file = base_dir / "index.html"
 
     if not target_file.exists() or not target_file.is_file():
         target_file = base_dir / "index.html"
@@ -337,6 +370,11 @@ async def shutdown_event() -> None:
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """Receive live client subscriptions and pipe kernel updates to dashboard."""
+    token = websocket.query_params.get("token") or websocket.cookies.get("session_token")
+    auth_svc = getattr(websocket.app.state, "auth_service", None)
+    if not token or not auth_svc or not auth_svc.verify_token(token):
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
     await websocket.accept()
     active_connections.add(websocket)
     logger.info(f"WebSocket client {client_id} connected.")
@@ -357,15 +395,41 @@ from thinkdome.platform.orchestration.mcp_server import get_mcp_server
 # Initialize SSE Transport
 sse = SseServerTransport("/mcp/messages")
 
+
+async def _authenticated_mcp_messages(scope, receive, send):
+    """Protect the POST half of MCP SSE; mounts bypass FastAPI dependencies."""
+    if scope.get("type") == "http":
+        headers = {key.decode().lower(): value.decode() for key, value in scope.get("headers", [])}
+        auth = headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else auth
+        if not token:
+            cookie = headers.get("cookie", "")
+            token = next((part.split("=", 1)[1] for part in cookie.split("; ")
+                          if part.startswith("session_token=")), "")
+        auth_svc = getattr(app.state, "auth_service", None)
+        if not token or not auth_svc or not auth_svc.verify_token(token):
+            await send({"type": "http.response.start", "status": 401,
+                        "headers": [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": b'{"detail":"Unauthorized"}'})
+            return
+    await sse.handle_post_message(scope, receive, send)
+
 @app.get("/mcp/sse")
-async def handle_sse(request: Request):
+async def handle_sse(request: Request, user: dict = Depends(get_current_user)):
     """Establish SSE stream connection for MCP."""
     kernel = Kernel.current()
     db_service = request.app.state.db_service
     orchestrator = request.app.state.orchestrator_service
+    from thinkdome.security.identity.core import UserIdentity
 
     client_ip = request.client.host if request.client else "127.0.0.1"
-    mcp_server = get_mcp_server(kernel.site_name, db_service, orchestrator, client_ip=client_ip)
+    mcp_server = get_mcp_server(
+        kernel.site_name,
+        db_service,
+        orchestrator,
+        client_ip=client_ip,
+        identity=UserIdentity.from_dict(user),
+    )
 
     async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
         await mcp_server.run(
@@ -375,4 +439,4 @@ async def handle_sse(request: Request):
         )
 
 # Mount POST message endpoint
-app.mount("/mcp/messages", sse.handle_post_message)
+app.mount("/mcp/messages", _authenticated_mcp_messages)

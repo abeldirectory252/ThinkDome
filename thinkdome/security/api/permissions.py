@@ -8,9 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from thinkdome.security.rbac.service import PermissionService
 from thinkdome.security.repositories.permission import PermissionRepository
-from thinkdome.core.dependencies import get_current_user
+from thinkdome.core.dependencies import get_current_admin, get_current_user
 
-router = APIRouter(prefix="/v1/permissions", tags=["RBAC Permissions"])
+router = APIRouter(
+    prefix="/v1/permissions",
+    tags=["RBAC Permissions"],
+    dependencies=[Depends(get_current_admin)],
+)
 
 perm_service = PermissionService()
 perm_repo = PermissionRepository()

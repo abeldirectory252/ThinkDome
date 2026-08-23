@@ -263,18 +263,16 @@ async function fetchDashboardData() {
         const statNodesCount = document.getElementById('statNodesCount');
         const statKeysCount = document.getElementById('statKeysCount');
 
-        if (statCumulativeCalls) statCumulativeCalls.innerHTML = `<span style="font-size:13px;color:var(--fg-subtle)">—</span>`;
-        if (statNodesCount) statNodesCount.innerHTML = `<span style="font-size:13px;color:var(--fg-subtle)">—</span>`;
-        if (statKeysCount) statKeysCount.innerHTML = `<span style="font-size:13px;color:var(--fg-subtle)">—</span>`;
+        if (statCumulativeCalls) statCumulativeCalls.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
+        if (statNodesCount) statNodesCount.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
+        if (statKeysCount) statKeysCount.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
 
-        const emptyRow = (cols, msg) => `<tr><td colspan="${cols}" style="text-align:center;padding:20px 12px;color:var(--fg-subtle);font-size:13px;"><div style="display:flex;flex-direction:column;align-items:center;gap:6px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>${msg}</div></td></tr>`;
-
-        if (execBody) execBody.innerHTML = emptyRow(4, 'Waiting for API connection…');
-        if (auditBody) auditBody.innerHTML = emptyRow(3, 'Waiting for API connection…');
-        if (auditFullBody) auditFullBody.innerHTML = emptyRow(6, 'Waiting for API connection…');
+        if (execBody) execBody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
+        if (auditBody) auditBody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
+        if (auditFullBody) auditFullBody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
         
         const keysTableBody = document.getElementById('apiKeysTableBody');
-        if (keysTableBody) keysTableBody.innerHTML = emptyRow(5, 'Waiting for API connection…');
+        if (keysTableBody) keysTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to connect to API</td></tr>`;
     }
 }
 
@@ -626,9 +624,9 @@ async function renderBillingReport() {
         console.warn("Billing report offline:", err);
         summaryIds.forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.innerHTML = `<span style="font-size:13px;color:var(--fg-subtle)">—</span>`;
+            if (el) el.innerHTML = `<span style="font-size:12px;color:var(--danger)">Offline</span>`;
         });
-        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px 12px;color:var(--fg-subtle);font-size:13px;"><div style="display:flex;flex-direction:column;align-items:center;gap:6px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>Waiting for billing data…</div></td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--danger);font-weight:600;">⚠️ Backend offline: failed to load billing data</td></tr>`;
     }
 }
 
@@ -643,8 +641,6 @@ async function downloadInvoice() {
         
         // Initiate actual browser download
         const a = document.createElement('a');
-        // Same-origin downloads automatically include the HttpOnly session cookie;
-        // never place bearer tokens in URLs where proxies/history can log them.
         a.href = downloadUrl;
         a.download = `invoice-${invoiceId}.pdf`;
         a.style.display = 'none';

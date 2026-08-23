@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from thinkdome.platform.observability.metrics.prometheus import ACTIVE_SANDBOXES, POOL_HIT_RATE
+from thinkdome.core.dependencies import get_current_admin
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["observability"])
+# These endpoints expose aggregate infrastructure state, execution logs, and
+# audit trails.  Keep them admin-only even when the API is accidentally bound
+# to a public interface.
+router = APIRouter(tags=["observability"], dependencies=[Depends(get_current_admin)])
 
 
 @router.get("/metrics")
@@ -46,8 +50,8 @@ async def metrics(request: Request):
 @router.get("/logs/executions")
 async def execution_logs(
     request: Request,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     sandbox_id: str = None,
     tool_name: str = None,
 ):
@@ -66,15 +70,15 @@ async def execution_logs(
         logger.error(f"Failed to query execution logs: {e}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": f"Failed to retrieve logs: {str(e)}"}
+            content={"detail": "Failed to retrieve logs"}
         )
 
 
 @router.get("/audit/files")
 async def file_audit(
     request: Request,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     actor: str = None,
     action: str = None,
 ):
@@ -93,7 +97,7 @@ async def file_audit(
         logger.error(f"Failed to query audit trail: {e}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": f"Failed to retrieve audit trail: {str(e)}"}
+            content={"detail": "Failed to retrieve audit trail"}
         )
 
 

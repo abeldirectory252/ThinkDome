@@ -83,6 +83,8 @@ class DockerBackend(ExecutorBackend):
                 },
                 cap_drop=["ALL"],
                 security_opt=security_opt,
+                pids_limit=100,
+                ipc_mode="private",
                 network_mode="none" if not network_enabled else "bridge",
                 device_requests=device_requests,
                 init=True,
@@ -101,7 +103,10 @@ class DockerBackend(ExecutorBackend):
         self,
         handle: SandboxHandle,
         command: list[str],
-        user: str = "sandboxuser",
+        # The executor image creates UID/GID 1000 as ``sandbox``.  Using the
+        # old ``sandboxuser`` name makes Docker exec fail with "no such user"
+        # on the shipped image and turns every execution into an error.
+        user: str = "1000:1000",
         env_vars: Optional[Dict[str, str]] = None,
         timeout_ms: int = 10000,
     ) -> ExecutionResult:
@@ -135,6 +140,20 @@ class DockerBackend(ExecutorBackend):
                 duration_ms=duration_ms,
             )
         except asyncio.TimeoutError:
+            # ``exec_run`` blocks in the Docker SDK thread and cannot be
+            # cancelled safely. Kill the sandbox so a timed-out command
+            # cannot continue consuming CPU after the API reports timeout.
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.client.containers.get(handle.container_id).kill(),
+                )
+            except Exception as kill_error:
+                logger.warning(
+                    "Failed to terminate timed-out sandbox %s: %s",
+                    handle.sandbox_id,
+                    kill_error,
+                )
             duration_ms = (time.perf_counter() - start) * 1000.0
             return ExecutionResult(
                 stdout="",

@@ -6,9 +6,13 @@ from typing import List
 from fastapi import APIRouter, Depends
 from thinkdome.security.repositories.audit import AuditRepository
 from thinkdome.security.rbac.models import LoginHistory
-from thinkdome.core.dependencies import get_current_user
+from thinkdome.core.dependencies import get_current_admin, get_current_user
 
-router = APIRouter(prefix="/v1/audit", tags=["RBAC Audit"])
+router = APIRouter(
+    prefix="/v1/audit",
+    tags=["RBAC Audit"],
+    dependencies=[Depends(get_current_admin)],
+)
 
 audit_repo = AuditRepository()
 

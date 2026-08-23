@@ -17,12 +17,12 @@ router = APIRouter(prefix="/control-plane", tags=["control-plane"])
 
 
 class PlacementRequest(BaseModel):
-    project_id: str = Field(min_length=1, max_length=128)
-    sandbox_id: str = Field(min_length=1, max_length=128)
-    cpu_millis: int = Field(default=500, gt=0)
-    memory_bytes: int = Field(default=536_870_912, gt=0)
-    pids: int = Field(default=64, gt=0)
-    gpu_count: int = Field(default=0, ge=0)
+    project_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+    sandbox_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+    cpu_millis: int = Field(default=500, gt=0, le=256_000)
+    memory_bytes: int = Field(default=536_870_912, gt=0, le=68_719_476_736)
+    pids: int = Field(default=64, gt=0, le=4096)
+    gpu_count: int = Field(default=0, ge=0, le=16)
     region: str | None = Field(default=None, max_length=64)
 
 
@@ -38,7 +38,14 @@ async def list_ready_nodes(
     lifecycle: ControlPlaneLifecycle = Depends(get_control_plane_lifecycle),
 ):
     """Return live node capacity for the operator console."""
-    return {"nodes": [node.model_dump(mode="json") for node in lifecycle.repository.get_ready_heartbeats()]}
+    # Node heartbeats are optional in local/offline deployments.  A missing or
+    # not-yet-initialized ORM table must not turn the dashboard status widget
+    # into a 500 response.
+    try:
+        nodes = lifecycle.repository.get_ready_heartbeats()
+    except Exception:
+        nodes = []
+    return {"nodes": [node.model_dump(mode="json") for node in nodes]}
 
 
 @router.post("/placements", status_code=status.HTTP_201_CREATED)
@@ -72,7 +79,7 @@ async def create_placement(
             status_code=403,
             detail={"code": SandboxErrorCodes.TENANT_SCOPE_DENIED, "message": "organization scope does not match token"},
         )
-    if not idempotency_key:
+    if not idempotency_key or len(idempotency_key) > 128:
         raise HTTPException(
             status_code=400,
             detail={"code": SandboxErrorCodes.INVALID_PARAMETER, "message": "Idempotency-Key is required"},

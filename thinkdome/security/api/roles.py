@@ -8,10 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from thinkdome.security.rbac.service import RoleService
 from thinkdome.security.repositories.role import RoleRepository
-from thinkdome.core.dependencies import get_current_user
+from thinkdome.core.dependencies import get_current_admin, get_current_user
 from thinkdome.security.identity.permissions import has_permission, has_role
 
-router = APIRouter(prefix="/v1/roles", tags=["RBAC Roles"])
+router = APIRouter(
+    prefix="/v1/roles",
+    tags=["RBAC Roles"],
+    dependencies=[Depends(get_current_admin)],
+)
 
 role_service = RoleService()
 role_repo = RoleRepository()

@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, Header, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
 from thinkdome.core.error_codes import SandboxErrorCodes
 from thinkdome.security.auth.vault_bindings import Credential, CredentialBinding
+from thinkdome.core.dependencies import get_current_user
 
-router = APIRouter(tags=["Credential Vault"])
+router = APIRouter(tags=["Credential Vault"], dependencies=[Depends(get_current_user)])
 
 
 class CreateVaultRequest(BaseModel):
@@ -35,8 +36,8 @@ def create_vault_entries(
     request: Request,
     sandbox_id: str,
     payload: CreateVaultRequest,
-    x_user_id: Optional[str] = Header("anonymous", alias="X-User-Id"),
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
+    user: dict = Depends(get_current_user),
 ) -> dict:
     """Store credentials and bindings in Vault for a sandbox.
 
@@ -49,10 +50,15 @@ def create_vault_entries(
             detail={"code": SandboxErrorCodes.UNKNOWN_ERROR, "message": "Credential Vault is not initialized."},
         )
 
+    # Never trust the caller-controlled X-User-Id header for secret ownership.
+    owner_id = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="Authenticated user is required")
+
     # Store credentials
     for cred in payload.credentials:
         vault.store(
-            user_id=x_user_id,
+            user_id=owner_id,
             sandbox_id=sandbox_id,
             key_name=cred.name,
             value=cred.source.value,
@@ -80,8 +86,8 @@ def create_vault_entries(
 def list_vault_keys(
     request: Request,
     sandbox_id: str,
-    x_user_id: Optional[str] = Header("anonymous", alias="X-User-Id"),
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
+    user: dict = Depends(get_current_user),
 ) -> dict:
     """List secret key names stored in Vault (secret values are NEVER returned)."""
     vault = getattr(request.app.state, "credential_vault", None)
@@ -91,5 +97,6 @@ def list_vault_keys(
             detail={"code": SandboxErrorCodes.UNKNOWN_ERROR, "message": "Credential Vault is not initialized."},
         )
 
-    keys = vault.list_keys(user_id=x_user_id, sandbox_id=sandbox_id)
+    owner_id = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
+    keys = vault.list_keys(user_id=owner_id, sandbox_id=sandbox_id)
     return {"sandbox_id": sandbox_id, "keys": keys}

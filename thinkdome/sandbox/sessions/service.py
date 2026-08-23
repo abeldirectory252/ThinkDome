@@ -29,7 +29,7 @@ class SessionService:
         self._sessions: dict[str, SessionInfo] = {}
         self._history: dict[str, list[str]] = {}  # session_id -> list of code blocks
 
-    def create(self, request: CreateSessionRequest) -> SessionInfo:
+    def create(self, request: CreateSessionRequest, owner_id: str | None = None) -> SessionInfo:
         session_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
 
@@ -39,19 +39,21 @@ class SessionService:
             status="active",
             created_at=now,
             last_activity=now,
+            owner_id=owner_id,
         )
         self._sessions[session_id] = info
         self._history[session_id] = []
         logger.info(f"Session created: {session_id}")
         return info
 
-    def get(self, session_id: str) -> Optional[SessionInfo]:
-        return self._sessions.get(session_id)
+    def get(self, session_id: str, owner_id: str | None = None) -> Optional[SessionInfo]:
+        session = self._sessions.get(session_id)
+        return session if session and (owner_id is None or session.owner_id == owner_id) else None
 
     async def execute_in_session(
-        self, session_id: str, request: SessionExecRequest
+        self, session_id: str, request: SessionExecRequest, owner_id: str | None = None
     ) -> Optional[SessionExecResponse]:
-        session = self._sessions.get(session_id)
+        session = self.get(session_id, owner_id)
         if not session or session.status != "active":
             return None
 
@@ -80,8 +82,8 @@ class SessionService:
             execution_index=session.execution_count,
         )
 
-    def close(self, session_id: str) -> bool:
-        session = self._sessions.get(session_id)
+    def close(self, session_id: str, owner_id: str | None = None) -> bool:
+        session = self.get(session_id, owner_id)
         if not session:
             return False
         session.status = "closed"

@@ -76,7 +76,7 @@ async def test_mcp_server_rbac_identity_propagation():
     mock_db.fetch_all.return_value = [{"sandbox_id": "sb_test"}]
 
     server = get_mcp_server(
-        site_name="personal",
+        site_name="think.local",
         db_service=mock_db,
         orchestrator=mock_orchestrator,
         caller_role="SALES_MANAGER",

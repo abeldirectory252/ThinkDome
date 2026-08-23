@@ -7,7 +7,7 @@ from thinkdome.core.config import get_settings
 def main() -> None:
     settings = get_settings()
     uvicorn.run(
-        "app.app:create_app",
+        "thinkdome.api.server:create_app",
         factory=True,
         host=settings.HOST,
         port=settings.PORT,

@@ -26,7 +26,12 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 def get_jwt_secret() -> str:
     """Retrieve JWT secret from settings or environment with secure fallback."""
     settings = get_settings()
-    return getattr(settings, "JWT_SECRET_KEY", None) or getattr(settings, "SECRET_KEY", None) or DEFAULT_SECRET_KEY
+    configured = getattr(settings, "JWT_SECRET_KEY", None) or getattr(settings, "SECRET_KEY", None)
+    if settings.DEPLOYMENT_ENV.lower() in {"staging", "production"}:
+        if not configured or len(configured) < 32:
+            raise RuntimeError("JWT signing secret is not configured for production")
+        return configured
+    return configured or DEFAULT_SECRET_KEY
 
 
 def create_access_token(

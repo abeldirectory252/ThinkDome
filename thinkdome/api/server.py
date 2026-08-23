@@ -2,13 +2,14 @@
 
 from contextlib import asynccontextmanager
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 import thinkdome.platform.orchestration.tools  # Trigger tool imports and class-based tool registration
 from thinkdome.core.config import get_settings
 from thinkdome.core.logging import setup_logging
 from thinkdome.platform.observability.api.health import router as health_router
+from thinkdome.core.dependencies import get_current_user
 from thinkdome.api.routes.execution.execute import router as execute_router
 from thinkdome.platform.storage.api.files import router as files_router
 from thinkdome.platform.storage.api.workspaces import router as workspaces_router
@@ -43,6 +44,11 @@ async def lifespan(app: FastAPI):
     # Initialize DB first and call initialize for asyncpg pool
     app.state.db_service = DatabaseService(settings)
     await app.state.db_service.initialize()
+
+    # RBAC models use the framework ORM, whose active database is available
+    # only after the application database service has been initialized.
+    from thinkdome.security.rbac.schema import initialize_rbac_schema
+    initialize_rbac_schema(app.state.db_service)
 
     # Control-plane state is persisted through the custom ORM.  This service is
     # deliberately independent from the local execution backend so public API
@@ -271,14 +277,6 @@ def create_app() -> FastAPI:
     from thinkdome.security.api.roles import router as rbac_roles_router
     from thinkdome.security.api.permissions import router as rbac_permissions_router
     from thinkdome.security.api.audit import router as rbac_audit_router
-    from thinkdome.security.rbac.schema import initialize_rbac_schema
-
-    try:
-        initialize_rbac_schema(app.state.db_service)
-    except Exception as ie:
-        import logging
-        logging.getLogger(__name__).warning(f"RBAC Schema init note: {ie}")
-
     from thinkdome.sandbox.snapshots.api import router as snapshots_router
     from thinkdome.sandbox.executors.microvm.api import router as microvm_router
     from thinkdome.api.routes.execution.lifecycle import router as lifecycle_router
@@ -323,33 +321,25 @@ def create_app() -> FastAPI:
     from fastapi.staticfiles import StaticFiles
     from pathlib import Path
     static_dir = Path(__file__).resolve().parent.parent / "static"
-
-    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
     compiled_console_dir = static_dir / "console"
-    if compiled_console_dir.exists():
-        app.mount(
-            "/console",
-            StaticFiles(directory=str(compiled_console_dir), html=True),
-            name="console",
-        )
+
+    if (compiled_console_dir / "assets").exists():
+        app.mount("/console/assets", StaticFiles(directory=str(compiled_console_dir / "assets")), name="console_assets")
+    if (static_dir / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
 
     # Serve dashboard and schema
     @app.get("/")
-    async def serve_dashboard():
+    @app.get("/console")
+    @app.get("/console/{full_path:path}")
+    async def serve_dashboard(full_path: str = ""):
         from fastapi.responses import HTMLResponse
-        # Preserve the established dashboard as the primary experience. The
-        # Node console is available explicitly at /console during migration.
+        if full_path or (compiled_console_dir / "index.html").exists():
+            console_index = compiled_console_dir / "index.html"
+            if console_index.exists():
+                return HTMLResponse(content=console_index.read_text(encoding="utf-8"))
         index_path = static_dir / "index.html"
         return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
-
-    @app.get("/console")
-    async def serve_console_fallback():
-        """Keep /console usable before the optional Node build is installed."""
-        from fastapi.responses import HTMLResponse
-        compiled_console = static_dir / "console" / "index.html"
-        if compiled_console.exists():
-            return HTMLResponse(content=compiled_console.read_text(encoding="utf-8"))
-        return HTMLResponse(content=(static_dir / "index.html").read_text(encoding="utf-8"))
 
     @app.get("/login.html")
     async def serve_login():
@@ -375,9 +365,16 @@ def create_app() -> FastAPI:
         storage_dir = Path(get_settings().FILE_STORAGE_DIR)
         if not storage_dir.is_absolute():
             storage_dir = get_workspace_root() / storage_dir
-        base_dir = storage_dir / "hosted_sites" / site_id
+        hosted_root = (storage_dir / "hosted_sites").resolve()
+        base_dir = (hosted_root / site_id).resolve()
+        if hosted_root not in base_dir.parents:
+            return HTMLResponse(content="Hosted site not found", status_code=404)
 
-        target_file = base_dir / (filename if filename else "index.html")
+        base_dir = base_dir.resolve()
+        target_file = (base_dir / (filename if filename else "index.html")).resolve()
+        if base_dir not in target_file.parents and target_file != base_dir:
+            # Never allow a hosted-site URL to traverse outside its site root.
+            target_file = base_dir / "index.html"
 
         if not target_file.exists() or not target_file.is_file():
             target_file = base_dir / "index.html"
@@ -456,25 +453,39 @@ def create_app() -> FastAPI:
 
     sse = SseServerTransport("/mcp/messages")
 
+    async def _authenticated_mcp_messages(scope, receive, send):
+        """Protect mounted MCP POST messages with the same auth as SSE."""
+        if scope.get("type") == "http":
+            headers = {key.decode().lower(): value.decode() for key, value in scope.get("headers", [])}
+            auth = headers.get("authorization", "")
+            token = auth[7:] if auth.lower().startswith("bearer ") else auth
+            if not token:
+                cookie = headers.get("cookie", "")
+                token = next((part.split("=", 1)[1] for part in cookie.split("; ")
+                              if part.startswith("session_token=")), "")
+            auth_svc = getattr(app.state, "auth_service", None)
+            if not token or not auth_svc or not auth_svc.verify_token(token):
+                await send({"type": "http.response.start", "status": 401,
+                            "headers": [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": b'{"detail":"Unauthorized"}'})
+                return
+        await sse.handle_post_message(scope, receive, send)
+
     @app.get("/mcp/sse")
-    async def handle_sse(request: Request):
+    async def handle_sse(request: Request, user: dict = Depends(get_current_user)):
         """Establish SSE stream connection for MCP with authentication propagation."""
         from thinkdome.core.kernel.kernel import Kernel
         kernel = Kernel.current()
         db_service = request.app.state.db_service
         orchestrator = request.app.state.orchestrator_service
 
-        from thinkdome.security.identity.core import ROLE_ADMIN, UserIdentity
+        from thinkdome.security.identity.core import UserIdentity
 
         client_ip = request.client.host if request.client else "127.0.0.1"
-        caller_role = request.headers.get("X-User-Role", ROLE_ADMIN)
-        username = request.headers.get("X-Username", "anonymous")
-        tenant_id = request.headers.get("X-Tenant-Id", kernel.site_name)
-
         identity = UserIdentity.from_dict({
-            "username": username,
-            "role": caller_role,
-            "tenant_id": tenant_id,
+            "username": user.get("workspace_id", user.get("username", "anonymous")),
+            "role": user.get("role", "AGENT_STANDARD"),
+            "tenant_id": user.get("tenant_id", kernel.site_name),
         })
 
         mcp_server = get_mcp_server(
@@ -492,6 +503,6 @@ def create_app() -> FastAPI:
                 mcp_server.create_initialization_options(),
             )
 
-    app.mount("/mcp/messages", sse.handle_post_message)
+    app.mount("/mcp/messages", _authenticated_mcp_messages)
 
     return app

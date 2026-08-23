@@ -15,6 +15,7 @@ class FileMetadata(BaseModel):
     sha256: str
     created_at: datetime
     updated_at: Optional[datetime] = None
+    owner_id: Optional[str] = None
 
 
 class FileListResponse(BaseModel):

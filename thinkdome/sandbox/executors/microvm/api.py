@@ -10,10 +10,11 @@ Provides REST API for managing Cloud Hypervisor MicroVM instances:
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Request
+from thinkdome.core.dependencies import get_current_user
 
 from thinkdome.sandbox.executors.microvm import MicroVMExecutor, VMStatus
 
-router = APIRouter(tags=["microvm"])
+router = APIRouter(tags=["microvm"], dependencies=[Depends(get_current_user)])
 
 
 # ─── Request/Response Models ────────────────────────────────────────────────

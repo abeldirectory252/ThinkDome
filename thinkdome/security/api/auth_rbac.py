@@ -61,6 +61,7 @@ async def login(req: LoginRequest, request: Request):
     audit_repo.create_session(user.id, session_token, expires_at, ip_address=client_ip)
     audit_repo.record_login(user.id, status="success", ip_address=client_ip)
     roles = [role.name for role in role_repo.get_user_roles(user.id)]
+    effective_role = select_effective_role(roles, username=user.username)
 
     return {
         "status": "success",
@@ -71,7 +72,7 @@ async def login(req: LoginRequest, request: Request):
             "username": user.username,
             "email": user.email,
             "status": user.status,
-            "role": select_effective_role(roles, username=user.username),
+            "role": effective_role,
             "roles": roles,
         }
     }

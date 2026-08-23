@@ -12,12 +12,13 @@ import logging
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Header, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+from thinkdome.core.dependencies import get_current_user
 
-router = APIRouter(tags=["Metrics"])
+router = APIRouter(tags=["Metrics"], dependencies=[Depends(get_current_user)])
 
 # Match pattern: ThinkDome-Python-SDK/0.1.0, ThinkDome-Go-SDK/1.0.0, etc.
 _SDK_USER_AGENT_RE = re.compile(
