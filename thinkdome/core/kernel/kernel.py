@@ -174,7 +174,15 @@ class Kernel:
     def close(self) -> None:
         """Gracefully release database sessions and dispose engines."""
         if self.db:
-            self.db.close()
+            try:
+                self.db.close()
+            except Exception:
+                pass
+            self.db = None
         if self.db_engine:
-            self.db_engine.dispose()
+            try:
+                self.db_engine.dispose()
+            except Exception:
+                pass
+            self.db_engine = None
         self.initialized = False

@@ -30,8 +30,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--site",
-        default=os.environ.get("THINKDOME_SITE", "personal"),
-        help="Target site context (default: personal)",
+        default=os.environ.get("THINKDOME_SITE", "think.local"),
+        help="Target site context (default: think.local)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")

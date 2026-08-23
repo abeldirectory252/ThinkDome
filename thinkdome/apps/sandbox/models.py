@@ -106,3 +106,23 @@ class Snapshot(Model):
     state_dir = StringField(default="")
     parent_snapshot_id = StringField(default="")
     owner = StringField(default="anonymous")
+
+
+class SystemSetting(Model):
+    """Global system & infrastructure settings entity mapped to database via ORM schema."""
+
+    key = StringField(required=True)
+    value = StringField(default="")
+    category = StringField(default="general")
+    db_engine = StringField(default="sqlite")
+    db_connection_url = StringField(default="sqlite:///sites/think.local/db.sqlite")
+    db_max_connections = IntegerField(default=20)
+    db_pool_size = IntegerField(default=5)
+    db_echo_sql = BooleanField(default=False)
+    rabbitmq_uri = StringField(default="amqp://guest:guest@localhost:5672/")
+    redis_url = StringField(default="redis://127.0.0.1:6379/0")
+    smtp_host = StringField(default="smtp.sendgrid.net")
+    smtp_port = IntegerField(default=587)
+    timezone = StringField(default="UTC")
+    __unique_together__ = ("key",)
+

@@ -558,7 +558,7 @@ async function openFile(fKey) {
             if (error) throw new Error(error);
             file.content = data;
         } catch {
-            file.content = `# Unable to load file content.\n# The sandbox may not be connected yet. Try refreshing.\n`;
+            file.content = `# Error: Failed to load file from sandbox.\n# Backend offline or sandbox disconnected.\n`;
         }
     }
 
@@ -774,8 +774,8 @@ async function runActiveEditorCode() {
               <div style="display:grid;grid-template-columns:1fr;gap:14px;">
                 <div class="billing-sub-card">
                   <div class="label" style="font-size:11px;">Status</div>
-                  <div class="value" style="font-size:20px;margin-top:4px;color:var(--fg-muted);">Unavailable</div>
-                  <div class="stat-sub">Container runtime is not reachable</div>
+                  <div class="value" style="font-size:20px;margin-top:4px;color:var(--danger);">Error</div>
+                  <div class="stat-sub">Failed to connect to container runtime</div>
                 </div>
               </div>
             `;

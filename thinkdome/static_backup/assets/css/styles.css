@@ -26,12 +26,12 @@
     --radius-md: 10px;
     --radius-lg: 14px;
 
-    --sidebar-w: 240px;
+    --sidebar-w: 260px;
     --header-h: 52px;
 
-    --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-display: 'Outfit', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-mono: 'Fira Code', ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, .04);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
@@ -77,8 +77,6 @@ html.dark {
 html,
 body {
     font-family: var(--font-sans);
-    font-size: 14px;
-    line-height: 1.5;
     color: var(--fg);
     background-color: var(--bg);
     -webkit-font-smoothing: antialiased;
@@ -3002,6 +3000,78 @@ html.dark .audit-payload-code {
     flex-shrink: 0;
 }
 
+/* =================== UNIFORM PAGE HEADER STYLES =================== */
+.page-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: nowrap;
+    gap: 16px;
+    width: 100%;
+}
+
+.page-head > .btn,
+.page-head > div:not(.page-title) {
+    margin-left: auto !important;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.page-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-display);
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    color: var(--fg) !important;
+    letter-spacing: -0.02em;
+    line-height: 1.3 !important;
+}
+
+.page-title h2,
+.page-title h1,
+.page-title h3 {
+    font-family: var(--font-display) !important;
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    color: var(--fg) !important;
+    letter-spacing: -0.02em !important;
+    margin: 0 !important;
+    line-height: 1.3 !important;
+    display: block !important;
+}
+
+.page-title .ico {
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.page-title .subtitle,
+.page-title .page-sub {
+    font-size: 13px !important;
+    color: var(--fg-muted) !important;
+    font-weight: 400 !important;
+    margin-top: 2px !important;
+    margin-bottom: 0 !important;
+    line-height: 1.4 !important;
+}
+
 .sidebar-profile {
     display: flex;
     align-items: center;
@@ -3078,78 +3148,6 @@ html.dark .audit-payload-code {
 .sidebar-resizer-bar:hover,
 .sidebar-resizer-bar.dragging {
     background: var(--accent);
-}
-
-/* =================== UNIFORM PAGE HEADER STYLES =================== */
-.page-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-    flex-wrap: nowrap;
-    gap: 16px;
-    width: 100%;
-}
-
-.page-head > .btn,
-.page-head > div:not(.page-title) {
-    margin-left: auto !important;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
-}
-
-.page-title {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex: 1;
-    min-width: 0;
-    font-family: var(--font-display);
-    font-size: 20px !important;
-    font-weight: 700 !important;
-    color: var(--fg) !important;
-    letter-spacing: -0.02em;
-    line-height: 1.3 !important;
-}
-
-.page-title h2,
-.page-title h1,
-.page-title h3 {
-    font-family: var(--font-display) !important;
-    font-size: 20px !important;
-    font-weight: 700 !important;
-    color: var(--fg) !important;
-    letter-spacing: -0.02em !important;
-    margin: 0 !important;
-    line-height: 1.3 !important;
-    display: block !important;
-}
-
-.page-title .ico {
-    color: var(--accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    border-radius: var(--radius-md);
-    background: var(--surface-raised);
-    border: 1px solid var(--border);
-    flex-shrink: 0;
-}
-
-.page-title .subtitle,
-.page-title .page-sub {
-    font-size: 13px !important;
-    color: var(--fg-muted) !important;
-    font-weight: 400 !important;
-    margin-top: 2px !important;
-    margin-bottom: 0 !important;
-    line-height: 1.4 !important;
 }
 
 /* =================== ULTRA-MODERN INPUT, SELECT & FORM SYSTEM =================== */
@@ -3334,167 +3332,10 @@ input[type="radio"] {
     border-radius: 50%;
     background: var(--surface-raised);
     cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     position: relative;
     vertical-align: middle;
     transition: all 0.15s ease;
     flex-shrink: 0;
-}
-
-input[type="radio"]:hover {
-    border-color: var(--accent);
-}
-
-/* Collapsed Sidebar */
-.sidebar.collapsed {
-    width: 64px !important;
-    padding: 12px 8px !important;
-}
-
-.sidebar.collapsed .nav-group-label,
-.sidebar.collapsed .nav-item span,
-.sidebar.collapsed .sidebar-footer-profile {
-    display: none !important;
-}
-
-.sidebar.collapsed .nav-item {
-    justify-content: center !important;
-    padding: 10px !important;
-}
-
-/* Modal Large & Hardware Config Form */
-.modal-lg {
-    max-width: 680px !important;
-    width: 90vw !important;
-    max-height: 85vh !important;
-    overflow-y: auto !important;
-}
-
-.modal-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 6px;
-}
-
-.form-section {
-    margin-top: 18px;
-    padding-top: 14px;
-    border-top: 1px solid var(--border);
-}
-
-.form-section-title {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--fg-muted);
-    margin-bottom: 12px;
-}
-
-.form-row-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-}
-
-.slider-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 6px;
-}
-
-.slider-chip {
-    padding: 6px 14px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: var(--surface-raised);
-    color: var(--fg);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.slider-chip:hover {
-    border-color: var(--border-strong);
-    background: var(--surface);
-}
-
-.slider-chip.active {
-    background: var(--accent) !important;
-    color: var(--accent-fg) !important;
-    border-color: var(--accent) !important;
-    font-weight: 600;
-}
-
-.tag-input-row {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
-}
-
-.tag-input-row input {
-    flex: 1;
-}
-
-.tag-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
-}
-
-.tag-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    background: var(--accent-subtle);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--fg);
-}
-
-.tag-chip button {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--fg-muted);
-    display: flex;
-    align-items: center;
-    padding: 0;
-}
-
-.tag-chip button:hover {
-    color: var(--danger);
-}
-
-.field-error {
-    font-size: 12px;
-    color: var(--danger);
-    margin-top: 4px;
-    display: block;
-}
-
-.form-range {
-    width: 100%;
-    accent-color: var(--accent);
-    cursor: pointer;
-}
-
-.range-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: var(--fg-subtle);
-    font-family: var(--font-mono);
-    margin-top: 2px;
 }
 
 input[type="radio"]:checked {

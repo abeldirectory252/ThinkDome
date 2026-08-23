@@ -325,8 +325,21 @@ class DatabaseService:
 
     # ── Database Driver Execution Engines ────────────────────────────────────────
 
+    @property
+    def effective_db_path(self) -> Path:
+        try:
+            from thinkdome.core.kernel.kernel import Kernel
+            kernel = Kernel.current()
+            if kernel and kernel.initialized:
+                db_url = kernel.config.get("db_url", "")
+                if db_url and db_url.startswith("sqlite:///"):
+                    return Path(db_url[10:])
+        except Exception:
+            pass
+        return self.db_path
+
     def _get_sqlite_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=15.0)
+        conn = sqlite3.connect(str(self.effective_db_path), timeout=15.0)
         conn.row_factory = sqlite3.Row
         return conn
 

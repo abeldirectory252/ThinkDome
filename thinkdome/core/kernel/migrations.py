@@ -67,7 +67,9 @@ def get_applied_migrations(kernel: Kernel, app_name: Optional[str] = None) -> Li
 class MigrationRunner:
     """Manages transaction-safe execution of up/down schema changes."""
 
-    def __init__(self, site_name: str) -> None:
+    def __init__(self, site_name: Optional[str] = None) -> None:
+        if not site_name:
+            site_name = os.environ.get("THINKDOME_SITE", "think.local")
         self.site_name = site_name
         self.kernel = Kernel.get_instance(site_name)
         self.kernel.initialize()

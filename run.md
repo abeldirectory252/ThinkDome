@@ -17,7 +17,7 @@ Run the FastAPI production server on port 8000:
 ### B. Start Model Context Protocol (MCP) Stdio Server
 Launch the stdio transport server for local AI assistants (e.g. Claude Desktop):
 ```bash
-./venv/bin/python think mcp --site personal
+./venv/bin/python think mcp --site think.local
 ```
 
 ### C. Run Full Pytest Test Suite

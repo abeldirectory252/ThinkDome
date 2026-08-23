@@ -33,9 +33,9 @@ class Device(Model):
 
 @pytest.fixture(autouse=True)
 def setup_test_site():
-    """Ensure kernel context is bound to 'personal' testing database with clean tables."""
-    os.environ["THINKDOME_SITE"] = "personal"
-    kernel = Kernel.get_instance("personal")
+    """Ensure kernel context is bound to 'think.local' testing database with clean tables."""
+    os.environ["THINKDOME_SITE"] = "think.local"
+    kernel = Kernel.get_instance("think.local")
     kernel.initialize()
     
     # Drop and recreate all tables for a clean slate per test
@@ -269,7 +269,7 @@ def down(db):
     
     # 3. Test migration runner
     from thinkdome.core.kernel.migrations import MigrationRunner
-    runner = MigrationRunner("personal")
+    runner = MigrationRunner("think.local")
     runner.migrate("dummy_app")
     
     # Check status

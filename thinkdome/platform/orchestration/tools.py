@@ -253,7 +253,7 @@ class ToolRegistry:
 
     def get_active_tools(
         self,
-        site_name: str = "personal",
+        site_name: str = "think.local",
         category: Optional[str] = None,
         search: Optional[str] = None,
     ) -> list[RegisteredTool]:
