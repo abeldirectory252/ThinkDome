@@ -14,9 +14,9 @@ def api_keys(app):
     }
 
 @pytest.mark.asyncio
-async def test_billing_unauthorized(client):
+async def test_billing_unauthorized(unauthenticated_client):
     # Retrieve billing reports without authorization
-    resp = await client.get("/v1/admin/billing")
+    resp = await unauthenticated_client.get("/v1/admin/billing")
     assert resp.status_code == 401
 
 @pytest.mark.asyncio
@@ -56,7 +56,7 @@ async def test_billing_cycles_and_breakdown(client, api_keys, app):
     assert data_last["label"] != data["label"]
 
 @pytest.mark.asyncio
-async def test_invoice_compilation_and_download(client, api_keys, app):
+async def test_invoice_compilation_and_download(client, unauthenticated_client, api_keys, app):
     headers = {"Authorization": f"Bearer {api_keys['ADMIN']}"}
 
     # Compile invoice
@@ -76,10 +76,10 @@ async def test_invoice_compilation_and_download(client, api_keys, app):
 
     # Download using token as query parameter
     query_download_url = f"{download_url}?token={api_keys['ADMIN']}"
-    resp_query = await client.get(query_download_url)
-    assert resp_query.status_code == 200
-    assert resp_query.headers["content-type"] == "application/pdf"
-    assert b"%PDF-1.4" in resp_query.content
+    resp_query = await unauthenticated_client.get(query_download_url)
+    # Query-string bearer tokens are deliberately rejected to prevent URL
+    # leakage through browser history, logs, and referrer headers.
+    assert resp_query.status_code == 401
 
     # Download non-existent invoice ID
     resp_404 = await client.get("/v1/admin/billing/invoice/download/inv_fake123", headers=headers)

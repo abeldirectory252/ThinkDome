@@ -16,9 +16,9 @@ def api_keys(app):
 
 
 @pytest.mark.asyncio
-async def test_sandbox_unauthorized(client):
+async def test_sandbox_unauthorized(unauthenticated_client):
     # Fetch without auth
-    resp = await client.get("/v1/admin/sandboxes")
+    resp = await unauthenticated_client.get("/v1/admin/sandboxes")
     assert resp.status_code == 401
 
 

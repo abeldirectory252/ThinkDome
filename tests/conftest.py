@@ -26,5 +26,15 @@ async def app():
 @pytest.fixture
 async def client(app):
     transport = ASGITransport(app=app)
+    token = app.state.auth_service.create_api_key("Default test admin", token_type="ADMIN")["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as c:
+        yield c
+
+
+@pytest.fixture
+async def unauthenticated_client(app):
+    """Client without implicit credentials for authentication boundary tests."""
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

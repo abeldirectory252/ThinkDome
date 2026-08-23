@@ -236,7 +236,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_mkdir",
         "name": "make_dir",
-        "input": {"path": "test_folder"}
+            "input": {"path": "/workspace/test_folder"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200
@@ -247,7 +247,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_exists",
         "name": "file_exists",
-        "input": {"path": "test_folder"}
+            "input": {"path": "/workspace/test_folder"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200
@@ -260,7 +260,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_write",
         "name": "write_file",
-        "input": {"path": "test_folder/test.txt", "content": "thinkbox-utility-test"}
+            "input": {"path": "/workspace/test_folder/test.txt", "content": "thinkbox-utility-test"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200
@@ -270,7 +270,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_hash",
         "name": "hash_file",
-        "input": {"path": "test_folder/test.txt", "algorithm": "md5"}
+            "input": {"path": "/workspace/test_folder/test.txt", "algorithm": "md5"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200
@@ -283,7 +283,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_rm",
         "name": "remove_file",
-        "input": {"path": "test_folder/test.txt"}
+        "input": {"path": "/workspace/test_folder/test.txt"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200
@@ -293,7 +293,7 @@ async def test_orchestrate_file_utilities(client, api_keys):
         "type": "tool_use",
         "id": "t_rmdir",
         "name": "remove_dir",
-        "input": {"path": "test_folder"}
+        "input": {"path": "/workspace/test_folder"}
     }
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 200
