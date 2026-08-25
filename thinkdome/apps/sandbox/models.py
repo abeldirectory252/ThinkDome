@@ -35,6 +35,7 @@ class Sandbox(Model):
     node_id = StringField(default="")
     placement_version = IntegerField(default=0)
     expires_at = FloatField(default=0.0)
+    python_dependencies = StringField(default="[]")
 
 
 class Organization(Model):

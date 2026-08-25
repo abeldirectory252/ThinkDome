@@ -661,6 +661,7 @@ function registerNewSandboxNode() {
             document.getElementById('sbxCustomTtlSeconds').value = "";
             document.getElementById('sbxCustomTtlSeconds').hidden = true;
         }
+        if (document.getElementById('sbxPythonDependencies')) document.getElementById('sbxPythonDependencies').value = '';
         if (document.getElementById('sbxRateInput')) document.getElementById('sbxRateInput').value = "0.08";
         if (document.getElementById('sbxRateLimitSelect')) document.getElementById('sbxRateLimitSelect').value = "60";
         if (document.getElementById('sbxConcurrentExecSelect')) document.getElementById('sbxConcurrentExecSelect').value = "5";
@@ -706,6 +707,8 @@ async function submitRegisterModal(e) {
             : ttlPreset,
         10
     );
+    const pythonDependencies = (document.getElementById('sbxPythonDependencies')?.value || '')
+        .split(/\r?\n/).map(value => value.trim()).filter(Boolean);
     const rate = parseFloat(document.getElementById('sbxRateInput')?.value || "0.08");
     const rateLimit = parseInt(document.getElementById('sbxRateLimitSelect')?.value || "60", 10);
     const maxConcurrent = parseInt(document.getElementById('sbxConcurrentExecSelect')?.value || "5", 10);
@@ -794,6 +797,7 @@ async function submitRegisterModal(e) {
                 cpu_cores: cpuCores,
                 timeout_sec: ttlSeconds,
                 ttl_seconds: ttlSeconds,
+                python_dependencies: pythonDependencies,
                 network_enabled: networkMode !== 'lockdown'
             }, token);
 

@@ -6,10 +6,11 @@ import hashlib
 import json
 import logging
 import time
+import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from thinkdome.core.dependencies import (
     get_auth_service,
@@ -369,6 +370,20 @@ class CreateSandboxRequest(BaseModel):
     ttl_seconds: int = Field(3600, ge=1, le=259200, description="Lease TTL in seconds; maximum 72 hours")
     network_enabled: bool = Field(False)
     storage_quota_mb: int = Field(10240, gt=0, le=1_048_576)
+    python_dependencies: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("python_dependencies")
+    @classmethod
+    def validate_dependencies(cls, value):
+        if len(value) > 50:
+            raise ValueError("At most 50 Python dependencies may be requested")
+        pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}(?:\[[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*\])?(?:[<>=!~]=?[A-Za-z0-9.*+!-]+)?$")
+        normalized = []
+        for dependency in value:
+            if not isinstance(dependency, str) or not pattern.fullmatch(dependency.strip()):
+                raise ValueError("Dependencies must be valid pinned/package Python requirement strings")
+            normalized.append(dependency.strip())
+        return normalized
 
 @router.get("/sandboxes")
 async def list_sandboxes(
@@ -421,6 +436,7 @@ async def create_sandbox(
         network_enabled=req.network_enabled,
         status="Created",
         expires_at=time.time() + req.ttl_seconds,
+        python_dependencies=json.dumps(req.python_dependencies),
     )
     sandbox.save()
     await _invalidate_sandbox_cache()
@@ -428,6 +444,7 @@ async def create_sandbox(
     res["sandbox_id"] = sandbox_id
     res["timeout_sec"] = req.timeout_sec
     res["ttl_seconds"] = req.ttl_seconds
+    res["python_dependencies"] = req.python_dependencies
     res["expires_at"] = sandbox.to_dict().get("expires_at")
     res["cost_per_hour"] = cost
     

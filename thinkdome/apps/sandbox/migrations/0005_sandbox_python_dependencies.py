@@ -1,4 +1,4 @@
-"""Add durable lease expiration timestamps to sandbox records."""
+"""Add persisted Python dependency requests to sandbox records."""
 
 from sqlalchemy import inspect, text
 
@@ -9,14 +9,10 @@ def up(db) -> None:
     if not inspector.has_table(table):
         return
     columns = {column["name"] for column in inspector.get_columns(table)}
-    if "expires_at" not in columns:
-        db.execute(text(f"ALTER TABLE {table} ADD COLUMN expires_at REAL DEFAULT 0"))
     if "python_dependencies" not in columns:
         db.execute(text(f"ALTER TABLE {table} ADD COLUMN python_dependencies TEXT DEFAULT '[]'"))
-    if "expires_at" not in columns or "python_dependencies" not in columns:
         db.commit()
 
 
 def down(db) -> None:
-    # SQLite cannot safely drop columns across supported versions.
     return None

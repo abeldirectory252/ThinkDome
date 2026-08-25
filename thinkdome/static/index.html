@@ -2802,6 +2802,9 @@
                 </select>
                 <input id="sbxCustomTtlSeconds" class="form-input" type="number" min="1" max="259200" step="1" placeholder="Custom TTL in seconds" hidden style="margin-top:8px;" />
                 <small style="display:block;margin-top:5px;color:var(--fg-subtle);">The sandbox expires automatically when this lease ends.</small>
+                <label for="sbxPythonDependencies" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin:12px 0 6px;">Python dependencies (optional)</label>
+                <textarea id="sbxPythonDependencies" class="form-input" rows="3" placeholder="numpy==2.1.0\npandas\nrequests>=2.32"></textarea>
+                <small style="display:block;margin-top:5px;color:var(--fg-subtle);">One package requirement per line; installed only inside this sandbox.</small>
               </div>
               <div class="field">
                 <label for="sbxRateInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Hourly Rate Cap ($/hr) *</label>
