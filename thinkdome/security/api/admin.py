@@ -450,6 +450,23 @@ async def list_sandboxes(
     await _cache_sandboxes(owner, rows)
     return rows
 
+
+@router.get("/sandboxes/capacity")
+async def sandbox_capacity(
+    auth_svc: AuthService = Depends(get_auth_service),
+    _user: dict = Depends(get_current_user),
+):
+    """Expose effective host capacity for admission-aware UI hints."""
+    total_mb, available_mb = _host_memory_capacity_mb()
+    from thinkdome.apps.sandbox.models import Sandbox
+    reserved_mb = sum(int(sb._values.get("memory_limit") or 0) for sb in Sandbox.query().all())
+    return {
+        "total_mb": total_mb,
+        "available_mb": available_mb,
+        "reserved_mb": reserved_mb,
+        "admissible_mb": max(0, min(available_mb - max(128, int(total_mb * 0.10)), int(total_mb * 0.90) - reserved_mb)),
+    }
+
 @router.post("/sandboxes", status_code=201)
 async def create_sandbox(
     req: CreateSandboxRequest,

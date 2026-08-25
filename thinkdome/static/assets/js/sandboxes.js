@@ -643,6 +643,16 @@ function registerNewSandboxNode() {
     if (alertEl) { alertEl.hidden = true; alertEl.textContent = ''; }
     
     if (modal) {
+        const token = localStorage.getItem('thinkdome_token');
+        if (window.API?.getSandboxCapacity && token) {
+            window.API.getSandboxCapacity(token).then(({data}) => {
+                const hint = document.getElementById('sbxHostMemoryHint');
+                if (hint && data) {
+                    const available = Math.max(0, Math.floor((data.admissible_mb || 0) / 1024));
+                    hint.textContent = `Host capacity: approximately ${available} GB is currently admissible; larger requests will be rejected.`;
+                }
+            }).catch(() => {});
+        }
         const randomId = Math.floor(10 + Math.random() * 90);
         if (document.getElementById('sbxNameInput')) document.getElementById('sbxNameInput').value = `custom-node-${randomId}`;
         if (document.getElementById('sbxRuntimeInput')) document.getElementById('sbxRuntimeInput').value = "python:3.11-slim";

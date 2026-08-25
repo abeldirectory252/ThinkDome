@@ -498,6 +498,10 @@ export async function getSandboxes(token) {
     return apiFetch("/v1/admin/sandboxes", { method: "GET" }, token);
 }
 
+export async function getSandboxCapacity(token) {
+    return apiFetch("/v1/admin/sandboxes/capacity", { method: "GET" }, token);
+}
+
 /**
  * Create (deploy) a new sandbox environment.
  * @param {{ name: string, memory_mb: number, cpu_cores: number, timeout_sec: number, network_enabled: boolean }} config
