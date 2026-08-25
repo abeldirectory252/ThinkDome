@@ -790,6 +790,9 @@ async function submitRegisterModal(e) {
     };
 
     try {
+        if (!window.API || !token) {
+            throw new Error('Your session has expired. Please sign in again before creating a sandbox.');
+        }
         if (window.API && token) {
             const { data, error } = await window.API.createSandbox({
                 name: name,
