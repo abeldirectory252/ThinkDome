@@ -180,8 +180,11 @@ class AuthService:
                 target_role = role_repo.get_by_name(role)
                 if target_role and user:
                     user_svc.assign_role_to_user(user.id, target_role.id, actor=username)
-            except Exception as re:
-                logger.warning(f"RBAC user sync note for '{username}': {re}")
+            except Exception as rbac_error:
+                # Do not shadow the module-level ``re`` validator used above.
+                # RBAC synchronization is best-effort; the primary auth record
+                # has already been committed and remains valid.
+                logger.warning("RBAC user sync note for '%s': %s", username, rbac_error)
 
             # Log audit trail
             self.db_service.log_audit(
