@@ -125,9 +125,7 @@ class MigrationRunner:
         backup = self.backup_database()
         if backup:
             logger.info("Migration backup created at %s", backup)
-        
         apps_to_migrate = [target_app] if target_app else self.kernel.get_installed_apps()
-        
         for app_name in apps_to_migrate:
             migrations_dir = APPS_DIR / app_name / "migrations"
             if not migrations_dir.exists():
