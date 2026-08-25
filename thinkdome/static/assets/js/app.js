@@ -184,6 +184,11 @@ function applyRoleBasedUINavigation(role, username) {
         const page = btn.dataset.page;
         btn.style.display = allowedPages.has(page) ? 'flex' : 'none';
     });
+    document.querySelectorAll('.nav-section').forEach(section => {
+        const hasVisibleChild = Array.from(section.querySelectorAll('.nav-item'))
+            .some(item => item.style.display !== 'none');
+        section.hidden = !hasVisibleChild;
+    });
 
     // Hide inaccessible content as well as its navigation entry. This keeps
     // direct DOM access from presenting an administrator page to a standard
