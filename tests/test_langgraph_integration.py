@@ -97,3 +97,35 @@ def test_native_checkpointer_runs_compiled_langgraph():
         tuple_value = checkpointer.get_tuple(config)
         assert tuple_value is not None
         assert tuple_value.checkpoint["channel_values"]["value"] == 2
+
+
+def test_native_checkpointer_redis_backend_round_trip():
+    class Pipeline:
+        def __init__(self, owner):
+            self.owner = owner
+            self.operations = []
+        def set(self, key, value): self.operations.append(("set", key, value)); return self
+        def zadd(self, key, values): self.operations.append(("zadd", key, values)); return self
+        def hset(self, key, field, value): self.operations.append(("hset", key, field, value)); return self
+        def execute(self):
+            for operation in self.operations:
+                if operation[0] == "set": self.owner.values[operation[1]] = operation[2]
+                elif operation[0] == "zadd":
+                    self.owner.sorted.setdefault(operation[1], {}).update({k: v for k, v in operation[2].items()})
+                else: self.owner.hashes.setdefault(operation[1], {})[operation[2]] = operation[3]
+
+    class FakeRedis:
+        def __init__(self): self.values, self.sorted, self.hashes = {}, {}, {}
+        def pipeline(self, transaction=True): return Pipeline(self)
+        def get(self, key): return self.values.get(key)
+        def hgetall(self, key): return self.hashes.get(key, {})
+        def zrevrange(self, key, start, end):
+            items = sorted(self.sorted.get(key, {}).items(), key=lambda item: item[1], reverse=True)
+            return [item[0] for item in items][start:] if end == -1 else [item[0] for item in items][start:end + 1]
+        def zscore(self, key, member): return self.sorted.get(key, {}).get(member)
+
+    store = ThinkDomeLangGraphCheckpointer(redis_client=FakeRedis())
+    config = {"configurable": {"thread_id": "redis-thread"}}
+    saved = store.put(config, {"id": "redis-cp"}, {"source": "test"}, {})
+    assert store.get_tuple(saved).checkpoint["id"] == "redis-cp"
+    assert list(store.list(config))[0].metadata["source"] == "test"

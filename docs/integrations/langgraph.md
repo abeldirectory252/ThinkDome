@@ -70,6 +70,20 @@ controlled storage; a local SQLite file is not a multi-worker/shared-database
 solution. For multiple workers, use a supported shared LangGraph checkpointer
 or a database service with an appropriate locking/backup strategy.
 
+For production workers, use Redis as the shared persistence backend:
+
+```python
+checkpointer = ThinkDomeLangGraphCheckpointer(
+    redis_url="redis://redis.internal:6379/3",
+    redis_prefix="thinkdome:langgraph:prod",
+)
+```
+
+Redis keys are namespace-scoped and checkpoint payloads include pending writes
+and parent relationships. Configure Redis persistence, authentication, TLS,
+network policy, and eviction protection; do not use an eviction-enabled cache
+as the sole checkpoint store.
+
 ## Tools
 
 ```python

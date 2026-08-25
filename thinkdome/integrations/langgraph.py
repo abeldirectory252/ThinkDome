@@ -15,6 +15,7 @@ import inspect
 import re
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping, Optional
@@ -236,13 +237,21 @@ class ThinkDomeCheckpointStore:
 
 
 class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
-    """SQLite-backed native LangGraph checkpointer.
+    """ORM-compatible native LangGraph checkpointer with Redis support.
 
-    The database is local to the configured path; production deployments must
-    place it on durable storage or use a shared database-backed checkpointer.
+    Redis is the recommended backend for multi-worker deployments. The local
+    SQLite compatibility backend remains available for development and tests;
+    it is never selected when ``redis_url`` or ``redis_client`` is provided.
     """
 
-    def __init__(self, path: str = "./storage/langgraph/checkpoints.sqlite3") -> None:
+    def __init__(
+        self,
+        path: str = "./storage/langgraph/checkpoints.sqlite3",
+        *,
+        redis_url: str | None = None,
+        redis_client: Any | None = None,
+        redis_prefix: str = "thinkdome:langgraph",
+    ) -> None:
         if not isinstance(path, str) or not path:
             raise LangGraphIntegrationError("Checkpoint database path is required")
         self.path = Path(path)
@@ -259,7 +268,37 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
             super().__init__()
         self._sync_lock = threading.RLock()
         self._async_lock = asyncio.Lock()
-        self._init_db()
+        self._redis = redis_client
+        if redis_url and redis_client is not None:
+            raise LangGraphIntegrationError("Specify redis_url or redis_client, not both")
+        if redis_url:
+            try:
+                import redis
+                self._redis = redis.Redis.from_url(redis_url, decode_responses=False)
+            except ImportError as exc:
+                raise LangGraphIntegrationError("Redis support requires the redis package") from exc
+        self._redis_prefix = redis_prefix.rstrip(":")
+        if not self._redis:
+            self._init_db()
+
+    @property
+    def uses_redis(self) -> bool:
+        return self._redis is not None
+
+    def _redis_scope_key(self, thread_id: str, namespace: str) -> str:
+        encoded_thread = base64.urlsafe_b64encode(thread_id.encode()).decode().rstrip("=")
+        encoded_namespace = base64.urlsafe_b64encode(namespace.encode()).decode().rstrip("=")
+        return f"{self._redis_prefix}:index:{encoded_thread}:{encoded_namespace}"
+
+    def _redis_checkpoint_key(self, thread_id: str, namespace: str, checkpoint_id: str) -> str:
+        encoded_thread = base64.urlsafe_b64encode(thread_id.encode()).decode().rstrip("=")
+        encoded_namespace = base64.urlsafe_b64encode(namespace.encode()).decode().rstrip("=")
+        encoded_checkpoint = base64.urlsafe_b64encode(checkpoint_id.encode()).decode().rstrip("=")
+        return f"{self._redis_prefix}:checkpoint:{encoded_thread}:{encoded_namespace}:{encoded_checkpoint}"
+
+    def _redis_write_key(self, thread_id: str, namespace: str, checkpoint_id: str) -> str:
+        encoded = [base64.urlsafe_b64encode(value.encode()).decode().rstrip("=") for value in (thread_id, namespace, checkpoint_id)]
+        return f"{self._redis_prefix}:writes:{':'.join(encoded)}"
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.path) as db:
@@ -326,6 +365,14 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         return {**dict(config), "configurable": {**dict(config.get("configurable", {})), "checkpoint_id": checkpoint_id}}
 
     def _put_row(self, thread_id: str, namespace: str, checkpoint_id: str, parent_id: str | None, checkpoint: bytes, metadata: bytes) -> None:
+        if self._redis is not None:
+            key = self._redis_checkpoint_key(thread_id, namespace, checkpoint_id)
+            payload = json.dumps({"parent_id": parent_id, "checkpoint": checkpoint.decode(), "metadata": metadata.decode()})
+            pipe = self._redis.pipeline(transaction=True)
+            pipe.set(key, payload)
+            pipe.zadd(self._redis_scope_key(thread_id, namespace), {checkpoint_id: time.time_ns()})
+            pipe.execute()
+            return
         with self._sync_lock, self._connect() as db:
             db.execute("INSERT OR REPLACE INTO checkpoints(thread_id,checkpoint_ns,checkpoint_id,parent_id,checkpoint,metadata) VALUES(?,?,?,?,?,?)", (thread_id, namespace, checkpoint_id, parent_id, checkpoint, metadata))
 
@@ -341,6 +388,13 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         self._put_writes(thread_id, namespace, checkpoint_id, writes, task_id)
 
     def _put_writes(self, thread_id: str, namespace: str, checkpoint_id: str, writes: list[tuple[str, Any]], task_id: str) -> None:
+        if self._redis is not None:
+            key = self._redis_write_key(thread_id, namespace, checkpoint_id)
+            pipe = self._redis.pipeline(transaction=True)
+            for idx, (channel, value) in enumerate(writes):
+                pipe.hset(key, f"{task_id}:{idx}", json.dumps({"task_id": task_id, "channel": channel, "value": self._encode(value).decode()}))
+            pipe.execute()
+            return
         with self._sync_lock, self._connect() as db:
             for idx, (channel, value) in enumerate(writes):
                 db.execute("INSERT OR REPLACE INTO writes VALUES(?,?,?,?,?,?,?)", (thread_id, namespace, checkpoint_id, task_id, idx, channel, self._encode(value)))
@@ -367,6 +421,17 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         return CheckpointTuple(result_config, checkpoint, self._decode(metadata), parent_config, self._pending_writes(thread_id, namespace, checkpoint["id"]))
 
     def _get_row(self, thread_id: str, namespace: str, checkpoint_id: str | None):
+        if self._redis is not None:
+            if checkpoint_id is None:
+                values = self._redis.zrevrange(self._redis_scope_key(thread_id, namespace), 0, 0)
+                if not values:
+                    return None
+                checkpoint_id = values[0].decode() if isinstance(values[0], bytes) else values[0]
+            raw = self._redis.get(self._redis_checkpoint_key(thread_id, namespace, checkpoint_id))
+            if not raw:
+                return None
+            record = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+            return self._decode(record["checkpoint"].encode()), record["metadata"].encode(), record.get("parent_id")
         with self._sync_lock, self._connect() as db:
             row = db.execute("SELECT checkpoint,parent_id,metadata FROM checkpoints WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=COALESCE(?,(SELECT checkpoint_id FROM checkpoints WHERE thread_id=? AND checkpoint_ns=? ORDER BY rowid DESC LIMIT 1))", (thread_id, namespace, checkpoint_id, thread_id, namespace)).fetchone()
         if not row:
@@ -374,6 +439,13 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         return self._decode(row[0]), row[2], row[1]
 
     def _pending_writes(self, thread_id: str, namespace: str, checkpoint_id: str) -> list[tuple[str, str, Any]]:
+        if self._redis is not None:
+            values = self._redis.hgetall(self._redis_write_key(thread_id, namespace, checkpoint_id))
+            rows = []
+            for raw in values.values():
+                record = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                rows.append((record["task_id"], record["channel"], self._decode(record["value"].encode())))
+            return sorted(rows, key=lambda item: (item[0], item[1]))
         with self._sync_lock, self._connect() as db:
             rows = db.execute("SELECT task_id, channel, value FROM writes WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=? ORDER BY task_id, idx", (thread_id, namespace, checkpoint_id)).fetchall()
         return [(task_id, channel, self._decode(value)) for task_id, channel, value in rows]
@@ -407,6 +479,27 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
             yield CheckpointTuple({"configurable": {"thread_id": checkpoint["thread_id"], "checkpoint_ns": checkpoint["checkpoint_ns"], "checkpoint_id": checkpoint_id}}, checkpoint_value, decoded_metadata, parent_config, self._pending_writes(checkpoint["thread_id"], checkpoint["checkpoint_ns"], checkpoint_id))
 
     def _list_rows(self, thread_id, namespace, before_id=None, limit=None):
+        if self._redis is not None:
+            if thread_id is None:
+                raise LangGraphIntegrationError("Redis checkpointer list requires a scoped thread_id")
+            ids = self._redis.zrevrange(self._redis_scope_key(thread_id, namespace), 0, -1)
+            result = []
+            before_score = None
+            if before_id:
+                before_score = self._redis.zscore(self._redis_scope_key(thread_id, namespace), before_id)
+            for raw_id in ids:
+                checkpoint_id = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
+                score = self._redis.zscore(self._redis_scope_key(thread_id, namespace), checkpoint_id)
+                if before_score is not None and (score is None or score >= before_score):
+                    continue
+                raw = self._redis.get(self._redis_checkpoint_key(thread_id, namespace, checkpoint_id))
+                if not raw:
+                    continue
+                record = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                result.append(({"thread_id": thread_id, "checkpoint_ns": namespace, "data": record["checkpoint"].encode()}, record["metadata"].encode(), checkpoint_id, record.get("parent_id")))
+                if limit is not None and len(result) >= max(0, int(limit)):
+                    break
+            return result
         with self._sync_lock, self._connect() as db:
             query = "SELECT thread_id,checkpoint_ns,checkpoint_id,checkpoint,metadata FROM checkpoints"
             args = []
