@@ -499,6 +499,62 @@ async function bulkDeleteSandboxes() {
 /* =================== MODULAR REGISTER MODAL & CHIP VALIDATORS =================== */
 let sbxEgressDomainsList = ['api.github.com', 'pypi.org', 'huggingface.co', 'cdn.jsdelivr.net'];
 let sbxIngressPortsList = ['80', '443', '8000'];
+let sbxPythonDependenciesList = [];
+
+function escapeSandboxHtml(value) {
+    return String(value).replace(/[&<>'"]/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    }[character]));
+}
+
+function isValidPythonDependency(value) {
+    return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}(?:\[[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*\])?(?:[<>=!~]=?[A-Za-z0-9.*+!-]+)?$/.test(value);
+}
+
+function renderPythonDependencyChips() {
+    const container = document.getElementById('sbxPythonDependenciesList');
+    if (!container) return;
+    if (!sbxPythonDependenciesList.length) {
+        container.innerHTML = '<span style="font-size:12px;color:var(--fg-subtle);font-style:italic;">No Python dependencies added.</span>';
+        return;
+    }
+    container.innerHTML = sbxPythonDependenciesList.map(dependency => `
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;background:var(--surface-raised);border:1px solid var(--border-strong);border-radius:14px;font-size:11.5px;font-family:var(--font-mono);color:var(--fg);">
+        <span>${escapeSandboxHtml(dependency)}</span>
+        <button type="button" aria-label="Remove ${escapeSandboxHtml(dependency)}" onclick="removePythonDependencyChip('${escapeSandboxHtml(dependency)}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-weight:700;font-size:13px;line-height:1;padding:0 2px;">&times;</button>
+      </span>`).join('');
+}
+
+function addPythonDependencyChip() {
+    const input = document.getElementById('sbxPythonDependencyInput');
+    const error = document.getElementById('sbxPythonDependencyError');
+    if (error) { error.hidden = true; error.textContent = ''; }
+    if (!input) return;
+    const dependency = input.value.trim();
+    if (!isValidPythonDependency(dependency)) {
+        if (error) {
+            error.textContent = 'Invalid dependency. Use a package requirement such as numpy==2.1.0 or requests>=2.32.';
+            error.hidden = false;
+        }
+        return;
+    }
+    if (sbxPythonDependenciesList.includes(dependency)) {
+        if (error) { error.textContent = 'That dependency has already been added.'; error.hidden = false; }
+        return;
+    }
+    if (sbxPythonDependenciesList.length >= 50) {
+        if (error) { error.textContent = 'You can add at most 50 dependencies per sandbox.'; error.hidden = false; }
+        return;
+    }
+    sbxPythonDependenciesList.push(dependency);
+    input.value = '';
+    renderPythonDependencyChips();
+}
+
+function removePythonDependencyChip(dependency) {
+    sbxPythonDependenciesList = sbxPythonDependenciesList.filter(item => item !== dependency);
+    renderPythonDependencyChips();
+}
 
 function toggleEgressDomainInputVisibility(mode) {
     const notice = document.getElementById('sbxEgressStatusNotice');
@@ -724,7 +780,8 @@ function registerNewSandboxNode() {
             document.getElementById('sbxCustomTtlSeconds').value = "";
             document.getElementById('sbxCustomTtlSeconds').hidden = true;
         }
-        if (document.getElementById('sbxPythonDependencies')) document.getElementById('sbxPythonDependencies').value = '';
+        sbxPythonDependenciesList = [];
+        renderPythonDependencyChips();
         if (document.getElementById('sbxRateInput')) document.getElementById('sbxRateInput').value = "0.08";
         if (document.getElementById('sbxRateLimitSelect')) document.getElementById('sbxRateLimitSelect').value = "60";
         if (document.getElementById('sbxConcurrentExecSelect')) document.getElementById('sbxConcurrentExecSelect').value = "5";
@@ -770,8 +827,7 @@ async function submitRegisterModal(e) {
             : ttlPreset,
         10
     );
-    const pythonDependencies = (document.getElementById('sbxPythonDependencies')?.value || '')
-        .split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+    const pythonDependencies = [...sbxPythonDependenciesList];
     const rate = parseFloat(document.getElementById('sbxRateInput')?.value || "0.08");
     const rateLimit = parseInt(document.getElementById('sbxRateLimitSelect')?.value || "60", 10);
     const maxConcurrent = parseInt(document.getElementById('sbxConcurrentExecSelect')?.value || "5", 10);
