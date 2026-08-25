@@ -70,7 +70,12 @@ controlled storage; a local SQLite file is not a multi-worker/shared-database
 solution. For multiple workers, use a supported shared LangGraph checkpointer
 or a database service with an appropriate locking/backup strategy.
 
-For production workers, use Redis as the shared persistence backend:
+ThinkDome uses its ORM schema as the authoritative checkpoint store when the
+application kernel is initialized. Redis can be supplied as a write-through
+and read-through acceleration layer; it is never authoritative and can be
+rebuilt from ORM records after eviction or restart.
+
+For production workers, configure Redis caching alongside the ORM:
 
 ```python
 checkpointer = ThinkDomeLangGraphCheckpointer(
@@ -82,7 +87,8 @@ checkpointer = ThinkDomeLangGraphCheckpointer(
 Redis keys are namespace-scoped and checkpoint payloads include pending writes
 and parent relationships. Configure Redis persistence, authentication, TLS,
 network policy, and eviction protection; do not use an eviction-enabled cache
-as the sole checkpoint store.
+as the sole checkpoint store. The project declares SQLAlchemy as a runtime
+dependency because the ORM schema is required for this integration.
 
 ## Tools
 

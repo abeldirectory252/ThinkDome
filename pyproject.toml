@@ -37,6 +37,7 @@ dependencies = [
     "sse-starlette>=2.0.0",
     "mcp>=1.0.0",
     "redis>=5.0.0",
+    "sqlalchemy>=2.0.0",
     "cryptography>=42.0.0",
 ]
 

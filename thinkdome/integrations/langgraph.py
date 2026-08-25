@@ -21,6 +21,42 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping, Optional
 
 from thinkdome.sandbox.sdk import Sandbox, SandboxResult
+try:
+    from thinkdome.core.orm.orm import Model, StringField, FloatField, IntegerField
+    _ORM_AVAILABLE = True
+except ImportError:  # optional integration remains importable before dependencies are installed
+    _ORM_AVAILABLE = False
+    class Model:  # type: ignore[no-redef]
+        pass
+    def StringField(**kwargs): return None  # type: ignore[misc]
+    def FloatField(**kwargs): return None  # type: ignore[misc]
+    def IntegerField(**kwargs): return None  # type: ignore[misc]
+
+
+class LangGraphCheckpointRecord(Model):
+    """ORM record for one LangGraph checkpoint and its lineage."""
+
+    thread_id = StringField(required=True)
+    checkpoint_ns = StringField(default="")
+    checkpoint_id = StringField(required=True)
+    parent_id = StringField(default="")
+    checkpoint_payload = StringField(required=True)
+    metadata_payload = StringField(required=True)
+    created_at = FloatField(default=0.0)
+    __unique_together__ = ("thread_id", "checkpoint_ns", "checkpoint_id")
+
+
+class LangGraphWriteRecord(Model):
+    """ORM record for pending LangGraph task writes."""
+
+    thread_id = StringField(required=True)
+    checkpoint_ns = StringField(default="")
+    checkpoint_id = StringField(required=True)
+    task_id = StringField(required=True)
+    write_index = IntegerField(required=True)
+    channel = StringField(required=True)
+    value_payload = StringField(required=True)
+    __unique_together__ = ("thread_id", "checkpoint_ns", "checkpoint_id", "task_id", "write_index")
 
 try:  # Optional native LangGraph runtime
     from langgraph.checkpoint.base import BaseCheckpointSaver, CheckpointTuple
@@ -278,8 +314,29 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
             except ImportError as exc:
                 raise LangGraphIntegrationError("Redis support requires the redis package") from exc
         self._redis_prefix = redis_prefix.rstrip(":")
-        if not self._redis:
+        self._orm = self._resolve_orm()
+        if self._orm:
+            self._ensure_orm_schema()
+        elif not self._redis:
             self._init_db()
+
+    @staticmethod
+    def _resolve_orm() -> bool:
+        """Use the active ThinkDome ORM when the application kernel is ready."""
+        if not _ORM_AVAILABLE:
+            return False
+        try:
+            from thinkdome.core.kernel.kernel import Kernel
+            kernel = Kernel.current()
+            return bool(kernel.initialized and kernel.db is not None)
+        except (FileNotFoundError, RuntimeError, ValueError):
+            return False
+
+    @staticmethod
+    def _ensure_orm_schema() -> None:
+        from thinkdome.core.kernel.kernel import Kernel
+        from thinkdome.core.orm.orm import Base
+        Base.metadata.create_all(Kernel.current().db_engine)
 
     @property
     def uses_redis(self) -> bool:
@@ -299,6 +356,14 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
     def _redis_write_key(self, thread_id: str, namespace: str, checkpoint_id: str) -> str:
         encoded = [base64.urlsafe_b64encode(value.encode()).decode().rstrip("=") for value in (thread_id, namespace, checkpoint_id)]
         return f"{self._redis_prefix}:writes:{':'.join(encoded)}"
+
+    def _cache_checkpoint(self, thread_id: str, namespace: str, checkpoint_id: str, parent_id: str | None, checkpoint: bytes, metadata: bytes) -> None:
+        """Write-through cache; the ORM remains authoritative."""
+        payload = json.dumps({"parent_id": parent_id, "checkpoint": checkpoint.decode(), "metadata": metadata.decode()})
+        pipe = self._redis.pipeline(transaction=True)
+        pipe.set(self._redis_checkpoint_key(thread_id, namespace, checkpoint_id), payload)
+        pipe.zadd(self._redis_scope_key(thread_id, namespace), {checkpoint_id: time.time_ns()})
+        pipe.execute()
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.path) as db:
@@ -365,6 +430,17 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         return {**dict(config), "configurable": {**dict(config.get("configurable", {})), "checkpoint_id": checkpoint_id}}
 
     def _put_row(self, thread_id: str, namespace: str, checkpoint_id: str, parent_id: str | None, checkpoint: bytes, metadata: bytes) -> None:
+        if self._orm:
+            record = LangGraphCheckpointRecord.query().filter(thread_id=thread_id, checkpoint_ns=namespace, checkpoint_id=checkpoint_id).first()
+            values = {"parent_id": parent_id or "", "checkpoint_payload": checkpoint.decode(), "metadata_payload": metadata.decode(), "created_at": time.time_ns()}
+            if record:
+                for key, value in values.items(): setattr(record, key, value)
+            else:
+                record = LangGraphCheckpointRecord(thread_id=thread_id, checkpoint_ns=namespace, checkpoint_id=checkpoint_id, **values)
+            record.save()
+            if self._redis is not None:
+                self._cache_checkpoint(thread_id, namespace, checkpoint_id, parent_id, checkpoint, metadata)
+            return
         if self._redis is not None:
             key = self._redis_checkpoint_key(thread_id, namespace, checkpoint_id)
             payload = json.dumps({"parent_id": parent_id, "checkpoint": checkpoint.decode(), "metadata": metadata.decode()})
@@ -388,6 +464,18 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         self._put_writes(thread_id, namespace, checkpoint_id, writes, task_id)
 
     def _put_writes(self, thread_id: str, namespace: str, checkpoint_id: str, writes: list[tuple[str, Any]], task_id: str) -> None:
+        if self._orm:
+            for idx, (channel, value) in enumerate(writes):
+                record = LangGraphWriteRecord.query().filter(thread_id=thread_id, checkpoint_ns=namespace, checkpoint_id=checkpoint_id, task_id=task_id, write_index=idx).first()
+                payload = {"channel": channel, "value_payload": self._encode(value).decode()}
+                if record:
+                    for key, item in payload.items(): setattr(record, key, item)
+                else:
+                    record = LangGraphWriteRecord(thread_id=thread_id, checkpoint_ns=namespace, checkpoint_id=checkpoint_id, task_id=task_id, write_index=idx, **payload)
+                record.save()
+                if self._redis is not None:
+                    self._redis.hset(self._redis_write_key(thread_id, namespace, checkpoint_id), f"{task_id}:{idx}", json.dumps({"task_id": task_id, "channel": channel, "value": payload["value_payload"]}))
+            return
         if self._redis is not None:
             key = self._redis_write_key(thread_id, namespace, checkpoint_id)
             pipe = self._redis.pipeline(transaction=True)
@@ -421,6 +509,20 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         return CheckpointTuple(result_config, checkpoint, self._decode(metadata), parent_config, self._pending_writes(thread_id, namespace, checkpoint["id"]))
 
     def _get_row(self, thread_id: str, namespace: str, checkpoint_id: str | None):
+        if self._orm:
+            if self._redis is not None and checkpoint_id is not None:
+                cached = self._redis.get(self._redis_checkpoint_key(thread_id, namespace, checkpoint_id))
+                if cached:
+                    record = json.loads(cached.decode() if isinstance(cached, bytes) else cached)
+                    return self._decode(record["checkpoint"].encode()), record["metadata"].encode(), record.get("parent_id")
+            query = LangGraphCheckpointRecord.query().filter(thread_id=thread_id, checkpoint_ns=namespace)
+            records = query.filter(checkpoint_id=checkpoint_id).all() if checkpoint_id else query.all()
+            record = max(records, key=lambda item: item.created_at or 0.0, default=None)
+            if not record:
+                return None
+            if self._redis is not None:
+                self._cache_checkpoint(thread_id, namespace, record.checkpoint_id, record.parent_id or None, record.checkpoint_payload.encode(), record.metadata_payload.encode())
+            return self._decode(record.checkpoint_payload.encode()), record.metadata_payload.encode(), record.parent_id or None
         if self._redis is not None:
             if checkpoint_id is None:
                 values = self._redis.zrevrange(self._redis_scope_key(thread_id, namespace), 0, 0)
@@ -439,6 +541,18 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         return self._decode(row[0]), row[2], row[1]
 
     def _pending_writes(self, thread_id: str, namespace: str, checkpoint_id: str) -> list[tuple[str, str, Any]]:
+        if self._orm:
+            if self._redis is not None:
+                cached = self._redis.hgetall(self._redis_write_key(thread_id, namespace, checkpoint_id))
+                if cached:
+                    rows = []
+                    for raw in cached.values():
+                        item = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                        rows.append((item["task_id"], item["channel"], self._decode(item["value"].encode())))
+                    return sorted(rows, key=lambda item: (item[0], item[1]))
+            records = LangGraphWriteRecord.query().filter(thread_id=thread_id, checkpoint_ns=namespace, checkpoint_id=checkpoint_id).all()
+            records.sort(key=lambda item: (item.task_id, item.write_index))
+            return [(item.task_id, item.channel, self._decode(item.value_payload.encode())) for item in records]
         if self._redis is not None:
             values = self._redis.hgetall(self._redis_write_key(thread_id, namespace, checkpoint_id))
             rows = []
@@ -479,6 +593,19 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
             yield CheckpointTuple({"configurable": {"thread_id": checkpoint["thread_id"], "checkpoint_ns": checkpoint["checkpoint_ns"], "checkpoint_id": checkpoint_id}}, checkpoint_value, decoded_metadata, parent_config, self._pending_writes(checkpoint["thread_id"], checkpoint["checkpoint_ns"], checkpoint_id))
 
     def _list_rows(self, thread_id, namespace, before_id=None, limit=None):
+        if self._orm:
+            if thread_id is None:
+                records = LangGraphCheckpointRecord.query().all()
+            else:
+                records = LangGraphCheckpointRecord.query().filter(thread_id=thread_id, checkpoint_ns=namespace).all()
+            records.sort(key=lambda item: item.created_at or 0.0, reverse=True)
+            if before_id:
+                before = next((item for item in records if item.checkpoint_id == before_id), None)
+                if before:
+                    records = [item for item in records if (item.created_at or 0.0) < (before.created_at or 0.0)]
+            if limit is not None:
+                records = records[:max(0, int(limit))]
+            return [({"thread_id": item.thread_id, "checkpoint_ns": item.checkpoint_ns, "data": item.checkpoint_payload.encode()}, item.metadata_payload.encode(), item.checkpoint_id, item.parent_id or None) for item in records]
         if self._redis is not None:
             if thread_id is None:
                 raise LangGraphIntegrationError("Redis checkpointer list requires a scoped thread_id")
