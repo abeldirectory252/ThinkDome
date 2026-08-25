@@ -499,7 +499,7 @@ export async function getSandboxes(token) {
 }
 
 export async function getSandboxCapacity(token) {
-    return apiFetch("/v1/admin/sandboxes/capacity", { method: "GET" }, token);
+    return apiFetch("/v1/admin/sandbox-capacity", { method: "GET" }, token);
 }
 
 /**

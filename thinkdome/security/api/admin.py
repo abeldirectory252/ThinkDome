@@ -453,7 +453,7 @@ async def list_sandboxes(
     return rows
 
 
-@router.get("/sandboxes/capacity")
+@router.get("/sandbox-capacity")
 async def sandbox_capacity(
     auth_svc: AuthService = Depends(get_auth_service),
     _user: dict = Depends(get_current_user),

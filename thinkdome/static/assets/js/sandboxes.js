@@ -775,6 +775,9 @@ async function submitRegisterModal(e) {
     const rate = parseFloat(document.getElementById('sbxRateInput')?.value || "0.08");
     const rateLimit = parseInt(document.getElementById('sbxRateLimitSelect')?.value || "60", 10);
     const maxConcurrent = parseInt(document.getElementById('sbxConcurrentExecSelect')?.value || "5", 10);
+    const diskType = document.getElementById('sbxDiskTypeSelect')?.value || 'nvme_ssd';
+    const networkMode = document.getElementById('sbxNetworkModeSelect')?.value || 'lockdown';
+    const bandwidth = document.getElementById('sbxBandwidthLimitSelect')?.value || 'restricted';
 
     if (!name || !runtime) return;
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 259200) {

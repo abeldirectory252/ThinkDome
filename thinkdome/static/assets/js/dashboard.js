@@ -108,12 +108,16 @@ async function fetchDashboardData() {
     }
 
     try {
-        const nodesResponse = await fetch('/v1/control-plane/nodes', {
+        const isAdmin = (localStorage.getItem('thinkdome_user_role') || '').toUpperCase().includes('ADMIN');
+        const nodesResponse = isAdmin ? await fetch('/v1/control-plane/nodes', {
             headers: { 'Authorization': `Bearer ${token}` }
-        });
+        }) : null;
         const nodeStatus = document.getElementById('fleetNodeStatus');
         const nodeDot = document.getElementById('fleetNodeDot');
-        if (nodesResponse.ok) {
+        if (!nodesResponse) {
+            if (nodeStatus) nodeStatus.textContent = 'Sandbox-scoped';
+            if (nodeDot) nodeDot.className = 'fleet-dot ok';
+        } else if (nodesResponse.ok) {
             const payload = await nodesResponse.json();
             const count = Array.isArray(payload.nodes) ? payload.nodes.length : 0;
             if (nodeStatus) nodeStatus.textContent = `${count} ready node${count === 1 ? '' : 's'}`;
@@ -131,11 +135,12 @@ async function fetchDashboardData() {
 
     try {
         // Fetch concurrently
+        const isAdmin = (localStorage.getItem('thinkdome_user_role') || '').toUpperCase().includes('ADMIN');
         const [sandboxesRes, keysRes, logsRes, auditRes] = await Promise.all([
             window.API.getSandboxes(token),
-            window.API.getApiKeys(token),
-            window.API.getRequestLogs(token, 20),
-            window.API.getAuditLogs(token, 50)
+            isAdmin ? window.API.getApiKeys(token) : Promise.resolve({ data: [] }),
+            isAdmin ? window.API.getRequestLogs(token, 20) : Promise.resolve({ data: [] }),
+            isAdmin ? window.API.getAuditLogs(token, 50) : Promise.resolve({ data: [] })
         ]);
 
         // Process Sandboxes
