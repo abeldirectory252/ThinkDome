@@ -80,8 +80,12 @@ async def test_sandbox_lifecycle(client, api_keys):
 
 @pytest.mark.asyncio
 async def test_orchestrate_no_sandbox_fails(client, api_keys, app):
-    # Clear all active sandboxes
-    app.state.db_service.execute("DELETE FROM sandboxes")
+    # Clear all sandboxes through the ORM.  The storage table name is an
+    # implementation detail and differs across supported migration histories.
+    from thinkdome.apps.sandbox.models import Sandbox
+
+    for sandbox in Sandbox.query().all():
+        sandbox.delete(soft=False)
 
     payload = {
         "type": "tool_use",
