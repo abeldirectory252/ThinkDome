@@ -81,11 +81,13 @@ async function fetchSandboxesData() {
                 };
             });
             state.sandboxes = fetchedSbx;
+            updateSidebarSandboxCount();
         }
 
         renderSandboxNodesTableHTMLOnly();
         renderSandboxCardsHTMLOnly();
         renderSbxDropdowns();
+        updateSidebarSandboxCount();
         if (typeof updateTerminalLabel === 'function') updateTerminalLabel();
 
     } catch (err) {

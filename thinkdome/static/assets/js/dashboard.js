@@ -160,6 +160,7 @@ async function fetchDashboardData() {
                 };
             });
             state.sandboxes = fetchedSbx;
+            if (typeof updateSidebarSandboxCount === 'function') updateSidebarSandboxCount();
         }
 
         // Process API Keys

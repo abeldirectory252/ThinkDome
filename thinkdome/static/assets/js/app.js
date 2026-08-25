@@ -15,6 +15,15 @@ function allowedPagesForRole(role) {
     return ROLE_PAGE_ACCESS[normalized] || ROLE_PAGE_ACCESS.AGENT_STANDARD;
 }
 
+function updateSidebarSandboxCount() {
+    const badge = document.getElementById('sidebarSandboxCount');
+    if (!badge) return;
+    const sandboxes = Object.values(window.state?.sandboxes || {});
+    const active = sandboxes.filter(sandbox => ['active', 'running'].includes(String(sandbox.status).toLowerCase())).length;
+    badge.textContent = `${active} Active`;
+}
+window.updateSidebarSandboxCount = updateSidebarSandboxCount;
+
 function navTo(pageId) {
     const stateRole = localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD';
     const allowedPages = allowedPagesForRole(stateRole);
