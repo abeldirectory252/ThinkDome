@@ -58,23 +58,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
     masked_token TEXT
 );
 
-CREATE TABLE IF NOT EXISTS sandboxes (
-    sandbox_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    owner TEXT NOT NULL,
-    status TEXT DEFAULT 'active',
-    backend_type TEXT DEFAULT 'docker',
-    memory_mb INTEGER DEFAULT 256,
-    cpu_cores REAL DEFAULT 1.0,
-    gpu_count INTEGER DEFAULT 0,
-    timeout_sec INTEGER DEFAULT 30,
-    network_enabled INTEGER DEFAULT 0,
-    storage_quota_mb INTEGER DEFAULT 10240,
-    cost_per_hour REAL DEFAULT 0.0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS request_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     request_id TEXT NOT NULL,
@@ -157,23 +140,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
     expires_at TIMESTAMPTZ,
     status TEXT DEFAULT 'active',
     masked_token TEXT
-);
-
-CREATE TABLE IF NOT EXISTS sandboxes (
-    sandbox_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    owner TEXT NOT NULL,
-    status TEXT DEFAULT 'active',
-    backend_type TEXT DEFAULT 'docker',
-    memory_mb INTEGER DEFAULT 256,
-    cpu_cores REAL DEFAULT 1.0,
-    gpu_count INTEGER DEFAULT 0,
-    timeout_sec INTEGER DEFAULT 30,
-    network_enabled BOOLEAN DEFAULT FALSE,
-    storage_quota_mb INTEGER DEFAULT 10240,
-    cost_per_hour REAL DEFAULT 0.0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    last_active_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS request_logs (
@@ -359,9 +325,6 @@ class DatabaseService:
             for stmt in SQLITE_SCHEMA_SQL.strip().split(";"):
                 if stmt.strip():
                     conn.execute(stmt)
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(sandboxes)")}
-            if "storage_quota_mb" not in columns:
-                conn.execute("ALTER TABLE sandboxes ADD COLUMN storage_quota_mb INTEGER DEFAULT 10240")
             conn.commit()
 
     async def _setup_postgres_schema(self) -> None:
@@ -374,7 +337,6 @@ class DatabaseService:
                 # ── Migrations: fix column types on existing tables ──
                 # ALTER won't error if column is already TEXT thanks to the check.
                 migrations = [
-                    "ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS storage_quota_mb INTEGER DEFAULT 10240",
                     """
                     DO $$ BEGIN
                         IF EXISTS (

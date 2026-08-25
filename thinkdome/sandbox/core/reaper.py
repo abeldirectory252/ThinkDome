@@ -96,11 +96,8 @@ class SandboxReaper:
                                     "created_at": datetime.fromtimestamp(info.created_at, tz=timezone.utc).isoformat(),
                                 }
                             )
-                            # Update sandboxes table status
-                            self.db_service.execute(
-                                "UPDATE sandboxes SET status = 'destroyed' WHERE sandbox_id = ?",
-                                (info.sandbox_id,)
-                            )
+                            # Update the authoritative ORM sandbox record.
+                            self.db_service.update_sandbox_status(info.sandbox_id, "destroyed")
                         except Exception as dbe:
                             logger.warning(f"Reaper DB audit logging note for {info.sandbox_id}: {dbe}")
 

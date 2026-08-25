@@ -27,11 +27,16 @@ async def metrics(request: Request):
     
     try:
         # Update active sandbox counts per backend
-        docker_active = await db.fetch_val(
-            "SELECT COUNT(*) FROM sandboxes WHERE status = 'active' AND backend_type = 'docker'"
+        sandboxes = db.list_sandboxes()
+        docker_active = sum(
+            1 for sandbox in sandboxes
+            if str(sandbox.get("status", "")).lower() in {"active", "running"}
+            and sandbox.get("runtime", sandbox.get("backend_type")) == "docker"
         )
-        k8s_active = await db.fetch_val(
-            "SELECT COUNT(*) FROM sandboxes WHERE status = 'active' AND backend_type = 'kubernetes'"
+        k8s_active = sum(
+            1 for sandbox in sandboxes
+            if str(sandbox.get("status", "")).lower() in {"active", "running"}
+            and sandbox.get("runtime", sandbox.get("backend_type")) in {"kubernetes", "k8s"}
         )
         ACTIVE_SANDBOXES.labels(backend_type="docker").set(docker_active or 0)
         ACTIVE_SANDBOXES.labels(backend_type="kubernetes").set(k8s_active or 0)
