@@ -657,6 +657,10 @@ function registerNewSandboxNode() {
         if (document.getElementById('sbxIngressModeSelect')) document.getElementById('sbxIngressModeSelect').value = "deny_all";
         if (document.getElementById('sbxIngressProtocolSelect')) document.getElementById('sbxIngressProtocolSelect').value = "TCP";
         if (document.getElementById('sbxTtlSelect')) document.getElementById('sbxTtlSelect').value = "3600";
+        if (document.getElementById('sbxCustomTtlSeconds')) {
+            document.getElementById('sbxCustomTtlSeconds').value = "";
+            document.getElementById('sbxCustomTtlSeconds').hidden = true;
+        }
         if (document.getElementById('sbxRateInput')) document.getElementById('sbxRateInput').value = "0.08";
         if (document.getElementById('sbxRateLimitSelect')) document.getElementById('sbxRateLimitSelect').value = "60";
         if (document.getElementById('sbxConcurrentExecSelect')) document.getElementById('sbxConcurrentExecSelect').value = "5";
@@ -695,7 +699,13 @@ async function submitRegisterModal(e) {
     const ingressProtocol = document.getElementById('sbxIngressProtocolSelect')?.value || "TCP";
     const egressDomains = [...sbxEgressDomainsList];
     const ingressPorts = [...sbxIngressPortsList];
-    const ttlSeconds = parseInt(document.getElementById('sbxTtlSelect')?.value || "3600", 10);
+    const ttlPreset = document.getElementById('sbxTtlSelect')?.value || "3600";
+    const ttlSeconds = parseInt(
+        ttlPreset === 'custom'
+            ? (document.getElementById('sbxCustomTtlSeconds')?.value || "0")
+            : ttlPreset,
+        10
+    );
     const rate = parseFloat(document.getElementById('sbxRateInput')?.value || "0.08");
     const rateLimit = parseInt(document.getElementById('sbxRateLimitSelect')?.value || "60", 10);
     const maxConcurrent = parseInt(document.getElementById('sbxConcurrentExecSelect')?.value || "5", 10);
@@ -821,3 +831,13 @@ async function submitRegisterModal(e) {
         }
     }
 }
+
+function toggleCustomSandboxTtl() {
+    const select = document.getElementById('sbxTtlSelect');
+    const custom = document.getElementById('sbxCustomTtlSeconds');
+    if (!select || !custom) return;
+    custom.hidden = select.value !== 'custom';
+    custom.required = select.value === 'custom';
+    if (select.value !== 'custom') custom.value = '';
+}
+window.toggleCustomSandboxTtl = toggleCustomSandboxTtl;

@@ -2790,9 +2790,18 @@
             </div>
             <div class="modal-grid-fields" style="margin-top:0;">
               <div class="field">
-                <label for="sbxTtlSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Auto-Terminate Lease TTL (seconds, max 72h) *</label>
-                <input id="sbxTtlSelect" class="form-input" type="number" min="1" max="259200" step="1" value="3600" required />
-                <small style="display:block;margin-top:5px;color:var(--fg-subtle);">Minimum 1 second; the sandbox expires automatically when this lease ends.</small>
+                <label for="sbxTtlSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Auto-Terminate Lease TTL (max 72h) *</label>
+                <select id="sbxTtlSelect" class="form-select" onchange="toggleCustomSandboxTtl()">
+                  <option value="900">15 minutes (quick test)</option>
+                  <option value="1800">30 minutes</option>
+                  <option value="3600" selected>60 minutes (recommended)</option>
+                  <option value="21600">6 hours</option>
+                  <option value="86400">24 hours</option>
+                  <option value="259200">72 hours (maximum)</option>
+                  <option value="custom">Custom duration</option>
+                </select>
+                <input id="sbxCustomTtlSeconds" class="form-input" type="number" min="1" max="259200" step="1" placeholder="Custom TTL in seconds" hidden style="margin-top:8px;" />
+                <small style="display:block;margin-top:5px;color:var(--fg-subtle);">The sandbox expires automatically when this lease ends.</small>
               </div>
               <div class="field">
                 <label for="sbxRateInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Hourly Rate Cap ($/hr) *</label>
