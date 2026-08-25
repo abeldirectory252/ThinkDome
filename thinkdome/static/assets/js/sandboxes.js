@@ -648,7 +648,7 @@ function registerNewSandboxNode() {
         if (document.getElementById('sbxBandwidthLimitSelect')) document.getElementById('sbxBandwidthLimitSelect').value = "100 Mbps";
         if (document.getElementById('sbxIngressModeSelect')) document.getElementById('sbxIngressModeSelect').value = "deny_all";
         if (document.getElementById('sbxIngressProtocolSelect')) document.getElementById('sbxIngressProtocolSelect').value = "TCP";
-        if (document.getElementById('sbxTtlSelect')) document.getElementById('sbxTtlSelect').value = "1 hour";
+        if (document.getElementById('sbxTtlSelect')) document.getElementById('sbxTtlSelect').value = "3600";
         if (document.getElementById('sbxRateInput')) document.getElementById('sbxRateInput').value = "0.08";
         if (document.getElementById('sbxRateLimitSelect')) document.getElementById('sbxRateLimitSelect').value = "60";
         if (document.getElementById('sbxConcurrentExecSelect')) document.getElementById('sbxConcurrentExecSelect').value = "5";
@@ -687,12 +687,19 @@ async function submitRegisterModal(e) {
     const ingressProtocol = document.getElementById('sbxIngressProtocolSelect')?.value || "TCP";
     const egressDomains = [...sbxEgressDomainsList];
     const ingressPorts = [...sbxIngressPortsList];
-    const ttlStr = document.getElementById('sbxTtlSelect')?.value || "1 hour";
+    const ttlSeconds = parseInt(document.getElementById('sbxTtlSelect')?.value || "3600", 10);
     const rate = parseFloat(document.getElementById('sbxRateInput')?.value || "0.08");
     const rateLimit = parseInt(document.getElementById('sbxRateLimitSelect')?.value || "60", 10);
     const maxConcurrent = parseInt(document.getElementById('sbxConcurrentExecSelect')?.value || "5", 10);
 
     if (!name || !runtime) return;
+    if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 259200) {
+        if (alertEl) {
+            alertEl.textContent = "Lease TTL must be a whole number of seconds from 1 to 259200 (72 hours).";
+            alertEl.hidden = false;
+        }
+        return;
+    }
 
     // Strict Resource Quota & Threshold Validation
     const cpuCores = parseInt(cpuStr, 10);
@@ -751,7 +758,7 @@ async function submitRegisterModal(e) {
         ingress_mode: ingressMode.toUpperCase(),
         ingress_protocol: ingressProtocol,
         ingress_ports: ingressPorts,
-        ttl: ttlStr,
+        ttl_seconds: ttlSeconds,
         rate: rate,
         rate_limit: `${rateLimit} req/s`,
         max_concurrent: maxConcurrent,
@@ -767,7 +774,8 @@ async function submitRegisterModal(e) {
                 name: name,
                 memory_mb: memory_mb,
                 cpu_cores: cpuCores,
-                timeout_sec: 3600,
+                timeout_sec: ttlSeconds,
+                ttl_seconds: ttlSeconds,
                 network_enabled: networkMode !== 'lockdown'
             }, token);
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.responses import FileResponse
@@ -364,7 +365,8 @@ class CreateSandboxRequest(BaseModel):
     # similarly bounds sandbox lifetime instead of accepting arbitrary TTLs.
     memory_mb: int = Field(256, gt=0, le=65536)
     cpu_cores: float = Field(1.0, gt=0, le=64)
-    timeout_sec: int = Field(30, ge=1, le=86400)
+    timeout_sec: int = Field(30, ge=1, le=259200)
+    ttl_seconds: int = Field(3600, ge=1, le=259200, description="Lease TTL in seconds; maximum 72 hours")
     network_enabled: bool = Field(False)
     storage_quota_mb: int = Field(10240, gt=0, le=1_048_576)
 
@@ -381,6 +383,15 @@ async def list_sandboxes(
     if cached is not None:
         return cached
     rows = auth_svc.db_service.list_sandboxes(owner=owner)
+    now = time.time()
+    for row in rows:
+        expires_at = float(row.get("expires_at") or 0)
+        expired = bool(expires_at and now >= expires_at)
+        row["expired"] = expired
+        if expired and str(row.get("status", "")).lower() not in {"destroyed", "expired"}:
+            row["status"] = "Expired"
+        if expired:
+            row["expiration_message"] = "This sandbox lease has expired and is no longer available."
     await _cache_sandboxes(owner, rows)
     return rows
 
@@ -409,12 +420,15 @@ async def create_sandbox(
         storage_quota_mb=req.storage_quota_mb,
         network_enabled=req.network_enabled,
         status="Created",
+        expires_at=time.time() + req.ttl_seconds,
     )
     sandbox.save()
     await _invalidate_sandbox_cache()
     res = sandbox.to_dict()
     res["sandbox_id"] = sandbox_id
     res["timeout_sec"] = req.timeout_sec
+    res["ttl_seconds"] = req.ttl_seconds
+    res["expires_at"] = sandbox.to_dict().get("expires_at")
     res["cost_per_hour"] = cost
     
     # Log audit event

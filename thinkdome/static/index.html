@@ -2790,14 +2790,9 @@
             </div>
             <div class="modal-grid-fields" style="margin-top:0;">
               <div class="field">
-                <label for="sbxTtlSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Auto-Terminate Lease TTL (Max 72h) *</label>
-                <select id="sbxTtlSelect" class="form-select">
-                  <option value="15 min">15 Minutes (Ephemeral Test)</option>
-                  <option value="1 hour" selected>1 Hour (Standard Agent Lease)</option>
-                  <option value="6 hours">6 Hours</option>
-                  <option value="24 hours">24 Hours</option>
-                  <option value="72 hours">72 Hours (Max Threshold Ceiling)</option>
-                </select>
+                <label for="sbxTtlSelect" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Auto-Terminate Lease TTL (seconds, max 72h) *</label>
+                <input id="sbxTtlSelect" class="form-input" type="number" min="1" max="259200" step="1" value="3600" required />
+                <small style="display:block;margin-top:5px;color:var(--fg-subtle);">Minimum 1 second; the sandbox expires automatically when this lease ends.</small>
               </div>
               <div class="field">
                 <label for="sbxRateInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Hourly Rate Cap ($/hr) *</label>

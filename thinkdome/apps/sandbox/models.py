@@ -34,6 +34,7 @@ class Sandbox(Model):
     project_id = StringField(default="")
     node_id = StringField(default="")
     placement_version = IntegerField(default=0)
+    expires_at = FloatField(default=0.0)
 
 
 class Organization(Model):
