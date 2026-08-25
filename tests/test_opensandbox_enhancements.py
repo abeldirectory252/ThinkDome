@@ -21,6 +21,8 @@ from thinkdome.core.error_codes import SandboxErrorCodes
 def client():
     app = create_app()
     with TestClient(app) as test_client:
+        token = test_client.app.state.auth_service.create_api_key("Default test admin", token_type="ADMIN")["token"]
+        test_client.headers["Authorization"] = f"Bearer {token}"
         yield test_client
 
 

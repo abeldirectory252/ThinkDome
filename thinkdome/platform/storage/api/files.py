@@ -99,7 +99,10 @@ async def update_file(
 ):
     """Replace file content."""
     content = await file.read()
-    meta = svc.update(file_id, content, _owner(user))
+    try:
+        meta = svc.update(file_id, content, _owner(user))
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     if not meta:
         raise HTTPException(status_code=404, detail="File not found")
     return meta
@@ -127,7 +130,7 @@ async def copy_file(
 ):
     """Copy a file."""
     source = svc.get_content(file_id, _owner(user))
-    meta = svc.copy_file(file_id, body.new_path) if source else None
+    meta = svc.copy_file(file_id, body.new_path, owner_id=_owner(user)) if source else None
     if not meta:
         raise HTTPException(status_code=404, detail="File not found")
     return meta
@@ -142,7 +145,7 @@ async def move_file(
 ):
     """Move a file."""
     source = svc.get_content(file_id, _owner(user))
-    meta = svc.move_file(file_id, body.new_path) if source else None
+    meta = svc.move_file(file_id, body.new_path, owner_id=_owner(user)) if source else None
     if not meta:
         raise HTTPException(status_code=404, detail="File not found")
     return meta
@@ -167,7 +170,7 @@ async def batch_operation(
                     failed.append({"file_id": fid, "error": "not found"})
             elif body.operation == "move" and body.destination:
                 source = svc.get_content(fid, _owner(user))
-                if source and svc.move_file(fid, body.destination):
+                if source and svc.move_file(fid, body.destination, owner_id=_owner(user)):
                     succeeded.append(fid)
                 else:
                     failed.append({"file_id": fid, "error": "not found"})

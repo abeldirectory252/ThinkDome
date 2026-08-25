@@ -19,16 +19,8 @@ from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
 
-# Lazy import for optional cryptography dependency
-_fernet = None
-
-
 def _get_fernet(master_key: Optional[str]):
     """Lazily initialize Fernet cipher with the master key."""
-    global _fernet
-    if _fernet is not None:
-        return _fernet
-
     if not master_key:
         logger.warning(
             "⚠️ VAULT_MASTER_KEY not set — vault will store secrets in plaintext. "
@@ -38,9 +30,13 @@ def _get_fernet(master_key: Optional[str]):
 
     try:
         from cryptography.fernet import Fernet
-        _fernet = Fernet(master_key.encode("utf-8") if isinstance(master_key, str) else master_key)
+        # Do not use a process-global cipher: tests, key rotation, and
+        # multi-tenant workers can instantiate vaults with different keys.
+        # Reusing the first key would make later vaults decrypt with the wrong
+        # tenant's key and could silently fall back to unusable plaintext.
+        cipher = Fernet(master_key.encode("utf-8") if isinstance(master_key, str) else master_key)
         logger.info("🔐 Credential vault encryption initialized")
-        return _fernet
+        return cipher
     except ImportError:
         logger.warning(
             "⚠️ cryptography package not installed — vault will store secrets in plaintext. "
@@ -350,4 +346,3 @@ class SandboxCredentials:
         for var in self.blocked_env_vars:
             cleaned.pop(var, None)
         return cleaned
-

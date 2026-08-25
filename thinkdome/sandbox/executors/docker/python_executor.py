@@ -27,6 +27,7 @@ import docker.errors
 from thinkdome.sandbox.executors.base import BaseExecutor, ExecRequest, ExecResult
 from thinkdome.core.config import Settings
 from thinkdome.core.error_codes import SandboxErrorCodes
+from thinkdome.sandbox.executors.host.bubblewrap import _is_env_var_sensitive, _BLOCKED_INTERPRETER_ENV_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -203,14 +204,13 @@ class PythonDockerExecutor(BaseExecutor):
     def _build_container_config(self, request: ExecRequest) -> dict:
         """Build the full container creation config with all 6 security layers."""
         role = (request.caller_role or "LLM").upper()
-        if role == "LLM" and request.allow_network and request.username:
-            role = "IDE"
         profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
+        can_customize_resources = role in {"ADMIN", "ORCH", "IDE"}
 
         # ── Layer 4: Resource Limits (cgroups v2) ──────────────────────────────────
-        cpu_quota = request.cpu_cores if request.cpu_cores is not None else profile["cpu_quota"]
+        cpu_quota = request.cpu_cores if can_customize_resources and request.cpu_cores is not None else profile["cpu_quota"]
         nano_cpus = int(cpu_quota * 1e9)
-        if request.memory_limit_mb is not None:
+        if can_customize_resources and request.memory_limit_mb is not None:
             mem_limit = f"{request.memory_limit_mb}m"
             mem_swap = f"{request.memory_limit_mb}m"
         else:
@@ -227,7 +227,11 @@ class PythonDockerExecutor(BaseExecutor):
 
         # ── Layer 6: Network Egress Control ──────────────────────────────────────
         network_mode = "none"
-        environment = dict(request.env_vars or {})
+        environment = {
+            key: value for key, value in (request.env_vars or {}).items()
+            if key.upper() not in _BLOCKED_INTERPRETER_ENV_KEYS
+            and not _is_env_var_sensitive(key)
+        }
 
         if request.allow_network and role in ("ADMIN", "ORCH", "IDE", "WEB", "SDK", "CURL"):
             # Network access allowed for authenticated roles — route through egress proxy network
@@ -364,7 +368,11 @@ class PythonDockerExecutor(BaseExecutor):
                 
             # Run code via exec_run / exec_create + exec_start
             cmd = ["python3", "-u", "-c", request.code]
-            exec_env = dict(request.env_vars or {})
+            exec_env = {
+                key: value for key, value in (request.env_vars or {}).items()
+                if key.upper() not in _BLOCKED_INTERPRETER_ENV_KEYS
+                and not _is_env_var_sensitive(key)
+            }
             profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
             
             # Proxy config for network allowance
@@ -385,7 +393,28 @@ class PythonDockerExecutor(BaseExecutor):
                 exit_code = inspect.get("ExitCode", 0)
                 return output, exit_code
                 
-            output_bytes, exit_code = await loop.run_in_executor(None, _run_exec_sync)
+            timeout_sec = min(request.timeout_ms, profile["timeout_max_ms"]) / 1000.0
+            try:
+                output_bytes, exit_code = await asyncio.wait_for(
+                    loop.run_in_executor(None, _run_exec_sync),
+                    timeout=timeout_sec,
+                )
+            except asyncio.TimeoutError:
+                # exec_start is a blocking Docker SDK call. Cancelling the
+                # asyncio future does not stop the command, so terminate the
+                # pooled container before releasing it and report a real
+                # timeout instead of starting an untracked fallback job.
+                try:
+                    await loop.run_in_executor(None, container.kill)
+                except Exception:
+                    pass
+                await self.pool_manager.release(pooled.pool_id, reset=False)
+                return ExecResult(
+                    stderr="Process timed out.",
+                    exit_code=-1,
+                    timed_out=True,
+                    duration_ms=round((time.monotonic() - start) * 1000, 2),
+                )
             
             stdout = output_bytes.decode("utf-8", errors="replace")[: request.max_output_bytes]
             stderr = ""
@@ -564,6 +593,13 @@ class PythonDockerExecutor(BaseExecutor):
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as tar:
             for path, content in files.items():
+                normalized = PurePosixPath(path)
+                if (
+                    not path
+                    or normalized.is_absolute()
+                    or any(part in {"", ".", ".."} for part in normalized.parts)
+                ):
+                    raise ValueError(f"file path escapes workspace: {path!r}")
                 info = tarfile.TarInfo(name=path)
                 info.size = len(content)
                 info.uid = 1000

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import signal
 import asyncio
 import logging
 import time
@@ -39,6 +40,10 @@ _BLOCKED_ENV_SUBSTRINGS = (
     "SECRET", "TOKEN", "CREDENTIAL", "PASSWORD", "PASSWD",
     "API_KEY", "PRIVATE_KEY", "ACCESS_KEY",
 )
+_BLOCKED_INTERPRETER_ENV_KEYS = frozenset({
+    "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "PYTHONPATH", "PYTHONHOME",
+    "RUBYLIB", "NODE_OPTIONS", "PERL5LIB",
+})
 
 
 def _is_env_var_sensitive(key: str) -> bool:
@@ -87,7 +92,11 @@ def _build_safe_env(
 
     # Merge caller-supplied custom env vars (vault secrets, user-specified)
     if custom_env_vars:
-        env.update(custom_env_vars)
+        env.update({
+            key: value for key, value in custom_env_vars.items()
+            if key.upper() not in _BLOCKED_INTERPRETER_ENV_KEYS
+            and not _is_env_var_sensitive(key)
+        })
 
     return env
 
@@ -190,7 +199,7 @@ class BubblewrapExecutor(BaseExecutor):
         try:
             # Write input files
             for path, content in request.files.items():
-                fpath = workspace_dir / path
+                fpath = self._validate_file_path(path, workspace_dir)
                 fpath.parent.mkdir(parents=True, exist_ok=True)
                 fpath.write_bytes(content)
 
@@ -221,7 +230,8 @@ class BubblewrapExecutor(BaseExecutor):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace_dir) if sys.platform != "linux" else None,
-                env=env
+                env=env,
+                start_new_session=True,  # BUG-6 fix: isolate process group
             )
 
             # Handle stdin input
@@ -234,11 +244,14 @@ class BubblewrapExecutor(BaseExecutor):
                 timed_out = False
                 exit_code = process.returncode if process.returncode is not None else 0
             except asyncio.TimeoutError:
-                # Timeout enforcement (SIGKILL equivalent)
+                # Timeout enforcement — kill process group so children die too
                 try:
-                    process.kill()
-                except Exception:
-                    pass
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
                 stdout_bytes, stderr_bytes = await process.communicate()
                 timed_out = True
                 exit_code = -1
@@ -256,6 +269,13 @@ class BubblewrapExecutor(BaseExecutor):
                 duration_ms=round(duration_ms, 2)
             )
 
+        except (PermissionError, ValueError) as exc:
+            duration_ms = (time.monotonic() - start) * 1000
+            return ExecResult(
+                stderr=f"Path traversal blocked: {exc}",
+                exit_code=1,
+                duration_ms=round(duration_ms, 2),
+            )
         finally:
             # Clean up ephemeral workspace
             try:
@@ -271,6 +291,24 @@ class BubblewrapExecutor(BaseExecutor):
             yield ("stdout", result.stdout)
         if result.stderr:
             yield ("stderr", result.stderr)
+
+    @staticmethod
+    def _validate_file_path(path: str, workspace: Path) -> Path:
+        """Resolve an injected file and enforce the workspace boundary.
+
+        ``ExecRequest`` is also used directly by internal callers, bypassing
+        the API's Pydantic validators, so the executor must repeat this
+        security check at the host filesystem boundary.
+        """
+        if not isinstance(path, str) or not path or "\x00" in path:
+            raise ValueError("invalid file path")
+        resolved_workspace = workspace.resolve()
+        resolved_path = (workspace / path).resolve()
+        try:
+            resolved_path.relative_to(resolved_workspace)
+        except ValueError as exc:
+            raise PermissionError(f"path escapes workspace: {path!r}") from exc
+        return resolved_path
 
 
 def tempfile_create() -> str:

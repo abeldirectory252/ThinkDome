@@ -24,7 +24,7 @@ from thinkdome.sandbox.core.service import ExecutionService
 from thinkdome.platform.orchestration.search.service import SearchService
 from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
 from thinkdome.platform.orchestration.tools import registry
-from thinkdome.security.identity.core import ROLE_ADMIN, UserIdentity
+from thinkdome.security.identity.core import UserIdentity, select_effective_role
 from thinkdome.apps.sandbox.models import Sandbox
 
 # Route all logs to standard error to keep stdout free of JSON-RPC protocol noise
@@ -41,7 +41,7 @@ def get_mcp_server(
     db_service: DatabaseService,
     orchestrator: OrchestratorService,
     client_ip: str = "127.0.0.1",
-    caller_role: str = ROLE_ADMIN,
+    caller_role: str = "AGENT_STANDARD",
     username: str = "anonymous",
     identity: Optional[UserIdentity] = None,
 ) -> Server:
@@ -49,7 +49,7 @@ def get_mcp_server(
     if identity is not None:
         username = str(identity.metadata.get("workspace_id") or identity.username)
         if identity.roles:
-            caller_role = next(iter(identity.roles))
+            caller_role = select_effective_role(identity.roles, default="AGENT_STANDARD", username=username)
 
     server = Server("ThinkDome Sandbox MCP Server")
 
@@ -93,20 +93,32 @@ def get_mcp_server(
             "input": arguments or {},
         }
 
-        # Resolve active sandbox context pythonically using ThinkDome ORM
-        active_sandboxes = Sandbox.query().filter(status="active").all()
-        if not active_sandboxes:
-            active_sandboxes = Sandbox.query().filter(status="Running").all()
+        # Resolve active sandbox context scoped to the authenticated user
+        requested_sandbox_id = (arguments or {}).get("sandbox_id")
+        user_sandboxes = []
 
-        all_active = [sb.to_dict() for sb in active_sandboxes]
-        if not all_active and hasattr(db_service, "list_sandboxes"):
-            all_active = db_service.list_sandboxes()
+        all_query = Sandbox.query().filter(status="active").all() or Sandbox.query().filter(status="Running").all()
+        all_dicts = [sb.to_dict() for sb in all_query]
+        if not all_dicts and hasattr(db_service, "list_sandboxes"):
+            all_dicts = db_service.list_sandboxes()
+
+        if requested_sandbox_id:
+            user_sandboxes = [
+                sb for sb in all_dicts
+                if (sb.get("sandbox_id") == requested_sandbox_id or sb.get("id") == requested_sandbox_id)
+                and (sb.get("owner") == username or caller_role == ROLE_ADMIN)
+            ]
+        else:
+            user_sandboxes = [
+                sb for sb in all_dicts
+                if sb.get("owner") == username or caller_role == ROLE_ADMIN
+            ]
 
         sandbox_id = None
         sandbox_limits = None
 
-        if all_active:
-            sb = all_active[0]
+        if user_sandboxes:
+            sb = user_sandboxes[0]
             sandbox_id = sb.get("sandbox_id") or sb.get("id")
             sandbox_limits = {
                 "memory_mb": sb.get("memory_mb", 256),
@@ -115,11 +127,12 @@ def get_mcp_server(
                 "network_enabled": sb.get("network_enabled", False),
             }
         else:
-            logger.info("No active sandbox found. Pre-seeding a default sandbox context in database...")
-            sandbox_id = "default_mcp_sandbox"
+            logger.info(f"No active sandbox found for user '{username}'. Creating scoped MCP sandbox context...")
+            import secrets
+            sandbox_id = f"sb_mcp_{secrets.token_hex(6)}"
             db_service.create_sandbox(
                 sandbox_id=sandbox_id,
-                name="Default MCP Sandbox",
+                name=f"MCP Sandbox ({username})",
                 owner=username,
                 memory_mb=256,
                 cpu_cores=1.0,

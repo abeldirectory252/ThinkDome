@@ -42,7 +42,15 @@ class RunCodeTool(BaseTool):
 
         # Load env vars and inject credentials from vault if available
         env_vars = dict(tool_input.get("env_vars") or {})
-        if ctx.credential_vault and owner and ctx.sandbox_id:
+        # Vault credentials are brokered for privileged orchestration/IDE
+        # flows only. Injecting them into every code execution lets an LLM
+        # print or exfiltrate plaintext secrets directly.
+        if (
+            ctx.credential_vault
+            and owner
+            and ctx.sandbox_id
+            and str(ctx.caller_role or "").upper() in {"ADMIN", "ORCH", "IDE"}
+        ):
             vault_secrets = ctx.credential_vault.inject_into_env(owner, ctx.sandbox_id)
             env_vars.update(vault_secrets)
 
@@ -120,7 +128,13 @@ if cwd:
         cleaned = cleaned.split(":", 1)[1].lstrip("/\\\\")
     resolved_cwd = os.path.abspath(os.path.join(base_dir, cleaned))
     
-    if not resolved_cwd.startswith(os.path.abspath(base_dir)):
+    try:
+        inside_workspace = os.path.commonpath([
+            os.path.realpath(resolved_cwd), os.path.realpath(base_dir)
+        ]) == os.path.realpath(base_dir)
+    except ValueError:
+        inside_workspace = False
+    if not inside_workspace:
         resolved_cwd = base_dir
     try:
         os.makedirs(resolved_cwd, exist_ok=True)
@@ -257,6 +271,8 @@ class HostHtmlTool(BaseTool):
         html = tool_input.get("html")
         if not html:
             raise ValueError("Parameter 'html' is required for host_html.")
+        if len(html) > 2_000_000:
+            raise ValueError("HTML content payload exceeds maximum allowed limit (2 MB).")
 
         # Hosted content is persisted by the control plane, not by the
         # unprivileged execution container.  Keep the document name confined
@@ -282,12 +298,22 @@ class HostHtmlTool(BaseTool):
         html_path.write_text(html, encoding="utf-8")
 
         # Schedule auto-cleanup of hosted site files after ttl_sec
-        def cleanup_site():
-            time.sleep(ttl_sec)
+        async def _async_cleanup():
+            await asyncio.sleep(ttl_sec)
             if storage_dir.exists():
+                import shutil
                 shutil.rmtree(storage_dir, ignore_errors=True)
 
-        threading.Thread(target=cleanup_site, daemon=True).start()
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_async_cleanup())
+        except RuntimeError:
+            def cleanup_site():
+                time.sleep(ttl_sec)
+                if storage_dir.exists():
+                    shutil.rmtree(storage_dir, ignore_errors=True)
+            threading.Thread(target=cleanup_site, daemon=True).start()
 
         hosted_url = f"http://localhost:8000/v1/hosted/{site_id}"
         stdout = (

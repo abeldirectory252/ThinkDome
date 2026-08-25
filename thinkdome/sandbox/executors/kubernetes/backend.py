@@ -6,7 +6,10 @@ Executes code sandboxes in dedicated gVisor-isolated pods via the Kubernetes API
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -30,6 +33,7 @@ class KubernetesBackend(ExecutorBackend):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._v1_client: Optional[client.CoreV1Api] = None
+        self._networking_client: Optional[client.NetworkingV1Api] = None
         self._initialized = False
 
     def _init_client(self) -> None:
@@ -43,6 +47,7 @@ class KubernetesBackend(ExecutorBackend):
             else:
                 config.load_kube_config()
             self._v1_client = client.CoreV1Api()
+            self._networking_client = client.NetworkingV1Api()
             self._initialized = True
             logger.info("☸️ Kubernetes API client initialized")
         except Exception as e:
@@ -61,8 +66,11 @@ class KubernetesBackend(ExecutorBackend):
         if not self._initialized or not self._v1_client:
             raise RuntimeError("Kubernetes client is not initialized")
 
-        pod_name = f"thinkdome-sb-{sandbox_id}"
+        sandbox_hash = hashlib.sha256(sandbox_id.encode()).hexdigest()[:32]
+        pod_name = f"thinkdome-sb-{sandbox_hash}"
         namespace = self.settings.K8S_NAMESPACE
+        # Use a deterministic, DNS-safe name independent of user-controlled IDs.
+        policy_name = f"thinkdome-deny-egress-{sandbox_hash[:16]}"
 
         # Define pod specs
         container_resources = {
@@ -85,7 +93,7 @@ class KubernetesBackend(ExecutorBackend):
                 name=pod_name,
                 labels={
                     "role": "sandbox",
-                    "sandbox_id": sandbox_id,
+                    "sandbox_hash": sandbox_hash,
                 },
             ),
             spec=client.V1PodSpec(
@@ -145,6 +153,38 @@ class KubernetesBackend(ExecutorBackend):
             ),
         )
 
+        # A disabled network must be enforced by the cluster, not merely recorded
+        # in control-plane state.  Create a pod-scoped deny-all egress policy
+        # immediately after pod creation; if policy setup fails, remove the pod so
+        # a sandbox is never exposed with an unintended network configuration.
+        if not network_enabled:
+            if self._networking_client is None:
+                await self.destroy_sandbox(
+                    SandboxHandle(sandbox_id=sandbox_id, container_id=pod_name, backend_type="kubernetes")
+                )
+                raise RuntimeError("Kubernetes networking client is unavailable; refusing network-disabled sandbox")
+            policy = client.V1NetworkPolicy(
+                metadata=client.V1ObjectMeta(name=policy_name),
+                spec=client.V1NetworkPolicySpec(
+                    pod_selector=client.V1LabelSelector(match_labels={"sandbox_hash": sandbox_hash}),
+                    policy_types=["Egress"],
+                    egress=[],
+                ),
+            )
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda: self._networking_client.create_namespaced_network_policy(
+                        namespace=namespace,
+                        body=policy,
+                    ),
+                )
+            except Exception:
+                await self.destroy_sandbox(
+                    SandboxHandle(sandbox_id=sandbox_id, container_id=pod_name, backend_type="kubernetes")
+                )
+                raise RuntimeError("Failed to install network isolation policy")
+
         # Wait for Pod to become Running
         start_time = time.monotonic()
         while time.monotonic() - start_time < 30.0:
@@ -182,14 +222,21 @@ class KubernetesBackend(ExecutorBackend):
 
         pod_name = handle.container_id
         namespace = self.settings.K8S_NAMESPACE
+        policy_name = f"thinkdome-deny-egress-{hashlib.sha256(handle.sandbox_id.encode()).hexdigest()[:16]}"
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
 
         # Build env wrapper command if env_vars exist
         exec_cmd = command
         if env_vars:
+            invalid_env = [k for k in env_vars if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k)]
+            if invalid_env:
+                raise ValueError(f"Invalid environment variable names: {invalid_env}")
             env_prefixes = [f"{k}={v}" for k, v in env_vars.items()]
             exec_cmd = ["env"] + env_prefixes + command
+
+        response_holder: Dict[str, Any] = {}
+        cancelled = threading.Event()
 
         def _exec():
             # stream connects and returns stdout/stderr combined or distinct
@@ -205,12 +252,22 @@ class KubernetesBackend(ExecutorBackend):
                 tty=False,
                 _preload_content=False,
             )
-            # Read output blocking
-            resp.run_forever(timeout=timeout_ms / 1000.0)
-            stdout = resp.read_stdout() or ""
-            stderr = resp.read_stderr() or ""
-            exit_code = resp.returncode or 0
-            return stdout, stderr, exit_code
+            response_holder["resp"] = resp
+            if cancelled.is_set():
+                resp.close()
+                return "", "Kubernetes exec command timed out.", -1
+            try:
+                # Read output blocking
+                resp.run_forever(timeout=timeout_ms / 1000.0)
+                stdout = resp.read_stdout() or ""
+                stderr = resp.read_stderr() or ""
+                exit_code = resp.returncode or 0
+                return stdout, stderr, exit_code
+            finally:
+                try:
+                    resp.close()
+                except Exception:
+                    logger.debug("Unable to close Kubernetes exec stream", exc_info=True)
 
         try:
             stdout, stderr, exit_code = await asyncio.wait_for(
@@ -226,6 +283,13 @@ class KubernetesBackend(ExecutorBackend):
                 duration_ms=duration_ms,
             )
         except asyncio.TimeoutError:
+            cancelled.set()
+            resp = response_holder.get("resp")
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    logger.debug("Unable to cancel Kubernetes exec stream", exc_info=True)
             duration_ms = (time.perf_counter() - start) * 1000.0
             return ExecutionResult(
                 stdout="",
@@ -255,6 +319,20 @@ class KubernetesBackend(ExecutorBackend):
                 pass
 
         await loop.run_in_executor(None, _delete)
+
+        if self._networking_client is not None:
+            def _delete_policy():
+                try:
+                    self._networking_client.delete_namespaced_network_policy(
+                        name=policy_name,
+                        namespace=namespace,
+                        body=client.V1DeleteOptions(),
+                    )
+                except Exception:
+                    # A stale deny policy is fail-closed and can be reaped later.
+                    logger.debug("Unable to delete network policy %s", policy_name, exc_info=True)
+
+            await loop.run_in_executor(None, _delete_policy)
 
     async def health_check(self) -> BackendHealth:
         self._init_client()

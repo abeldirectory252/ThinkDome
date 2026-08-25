@@ -129,7 +129,9 @@ class ExecutionService:
 
         # Enforce limits: cap at MAX_EXEC_TIMEOUT_MS unless sandbox limits are active or user is admin
         is_admin_caller = UserIdentity.from_dict({"role": request.caller_role}).is_admin() if request.caller_role else False
-        if request.memory_limit_mb is not None or is_admin_caller:
+        caller_role = (request.caller_role or "").upper()
+        can_customize_resources = is_admin_caller or caller_role in {"ORCH", "IDE"}
+        if can_customize_resources:
             timeout_ms = request.timeout_ms
         else:
             timeout_ms = min(request.timeout_ms, self.settings.MAX_EXEC_TIMEOUT_MS)
@@ -140,14 +142,14 @@ class ExecutionService:
             stdin=request.stdin,
             timeout_ms=timeout_ms,
             files=files,
-            memory_limit_mb=request.memory_limit_mb,
+            memory_limit_mb=request.memory_limit_mb if can_customize_resources else None,
             cpu_time_limit_sec=self.settings.CPU_TIME_LIMIT_SEC,
             max_output_bytes=self.settings.MAX_OUTPUT_BYTES,
             security_profile=request.security_profile,
             env_vars=request.env_vars,
             caller_role=request.caller_role,
             allow_network=request.allow_network,
-            cpu_cores=request.cpu_cores,
+            cpu_cores=request.cpu_cores if can_customize_resources else None,
             username=request.username,
         )
 
@@ -217,7 +219,9 @@ class ExecutionService:
 
         # Enforce limits
         is_admin_caller = UserIdentity.from_dict({"role": request.caller_role}).is_admin() if request.caller_role else False
-        if request.memory_limit_mb is not None or is_admin_caller:
+        caller_role = (request.caller_role or "").upper()
+        can_customize_resources = is_admin_caller or caller_role in {"ORCH", "IDE"}
+        if can_customize_resources:
             timeout_ms = request.timeout_ms
         else:
             timeout_ms = min(request.timeout_ms, self.settings.MAX_EXEC_TIMEOUT_MS)
@@ -228,14 +232,14 @@ class ExecutionService:
             stdin=request.stdin,
             timeout_ms=timeout_ms,
             files=files,
-            memory_limit_mb=request.memory_limit_mb,
+            memory_limit_mb=request.memory_limit_mb if can_customize_resources else None,
             cpu_time_limit_sec=self.settings.CPU_TIME_LIMIT_SEC,
             max_output_bytes=self.settings.MAX_OUTPUT_BYTES,
             security_profile=request.security_profile,
             env_vars=request.env_vars,
             caller_role=request.caller_role,
             allow_network=request.allow_network,
-            cpu_cores=request.cpu_cores,
+            cpu_cores=request.cpu_cores if can_customize_resources else None,
             username=request.username,
         )
 

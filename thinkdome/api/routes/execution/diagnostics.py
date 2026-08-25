@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from thinkdome.core.error_codes import SandboxErrorCodes
 from thinkdome.core.dependencies import get_current_user
+from thinkdome.api.routes.execution.authorization import authorize_sandbox_access
 
 router = APIRouter(tags=["Diagnostics"], dependencies=[Depends(get_current_user)])
 
@@ -33,9 +34,11 @@ def get_sandbox_logs(
     since: Optional[str] = Query(None, description="Logs newer than duration (e.g. 10m, 1h)"),
     container: Optional[str] = Query(None, description="Optional container name"),
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
+    user: dict = Depends(get_current_user),
 ) -> PlainTextResponse:
     """Retrieve diagnostic container logs for a sandbox."""
     diagnostics_service = getattr(request.app.state, "diagnostics_service", None)
+    authorize_sandbox_access(request, sandbox_id, user)
     if not diagnostics_service:
         return PlainTextResponse(content="Diagnostics service not initialized.", status_code=501)
 
@@ -58,9 +61,11 @@ def get_sandbox_inspect(
     request: Request,
     sandbox_id: str,
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
+    user: dict = Depends(get_current_user),
 ) -> PlainTextResponse:
     """Retrieve detailed inspection info for a sandbox container."""
     diagnostics_service = getattr(request.app.state, "diagnostics_service", None)
+    authorize_sandbox_access(request, sandbox_id, user)
     if not diagnostics_service:
         return PlainTextResponse(content="Diagnostics service not initialized.", status_code=501)
 
@@ -82,9 +87,11 @@ def get_sandbox_events(
     limit: int = Query(50, ge=1, le=500, description="Maximum number of events"),
     format: str = Query("text", description="Output format: 'text' or 'json'"),
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
+    user: dict = Depends(get_current_user),
 ):
     """Retrieve diagnostic events for a sandbox."""
     diagnostics_service = getattr(request.app.state, "diagnostics_service", None)
+    authorize_sandbox_access(request, sandbox_id, user)
     if not diagnostics_service:
         if format == "json":
             raise HTTPException(
@@ -115,9 +122,11 @@ def get_sandbox_diagnostics_summary(
     tail: int = Query(50, ge=1, le=10000, description="Number of trailing log lines"),
     event_limit: int = Query(20, ge=1, le=500, description="Maximum number of events"),
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
+    user: dict = Depends(get_current_user),
 ) -> PlainTextResponse:
     """One-shot diagnostics summary combining inspect + events + logs."""
     diagnostics_service = getattr(request.app.state, "diagnostics_service", None)
+    authorize_sandbox_access(request, sandbox_id, user)
     if not diagnostics_service:
         return PlainTextResponse(content="Diagnostics service not initialized.", status_code=501)
 

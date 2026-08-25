@@ -74,8 +74,10 @@ def _validate_docker_secure_runtime(settings: Any, docker_client: Any) -> None:
     docker_runtime = getattr(settings, "DOCKER_RUNTIME", "runsc")
 
     if not docker_client:
-        logger.warning("Docker client not available to validate Docker secure runtime.")
-        return
+        raise RuntimeError(
+            f"Cannot validate required Docker secure runtime '{docker_runtime}': "
+            "Docker daemon is unavailable. Refusing fail-open startup."
+        )
 
     try:
         info = docker_client.info()
@@ -99,6 +101,17 @@ def _validate_docker_secure_runtime(settings: Any, docker_client: Any) -> None:
 def _validate_k8s_secure_runtime(settings: Any, k8s_client: Any) -> None:
     """Validate Kubernetes RuntimeClass."""
     k8s_runtime_class = getattr(settings, "K8S_RUNTIME_CLASS", "gvisor")
+    if not k8s_client:
+        raise RuntimeError(
+            f"Cannot validate required Kubernetes RuntimeClass '{k8s_runtime_class}': "
+            "Kubernetes client is unavailable. Refusing fail-open startup."
+        )
+    try:
+        k8s_client.read_runtime_class(k8s_runtime_class)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Configured Kubernetes RuntimeClass '{k8s_runtime_class}' is unavailable"
+        ) from exc
     logger.info(f"✅ Kubernetes RuntimeClass configured: '{k8s_runtime_class}'")
 
 

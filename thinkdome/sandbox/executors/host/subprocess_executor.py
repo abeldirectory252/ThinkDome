@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -13,7 +14,10 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from thinkdome.sandbox.executors.base import BaseExecutor, ExecRequest, ExecResult
-from thinkdome.sandbox.executors.host.bubblewrap import _is_env_var_sensitive
+from thinkdome.sandbox.executors.host.bubblewrap import (
+    _is_env_var_sensitive,
+    _BLOCKED_INTERPRETER_ENV_KEYS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +58,42 @@ class SubprocessExecutor(BaseExecutor):
         user_workspace = self._get_user_workspace(request.username)
         use_persistent = user_workspace is not None
 
-        if use_persistent:
-            return await self._execute_in_workspace(request, user_workspace, timeout_sec, start)
-        else:
-            return await self._execute_ephemeral(request, timeout_sec, start)
+        try:
+            if use_persistent:
+                return await self._execute_in_workspace(request, user_workspace, timeout_sec, start)
+            else:
+                return await self._execute_ephemeral(request, timeout_sec, start)
+        except (PermissionError, ValueError) as e:
+            duration_ms = (time.monotonic() - start) * 1000
+            return ExecResult(
+                stdout="",
+                stderr=f"Path traversal blocked: {e}",
+                exit_code=1,
+                timed_out=False,
+                duration_ms=round(duration_ms, 2),
+            )
+
+    @staticmethod
+    def _validate_file_path(path: str, workspace: Path) -> Path:
+        """Validate that a file path stays within the workspace boundary."""
+        if not path or '\x00' in path:
+            raise ValueError(f"Invalid file path: empty or contains NUL")
+        # Resolve to absolute and verify containment
+        fpath = (workspace / path).resolve()
+        ws_resolved = workspace.resolve()
+        try:
+            fpath.relative_to(ws_resolved)
+        except ValueError:
+            raise PermissionError(
+                f"Path traversal blocked: '{path}' escapes workspace"
+            )
+        return fpath
 
     async def _execute_in_workspace(self, request: ExecRequest, workspace: Path, timeout_sec: float, start: float) -> ExecResult:
         """Execute code in a persistent user workspace (Kaggle/Colab-like)."""
-        # Write input files
+        # Write input files — validate each path stays within workspace
         for path, content in request.files.items():
-            fpath = workspace / path
+            fpath = self._validate_file_path(path, workspace)
             fpath.parent.mkdir(parents=True, exist_ok=True)
             fpath.write_bytes(content)
 
@@ -104,9 +134,9 @@ class SubprocessExecutor(BaseExecutor):
         with tempfile.TemporaryDirectory(prefix="thinkbox_") as tmpdir:
             workspace = Path(tmpdir)
 
-            # Write input files
+            # Write input files — validate each path stays within workspace
             for path, content in request.files.items():
-                fpath = workspace / path
+                fpath = self._validate_file_path(path, workspace)
                 fpath.parent.mkdir(parents=True, exist_ok=True)
                 fpath.write_bytes(content)
 
@@ -123,6 +153,8 @@ class SubprocessExecutor(BaseExecutor):
                 output_files: dict[str, bytes] = {}
                 input_names = set(request.files.keys()) | {"__main__.py"}
                 for fpath in workspace.rglob("*"):
+                    if fpath.is_symlink():
+                        continue
                     if fpath.is_file():
                         rel = str(fpath.relative_to(workspace))
                         if rel not in input_names:
@@ -195,12 +227,20 @@ class SubprocessExecutor(BaseExecutor):
 
         # Inject explicitly allowed custom environment variables
         if request.env_vars:
-            env.update(request.env_vars)
+            env.update({
+                key: value for key, value in request.env_vars.items()
+                if key.upper() not in _BLOCKED_INTERPRETER_ENV_KEYS
+                and not _is_env_var_sensitive(key)
+            })
 
         return env
 
     async def _run_process(self, request: ExecRequest, code_file: Path, workspace: Path, env: dict, timeout_sec: float) -> dict:
-        """Run the code file via subprocess and return stdout/stderr/exit_code/timed_out."""
+        """Run the code file via subprocess and return stdout/stderr/exit_code/timed_out.
+
+        Creates a new session (process group) so that on timeout the entire
+        process tree — including children and grandchildren — is terminated.
+        """
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "-u", str(code_file),
             stdin=asyncio.subprocess.PIPE if request.stdin else None,
@@ -208,6 +248,7 @@ class SubprocessExecutor(BaseExecutor):
             stderr=asyncio.subprocess.PIPE,
             cwd=str(workspace),
             env=env,
+            start_new_session=True,  # BUG-1 fix: isolate process group
         )
 
         stdin_bytes = request.stdin.encode() if request.stdin else None
@@ -220,7 +261,15 @@ class SubprocessExecutor(BaseExecutor):
             timed_out = False
             exit_code = proc.returncode or 0
         except asyncio.TimeoutError:
-            proc.kill()
+            # Kill the entire process group so children/grandchildren die too
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                # Process already exited or we lack permissions; fall back
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
             stdout_bytes, stderr_bytes = await proc.communicate()
             timed_out = True
             exit_code = -1
@@ -260,9 +309,9 @@ class SubprocessExecutor(BaseExecutor):
             tmpdir = tempfile.TemporaryDirectory(prefix="thinkbox_")
             workspace = Path(tmpdir.name)
 
-        # Write files
+        # Write files — validate each path stays within workspace
         for path, content in request.files.items():
-            fpath = workspace / path
+            fpath = self._validate_file_path(path, workspace)
             fpath.parent.mkdir(parents=True, exist_ok=True)
             fpath.write_bytes(content)
 
@@ -282,6 +331,7 @@ class SubprocessExecutor(BaseExecutor):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace),
                 env=env,
+                start_new_session=True,  # BUG-1 fix: isolate process group
             )
 
             if request.stdin:
@@ -308,7 +358,13 @@ class SubprocessExecutor(BaseExecutor):
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=timeout_sec)
                 except asyncio.TimeoutError:
-                    proc.kill()
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        try:
+                            proc.kill()
+                        except ProcessLookupError:
+                            pass
                     await proc.wait()
                     await queue.put(("stderr", "\nProcess timed out.\n"))
 
@@ -331,10 +387,18 @@ class SubprocessExecutor(BaseExecutor):
             if 'proc' in locals() and proc:
                 try:
                     if proc.returncode is None:
-                        proc.kill()
+                        # Client disconnect/cancellation must terminate the
+                        # entire execution tree, not only the shell process.
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            proc.kill()
                         await proc.wait()
                 except Exception:
                     pass
+            if 'bg_task' in locals() and bg_task and not bg_task.done():
+                bg_task.cancel()
+                await asyncio.gather(bg_task, return_exceptions=True)
             try:
                 code_file.unlink(missing_ok=True)
             except Exception:

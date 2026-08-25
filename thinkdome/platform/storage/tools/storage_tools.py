@@ -107,36 +107,6 @@ class ListDirTool(BaseTool):
             if logical in {"", "."} or logical == item.folder:
                 entries.append({"name": item.filename, "path": f"{item.folder}/{item.filename}", "type": "file", "size_bytes": item.size_bytes})
         return json.dumps(entries, indent=2)
-        safe_path = resolve_safe_path(path, ctx.workspace_dir)
-        if not safe_path.exists():
-            raise FileNotFoundError(f"Directory not found: {path}")
-        if not safe_path.is_dir():
-            raise ValueError(f"Path is not a directory: {path}")
-        
-        user_workspace = ctx.workspace_dir
-        cipher = workspace_cipher(_owner(ctx))
-        entries = []
-        for entry in sorted(safe_path.iterdir()):
-            try:
-                rel_path = entry.relative_to(user_workspace)
-            except ValueError:
-                rel_path = entry.name
-            is_directory = entry.is_dir()
-            if is_directory:
-                # Directory names are metadata; file contents remain encrypted.
-                size = 0
-            else:
-                # Accessing a listing authenticates the tenant and migrates
-                # legacy plaintext files to encrypted-at-rest storage.
-                cipher.read(entry)
-            size = entry.stat().st_size if not is_directory else 0
-            entries.append({
-                "name": entry.name,
-                "path": str(rel_path),
-                "type": "dir" if is_directory else "file",
-                "size_bytes": size
-            })
-        return json.dumps(entries, indent=2)
 
 
 @register_tool

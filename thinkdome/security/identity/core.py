@@ -85,7 +85,6 @@ ROLE_IDE = Role.IDE.value
 ROLE_WEB = Role.WEB.value
 
 ADMIN_ROLES = {Role.SUPER_ADMIN.value, Role.ENTERPRISE_ADMIN.value, Role.ADMIN.value, Role.ORCH.value, Role.IDE.value}
-DEFAULT_ADMIN_USERNAMES = {"admin", "administrator"}
 # No non-admin identity is globally trusted.  Sandboxes must be owned by the
 # authenticated username/key or accessed through an explicit admin role.
 GLOBAL_SANDBOX_OWNERS: set[str] = set()
@@ -211,8 +210,6 @@ class UserIdentity:
 
     def is_admin(self) -> bool:
         """Check if identity possesses administrator level authority."""
-        if self.username.lower() in DEFAULT_ADMIN_USERNAMES:
-            return True
         return bool(self.roles.intersection(ADMIN_ROLES))
 
     def has_role(self, role: Union[str, Role]) -> bool:
@@ -279,7 +276,10 @@ class RolePolicyEngine:
 
         owner = sandbox.get("owner")
         if not owner:
-            return True
+            # Missing ownership metadata must not turn an object reference into
+            # a tenant-wide capability.  Administrators bypass above; all
+            # other callers require an explicit owner to match.
+            return False
 
         allowed = {identity.username, identity.key_id}.union(GLOBAL_SANDBOX_OWNERS)
         if identity.metadata and "key_id" in identity.metadata:

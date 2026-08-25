@@ -198,36 +198,35 @@ async def test_workflow_engine_traversal():
 def test_metadata_crud_rest_routes():
     """Verify REST API gateway dynamically serving CRUD operations."""
     from thinkdome.core.api.server import app
-    client = TestClient(app)
+    with TestClient(app) as client:
+        # 1. List devices (currently empty/filtered)
+        resp = client.get("/api/device")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
 
-    # 1. List devices (currently empty/filtered)
-    resp = client.get("/api/device")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+        # 2. Post new device
+        payload = {"name": "Agg Switch", "ports": 48}
+        resp = client.post("/api/device", json=payload)
+        assert resp.status_code == 200
+        res_data = resp.json()
+        assert res_data["name"] == "Agg Switch"
+        assert res_data["ports"] == 48
+        device_id = res_data["id"]
 
-    # 2. Post new device
-    payload = {"name": "Agg Switch", "ports": 48}
-    resp = client.post("/api/device", json=payload)
-    assert resp.status_code == 200
-    res_data = resp.json()
-    assert res_data["name"] == "Agg Switch"
-    assert res_data["ports"] == 48
-    device_id = res_data["id"]
+        # 3. Retrieve detail
+        resp = client.get(f"/api/device/{device_id}")
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Agg Switch"
 
-    # 3. Retrieve detail
-    resp = client.get(f"/api/device/{device_id}")
-    assert resp.status_code == 200
-    assert resp.json()["name"] == "Agg Switch"
+        # 4. Modify attributes
+        resp = client.put(f"/api/device/{device_id}", json={"ports": 52})
+        assert resp.status_code == 200
+        assert resp.json()["ports"] == 52
 
-    # 4. Modify attributes
-    resp = client.put(f"/api/device/{device_id}", json={"ports": 52})
-    assert resp.status_code == 200
-    assert resp.json()["ports"] == 52
-
-    # 5. Delete resource
-    resp = client.delete(f"/api/device/{device_id}")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "success"
+        # 5. Delete resource
+        resp = client.delete(f"/api/device/{device_id}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "success"
 
 
 # ── 6. App Manager & Migration Engine Tests ───────────────────────────────────

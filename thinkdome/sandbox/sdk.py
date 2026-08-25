@@ -403,7 +403,8 @@ class Sandbox:
         # 1. Read files already present in the workspace directory
         if self.workspace.exists():
             for p in self.workspace.rglob("*"):
-                if p.is_file():
+                if p.is_symlink() or not p.is_file():
+                    continue
                     rel_path = str(p.relative_to(self.workspace)).replace("\\", "/")
                     try:
                         exec_files[rel_path] = p.read_bytes()
@@ -432,7 +433,8 @@ class Sandbox:
             for fname, content in result.output_files.items():
                 if fname == "__main__.py":
                     continue
-                out_path = self.workspace / fname
+                from thinkdome.core.path_utils import resolve_safe_path
+                out_path = resolve_safe_path(fname, self.workspace)
                 try:
                     out_path.parent.mkdir(parents=True, exist_ok=True)
                     out_path.write_bytes(content)
@@ -465,17 +467,20 @@ class Sandbox:
 
     def read_file(self, path: str) -> str:
         """Read a file from the workspace as text."""
-        full_path = self.workspace / path
+        from thinkdome.core.path_utils import resolve_safe_path
+        full_path = resolve_safe_path(path, self.workspace)
         return full_path.read_text(encoding="utf-8")
 
     def read_file_bytes(self, path: str) -> bytes:
         """Read a file from the workspace as binary bytes (useful for images/media)."""
-        full_path = self.workspace / path
+        from thinkdome.core.path_utils import resolve_safe_path
+        full_path = resolve_safe_path(path, self.workspace)
         return full_path.read_bytes()
 
     def write_file(self, path: str, content: Union[str, bytes]) -> None:
         """Write a text or binary file to the workspace."""
-        full_path = self.workspace / path
+        from thinkdome.core.path_utils import resolve_safe_path
+        full_path = resolve_safe_path(path, self.workspace)
         full_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(content, bytes):
             full_path.write_bytes(content)
@@ -484,10 +489,11 @@ class Sandbox:
 
     def list_files(self, path: str = ".") -> List[str]:
         """List files in a workspace subdirectory."""
-        full_path = self.workspace / path
+        from thinkdome.core.path_utils import resolve_safe_path
+        full_path = resolve_safe_path(path, self.workspace)
         if not full_path.exists():
             return []
-        return [str(p.relative_to(full_path)) for p in full_path.rglob("*") if p.is_file()]
+        return [str(p.relative_to(full_path)) for p in full_path.rglob("*") if p.is_file() and not p.is_symlink()]
 
     # ── Snapshot & Backtrack SDK API ──
 

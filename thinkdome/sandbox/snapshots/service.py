@@ -16,6 +16,7 @@ import json
 import uuid
 import shutil
 import logging
+import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -37,6 +38,24 @@ class SnapshotService:
         self._latest_by_sandbox: Dict[str, str] = {}
         # Optional MicroVM executor for real VM-level snapshots
         self._microvm_executor = microvm_executor
+
+    @staticmethod
+    def _validate_relative_path(path: str) -> str:
+        """Validate a snapshot file name before touching the host filesystem."""
+        if not isinstance(path, str) or not path or "\x00" in path:
+            raise ValueError("invalid snapshot file path")
+        parts = path.replace("\\", "/").split("/")
+        if any(part in {"", ".", ".."} for part in parts) or path.startswith(("/", "\\")):
+            raise ValueError(f"snapshot file path escapes workspace: {path!r}")
+        return "/".join(parts)
+
+    def _snapshot_dir(self, snapshot_id: str) -> Path:
+        if not isinstance(snapshot_id, str) or not re.fullmatch(r"snap_[A-Za-z0-9_-]{1,64}", snapshot_id):
+            raise ValueError("invalid snapshot id")
+        root = self.storage_dir.resolve()
+        candidate = (self.storage_dir / snapshot_id).resolve()
+        candidate.relative_to(root)
+        return candidate
 
     def create_snapshot(
         self,
@@ -75,6 +94,11 @@ class SnapshotService:
         if workspace_path and Path(workspace_path).exists():
             ws = Path(workspace_path)
             for p in ws.rglob("*"):
+                # Never dereference a workspace symlink while copying. A
+                # sandbox can create one to a host secret (for example
+                # /etc/shadow), and shutil.copy2 follows it by default.
+                if p.is_symlink():
+                    continue
                 if p.is_file():
                     rel = str(p.relative_to(ws)).replace("\\", "/")
                     dest = files_dir / rel
@@ -88,6 +112,7 @@ class SnapshotService:
         # 2. Snapshot explicit files if provided
         if files:
             for rel, content in files.items():
+                rel = self._validate_relative_path(rel)
                 dest = files_dir / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 if isinstance(content, str):
@@ -187,7 +212,7 @@ class SnapshotService:
         meta = self._snapshots.get(snapshot_id)
         if not meta:
             # Try reading from disk metadata
-            snap_dir = self.storage_dir / snapshot_id
+            snap_dir = self._snapshot_dir(snapshot_id)
             meta_file = snap_dir / "metadata.json"
             if meta_file.exists():
                 meta = json.loads(meta_file.read_text(encoding="utf-8"))
@@ -195,7 +220,7 @@ class SnapshotService:
             else:
                 raise ValueError(f"Snapshot '{snapshot_id}' not found.")
 
-        snap_dir = Path(meta["state_dir"])
+        snap_dir = self._snapshot_dir(snapshot_id)
         files_dir = snap_dir / "workspace_files"
         restored_files = {}
 
@@ -214,6 +239,7 @@ class SnapshotService:
             for p in files_dir.rglob("*"):
                 if p.is_file():
                     rel = str(p.relative_to(files_dir)).replace("\\", "/")
+                    rel = self._validate_relative_path(rel)
                     dest = ws / rel
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(p, dest)
@@ -298,7 +324,7 @@ class SnapshotService:
     def delete_snapshot(self, snapshot_id: str) -> bool:
         """Delete a snapshot checkpoint and release storage."""
         meta = self._snapshots.pop(snapshot_id, None)
-        snap_dir = self.storage_dir / snapshot_id
+        snap_dir = self._snapshot_dir(snapshot_id)
         if snap_dir.exists():
             try:
                 shutil.rmtree(snap_dir)

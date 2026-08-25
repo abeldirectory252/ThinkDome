@@ -174,7 +174,7 @@ async def orchestrate_tool(
 
 
 @router.get("/tools")
-async def list_tools():
+async def list_tools(current_user: dict = Depends(get_current_user)):
     """Retrieve all registered tools and their metadata."""
     import os
     from thinkdome.platform.orchestration.tools import registry
@@ -198,4 +198,3 @@ async def list_tools():
             "input_schema": schema
         })
     return response
-

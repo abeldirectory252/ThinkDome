@@ -85,6 +85,8 @@ class SandboxLifecycleService:
     def __init__(self, docker_client=None) -> None:
         self._docker_client = docker_client
         self._sandboxes: Dict[str, SandboxInfo] = {}
+        self._lock = asyncio.Lock()
+        self._operation_locks: Dict[str, asyncio.Lock] = {}
 
     @staticmethod
     def bound_ttl_by_role(requested_ttl_sec: Optional[int], role: str) -> int:
@@ -131,35 +133,37 @@ class SandboxLifecycleService:
             metadata=metadata or {},
         )
         self._sandboxes[sandbox_id] = info
+        self._operation_locks.setdefault(sandbox_id, asyncio.Lock())
         logger.info(f"📦 Registered sandbox {sandbox_id} (owner={owner}, purpose={purpose}, ttl={bounded_ttl}s)")
         return info
 
     async def destroy_sandbox(self, sandbox_id: str, actor: str = "reaper") -> SandboxInfo:
         """Safely and idempotently transition sandbox to DESTROYED and clean up resources."""
-        info = self._sandboxes.get(sandbox_id)
-        if not info:
-            # Idempotent — if already unregistered or missing, create placeholder
-            info = SandboxInfo(sandbox_id=sandbox_id, state=SandboxState.DESTROYED)
-            return info
+        operation_lock = self._operation_locks.setdefault(sandbox_id, asyncio.Lock())
+        async with operation_lock:
+            info = self._sandboxes.get(sandbox_id)
+            if not info:
+                # Idempotent — if already unregistered or missing, create placeholder
+                return SandboxInfo(sandbox_id=sandbox_id, state=SandboxState.DESTROYED)
 
-        if info.state == SandboxState.DESTROYED:
-            return info
+            if info.state == SandboxState.DESTROYED:
+                return info
 
-        try:
-            self._transition_state(info, SandboxState.DESTROYED)
-        except Exception:
-            info.state = SandboxState.DESTROYED
-
-        # Teardown physical container if active
-        if info.container_id and self._docker_client:
             try:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self._docker_destroy, info.container_id)
-            except Exception as e:
-                logger.warning(f"Container destruction note for {info.container_id}: {e}")
+                self._transition_state(info, SandboxState.DESTROYED)
+            except Exception:
+                info.state = SandboxState.DESTROYED
 
-        logger.info(f"🗑️ Sandbox {sandbox_id} destroyed by {actor}")
-        return info
+            # Teardown physical container if active
+            if info.container_id and self._docker_client:
+                try:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self._docker_destroy, info.container_id)
+                except Exception as e:
+                    logger.warning(f"Container destruction note for {info.container_id}: {e}")
+
+            logger.info(f"🗑️ Sandbox {sandbox_id} destroyed by {actor}")
+            return info
 
     def _docker_destroy(self, container_id: str) -> None:
         try:
@@ -218,66 +222,69 @@ class SandboxLifecycleService:
 
     async def pause_sandbox(self, sandbox_id: str) -> SandboxInfo:
         """Pause a running sandbox."""
-        info = self.get_sandbox(sandbox_id)
-        self._transition_state(info, SandboxState.PAUSING)
+        operation_lock = self._operation_locks.setdefault(sandbox_id, asyncio.Lock())
+        async with operation_lock:
+            info = self.get_sandbox(sandbox_id)
+            self._transition_state(info, SandboxState.PAUSING)
 
-        try:
-            if info.backend == "docker" and self._docker_client and info.container_id:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self._docker_pause, info.container_id)
-            elif info.backend == "microvm":
-                logger.info(f"MicroVM pause for {sandbox_id} — snapshotting state to disk")
-                # MicroVM pause delegates to snapshot service
-            else:
-                logger.info(f"Pause not physically supported for backend={info.backend}, marking as paused")
+            try:
+                if info.backend == "docker" and self._docker_client and info.container_id:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self._docker_pause, info.container_id)
+                elif info.backend == "microvm":
+                    logger.info(f"MicroVM pause for {sandbox_id} — snapshotting state to disk")
+                else:
+                    logger.info(f"Pause not physically supported for backend={info.backend}, marking as paused")
 
-            self._transition_state(info, SandboxState.PAUSED)
-            logger.info(f"⏸️ Sandbox {sandbox_id} paused")
-        except HTTPException:
-            raise
-        except Exception as e:
-            self._transition_state(info, SandboxState.FAILED)
-            logger.error(f"Failed to pause sandbox {sandbox_id}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "code": SandboxErrorCodes.INVALID_STATE,
-                    "message": f"Failed to pause sandbox: {e}",
-                },
-            )
+                self._transition_state(info, SandboxState.PAUSED)
+                logger.info(f"⏸️ Sandbox {sandbox_id} paused")
+            except HTTPException:
+                raise
+            except Exception as e:
+                self._transition_state(info, SandboxState.FAILED)
+                logger.error(f"Failed to pause sandbox {sandbox_id}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={
+                        "code": SandboxErrorCodes.INVALID_STATE,
+                        "message": f"Failed to pause sandbox: {e}",
+                    },
+                )
 
-        return info
+            return info
 
     async def resume_sandbox(self, sandbox_id: str) -> SandboxInfo:
         """Resume a paused sandbox."""
-        info = self.get_sandbox(sandbox_id)
-        self._transition_state(info, SandboxState.RESUMING)
+        operation_lock = self._operation_locks.setdefault(sandbox_id, asyncio.Lock())
+        async with operation_lock:
+            info = self.get_sandbox(sandbox_id)
+            self._transition_state(info, SandboxState.RESUMING)
 
-        try:
-            if info.backend == "docker" and self._docker_client and info.container_id:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self._docker_unpause, info.container_id)
-            elif info.backend == "microvm":
-                logger.info(f"MicroVM resume for {sandbox_id} — restoring from snapshot")
-            else:
-                logger.info(f"Resume not physically supported for backend={info.backend}, marking as running")
+            try:
+                if info.backend == "docker" and self._docker_client and info.container_id:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self._docker_unpause, info.container_id)
+                elif info.backend == "microvm":
+                    logger.info(f"MicroVM resume for {sandbox_id} — restoring from snapshot")
+                else:
+                    logger.info(f"Resume not physically supported for backend={info.backend}, marking as running")
 
-            self._transition_state(info, SandboxState.RUNNING)
-            logger.info(f"▶️ Sandbox {sandbox_id} resumed")
-        except HTTPException:
-            raise
-        except Exception as e:
-            self._transition_state(info, SandboxState.FAILED)
-            logger.error(f"Failed to resume sandbox {sandbox_id}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "code": SandboxErrorCodes.INVALID_STATE,
-                    "message": f"Failed to resume sandbox: {e}",
-                },
-            )
+                self._transition_state(info, SandboxState.RUNNING)
+                logger.info(f"▶️ Sandbox {sandbox_id} resumed")
+            except HTTPException:
+                raise
+            except Exception as e:
+                self._transition_state(info, SandboxState.FAILED)
+                logger.error(f"Failed to resume sandbox {sandbox_id}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={
+                        "code": SandboxErrorCodes.INVALID_STATE,
+                        "message": f"Failed to resume sandbox: {e}",
+                    },
+                )
 
-        return info
+            return info
 
     def renew_expiration(
         self,
@@ -296,7 +303,7 @@ class SandboxLifecycleService:
         """
         info = self.get_sandbox(sandbox_id)
 
-        if info.state in (SandboxState.TERMINATED, SandboxState.STOPPING):
+        if info.state in (SandboxState.TERMINATED, SandboxState.STOPPING, SandboxState.DESTROYED, SandboxState.FAILED):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
@@ -361,6 +368,7 @@ class SandboxLifecycleService:
     def unregister_sandbox(self, sandbox_id: str) -> None:
         """Remove a sandbox from lifecycle management."""
         self._sandboxes.pop(sandbox_id, None)
+        self._operation_locks.pop(sandbox_id, None)
 
     # ── Docker helpers ──
 

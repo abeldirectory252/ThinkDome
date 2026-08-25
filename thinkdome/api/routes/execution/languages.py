@@ -1,10 +1,11 @@
 """Language and runtime info endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from thinkdome.core.dependencies import get_current_admin, get_current_user
 
 from thinkdome.sandbox.core.languages import LanguageInfo, PackageInfo, RuntimeInfo
 
-router = APIRouter(tags=["languages"])
+router = APIRouter(tags=["languages"], dependencies=[Depends(get_current_user)])
 
 # Static language registry
 _LANGUAGES: dict[str, LanguageInfo] = {
@@ -69,6 +70,6 @@ async def list_runtimes():
 
 
 @router.post("/runtimes/warmup")
-async def warmup_runtimes():
+async def warmup_runtimes(_user: dict = Depends(get_current_admin)):
     """Pre-warm executor containers."""
     return {"status": "warmup triggered"}

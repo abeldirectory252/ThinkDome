@@ -100,9 +100,16 @@ class OrchestratorService:
 
     def get_user_workspace(self, username: Optional[str]) -> Path:
         """Get the user-specific workspace root directory on the host."""
-        if not username:
-            username = "anonymous"
-        user_dir = Path(self.settings.FILE_STORAGE_DIR) / "workspaces" / username
+        import hashlib
+        raw_user = (username or "anonymous").strip().lower()
+        # Hash username to a clean 32-char hex string namespace to prevent directory escape
+        namespace = hashlib.sha256(raw_user.encode("utf-8")).hexdigest()[:32]
+        base_dir = Path(self.settings.FILE_STORAGE_DIR).resolve() / "workspaces"
+        user_dir = (base_dir / namespace).resolve()
+        try:
+            user_dir.relative_to(base_dir)
+        except ValueError:
+            user_dir = base_dir / "anonymous"
         user_dir.mkdir(parents=True, exist_ok=True)
         return user_dir
 

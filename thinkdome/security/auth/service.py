@@ -386,8 +386,15 @@ class AuthService:
                         username=username,
                     )
                     role = resolved_role
+                else:
+                    # A validly signed JWT must not retain privileged claims
+                    # after its backing user has been deleted.
+                    role = "AGENT_STANDARD"
             except Exception:
-                pass
+                # Fail closed during RBAC outages: preserve authentication for
+                # basic access, but never trust a cached privileged JWT claim.
+                if str(role).upper() in {"ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH", "ORCHESTRATOR", "IDE"}:
+                    role = "AGENT_STANDARD"
             return {
                 "username": username,
                 "role": role,

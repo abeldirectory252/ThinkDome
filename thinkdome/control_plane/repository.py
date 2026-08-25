@@ -190,6 +190,19 @@ class ControlPlaneRepository:
         node.save()
         return node
 
+    def release_node_capacity(self, node_id: str, request: SandboxPlacementRequest) -> None:
+        """Undo a reservation made by a losing idempotency race."""
+        node = ExecutionNode.query().filter(node_id=node_id).first()
+        if not node:
+            return
+        capacity = json.loads(node.capacity_json or "{}")
+        capacity["committed_cpu_millis"] = max(0, capacity.get("committed_cpu_millis", 0) - request.cpu_millis)
+        capacity["committed_memory_bytes"] = max(0, capacity.get("committed_memory_bytes", 0) - request.memory_bytes)
+        capacity["committed_pids"] = max(0, capacity.get("committed_pids", 0) - request.pids)
+        capacity["sandboxes"] = max(0, capacity.get("sandboxes", 0) - 1)
+        node.capacity_json = json.dumps(capacity, separators=(",", ":"))
+        node.save()
+
     def release_sandbox_resources(
         self, sandbox_id: str, organization_id: str, *, target_status: str = "Destroyed"
     ) -> Sandbox:
@@ -312,6 +325,7 @@ class ControlPlaneRepository:
         )
         try:
             item.save()
+            item._created_by_call = True
             return item
         except IntegrityError:
             # Another worker won the insert race. Re-read the committed result
@@ -320,5 +334,6 @@ class ControlPlaneRepository:
             _get_active_db().rollback()
             existing = self.get_idempotency(organization_id, operation, key)
             if existing and existing.project_id == project_id:
+                existing._created_by_call = False
                 return existing
             raise

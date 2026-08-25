@@ -55,8 +55,8 @@ class ControlPlaneLifecycle:
             request.organization_id, "create_sandbox", idempotency_key
         )
         if existing:
-            if existing.project_id != request.project_id:
-                raise IdempotencyConflict("idempotency key belongs to another project")
+            if existing.project_id != request.project_id or existing.resource_id != request.sandbox_id:
+                raise IdempotencyConflict("idempotency key belongs to another project or sandbox")
             payload = json.loads(existing.response_json)
             return ProvisionedSandbox(**payload)
 
@@ -112,5 +112,12 @@ class ControlPlaneLifecycle:
             result.__dict__,
         )
         if persisted and getattr(persisted, "response_json", None):
+            # If another worker inserted the same idempotency key while this
+            # worker was reserving capacity, undo this worker's extra
+            # reservation before replaying the winner's response.
+            if getattr(persisted, "_created_by_call", True) is False:
+                release = getattr(self.repository, "release_node_capacity", None)
+                if release:
+                    release(placement.node_id, request)
             return ProvisionedSandbox(**json.loads(persisted.response_json))
         return result

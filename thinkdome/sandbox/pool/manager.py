@@ -200,7 +200,17 @@ class PoolManager:
             return
 
         if container.state != ContainerState.ACQUIRED:
+            # Release can be retried after cancellation/timeout. Never reset
+            # or requeue a container that another request may already own;
+            # doing so permits concurrent executions to share workspace state.
             logger.warning(f"Container {pool_id} released but state is {container.state}")
+            return
+
+        if not reset:
+            # A failed/timed-out execution may have unknown process and
+            # filesystem state. It must never be returned as a warm container.
+            await self._destroy_container(pool_id)
+            return
 
         # Check pool capacity
         warm_count = sum(1 for c in self._containers.values() if c.state == ContainerState.WARM)

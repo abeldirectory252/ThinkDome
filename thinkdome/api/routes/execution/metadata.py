@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, st
 
 from thinkdome.core.error_codes import SandboxErrorCodes
 from thinkdome.core.dependencies import get_current_user
+from thinkdome.api.routes.execution.authorization import authorize_sandbox_access
 
 router = APIRouter(tags=["Metadata"], dependencies=[Depends(get_current_user)])
 
@@ -29,6 +30,7 @@ def patch_sandbox_metadata(
     sandbox_id: str,
     patch: Dict = Body(..., description="JSON Merge Patch object (key: value or key: null to delete)"),
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
+    user: dict = Depends(get_current_user),
 ) -> dict:
     """Patch sandbox metadata via JSON Merge Patch (RFC 7396).
 
@@ -36,6 +38,7 @@ def patch_sandbox_metadata(
     Reserved label prefix 'thinkdome.io/' cannot be modified by user requests.
     """
     lifecycle_service = getattr(request.app.state, "lifecycle_service", None)
+    authorize_sandbox_access(request, sandbox_id, user)
     if not lifecycle_service:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,

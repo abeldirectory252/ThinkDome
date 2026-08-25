@@ -31,7 +31,7 @@ class FileService:
         """Store an uploaded file and return metadata."""
         if len(content) > self.max_size:
             raise ValueError(
-                f"File too large: {len(content)} bytes (max {self.max_size})"
+                f"Storage quota exceeded: {len(content)} bytes exceeds the {self.max_size}-byte limit"
             )
 
         file_id = str(uuid.uuid4())
@@ -86,6 +86,8 @@ class FileService:
         meta = self._metadata.get(file_id)
         if not meta or (owner_id is not None and meta.owner_id != owner_id):
             return None
+        if len(content) > self.max_size:
+            raise ValueError(f"Storage quota exceeded: {len(content)} bytes exceeds the {self.max_size}-byte limit")
         file_path = self.storage_dir / file_id / meta.filename
         file_path.write_bytes(content)
         meta.size_bytes = len(content)
@@ -93,17 +95,17 @@ class FileService:
         meta.updated_at = datetime.now(timezone.utc)
         return meta
 
-    def copy_file(self, file_id: str, new_path: str) -> Optional[FileMetadata]:
-        result = self.get_content(file_id)
+    def copy_file(self, file_id: str, new_path: str, owner_id: Optional[str] = None) -> Optional[FileMetadata]:
+        result = self.get_content(file_id, owner_id)
         if not result:
             return None
         content, old_meta = result
         return self.upload(new_path, content, old_meta.content_type, old_meta.owner_id)
 
-    def move_file(self, file_id: str, new_path: str) -> Optional[FileMetadata]:
-        new_meta = self.copy_file(file_id, new_path)
+    def move_file(self, file_id: str, new_path: str, owner_id: Optional[str] = None) -> Optional[FileMetadata]:
+        new_meta = self.copy_file(file_id, new_path, owner_id)
         if new_meta:
-            self.delete(file_id)
+            self.delete(file_id, owner_id=owner_id)
         return new_meta
 
     def get_file_path(self, file_id: str) -> Optional[Path]:

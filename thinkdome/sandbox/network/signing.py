@@ -13,6 +13,7 @@ Signature scheme::
 
 from __future__ import annotations
 
+import hmac
 import hashlib
 import struct
 from typing import Final, Dict, Optional
@@ -154,7 +155,7 @@ def verify_signed_route(
     canonical = build_canonical_bytes(sandbox_id, port, expires_b36)
     expected_sig = compute_signature(secret_bytes, key_id, canonical)
 
-    if sig != expected_sig:
+    if not hmac.compare_digest(sig, expected_sig):
         return False, "Signature verification failed", sandbox_id, port
 
     return True, "Valid signed route token", sandbox_id, port

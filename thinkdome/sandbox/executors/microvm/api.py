@@ -16,6 +16,13 @@ from thinkdome.sandbox.executors.microvm import MicroVMExecutor, VMStatus
 
 router = APIRouter(tags=["microvm"], dependencies=[Depends(get_current_user)])
 
+_MICROVM_ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN", "ORCH", "ORCHESTRATOR", "AGENT_ADMIN"}
+
+
+def _require_microvm_admin(user: dict) -> None:
+    if str(user.get("role", "")).upper() not in _MICROVM_ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="MicroVM management requires an administrator role")
+
 
 # ─── Request/Response Models ────────────────────────────────────────────────
 
@@ -61,8 +68,9 @@ def _get_microvm_executor(request: Request) -> MicroVMExecutor:
 # ─── VM Lifecycle Endpoints ──────────────────────────────────────────────────
 
 @router.post("/microvm/start", status_code=201)
-async def start_microvm(req: StartMicroVMRequest, request: Request):
+async def start_microvm(req: StartMicroVMRequest, request: Request, user: dict = Depends(get_current_user)):
     """Spawn a hardware-isolated MicroVM instance via Cloud Hypervisor/KVM."""
+    _require_microvm_admin(user)
     try:
         executor = _get_microvm_executor(request)
         if not executor._initialized:
@@ -75,8 +83,9 @@ async def start_microvm(req: StartMicroVMRequest, request: Request):
 
 
 @router.get("/microvm/list")
-async def list_microvms(request: Request):
+async def list_microvms(request: Request, user: dict = Depends(get_current_user)):
     """List all active MicroVM instances."""
+    _require_microvm_admin(user)
     try:
         executor = _get_microvm_executor(request)
         return {"vms": [inst.to_dict() for inst in executor.instances.values()]}
@@ -85,8 +94,9 @@ async def list_microvms(request: Request):
 
 
 @router.get("/microvm/{vm_id}")
-async def get_microvm(vm_id: str, request: Request):
+async def get_microvm(vm_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Get details of a specific MicroVM instance."""
+    _require_microvm_admin(user)
     executor = _get_microvm_executor(request)
     instance = executor.instances.get(vm_id)
     if not instance:
@@ -95,8 +105,9 @@ async def get_microvm(vm_id: str, request: Request):
 
 
 @router.delete("/microvm/{vm_id}")
-async def stop_microvm(vm_id: str, request: Request):
+async def stop_microvm(vm_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Shutdown and destroy a MicroVM instance (real CHV process + cleanup)."""
+    _require_microvm_admin(user)
     try:
         executor = _get_microvm_executor(request)
         if vm_id not in executor.instances:
@@ -113,8 +124,9 @@ async def stop_microvm(vm_id: str, request: Request):
 # ─── VM State Control ───────────────────────────────────────────────────────
 
 @router.post("/microvm/{vm_id}/pause")
-async def pause_microvm(vm_id: str, request: Request):
+async def pause_microvm(vm_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Pause a running MicroVM (freezes guest CPU execution)."""
+    _require_microvm_admin(user)
     executor = _get_microvm_executor(request)
     instance = executor.instances.get(vm_id)
     if not instance:
@@ -132,8 +144,9 @@ async def pause_microvm(vm_id: str, request: Request):
 
 
 @router.post("/microvm/{vm_id}/resume")
-async def resume_microvm(vm_id: str, request: Request):
+async def resume_microvm(vm_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Resume a paused MicroVM."""
+    _require_microvm_admin(user)
     executor = _get_microvm_executor(request)
     instance = executor.instances.get(vm_id)
     if not instance:
@@ -153,11 +166,12 @@ async def resume_microvm(vm_id: str, request: Request):
 # ─── Snapshot & Restore ─────────────────────────────────────────────────────
 
 @router.post("/microvm/{vm_id}/snapshot")
-async def snapshot_microvm(vm_id: str, req: SnapshotRequest, request: Request):
+async def snapshot_microvm(vm_id: str, req: SnapshotRequest, request: Request, user: dict = Depends(get_current_user)):
     """Take a full VM-level snapshot (memory + CPU + disk state).
 
     The VM is paused during the snapshot and automatically resumed after.
     """
+    _require_microvm_admin(user)
     executor = _get_microvm_executor(request)
     if vm_id not in executor.instances:
         raise HTTPException(status_code=404, detail=f"VM {vm_id} not found")
@@ -172,11 +186,12 @@ async def snapshot_microvm(vm_id: str, req: SnapshotRequest, request: Request):
 
 
 @router.post("/microvm/restore")
-async def restore_microvm(req: RestoreRequest, request: Request):
+async def restore_microvm(req: RestoreRequest, request: Request, user: dict = Depends(get_current_user)):
     """Restore a VM from a previous snapshot.
 
     Creates a new VM instance with the restored state.
     """
+    _require_microvm_admin(user)
     executor = _get_microvm_executor(request)
     if not executor._initialized:
         await executor.initialize()
@@ -191,8 +206,9 @@ async def restore_microvm(req: RestoreRequest, request: Request):
 # ─── Guest Command Execution ────────────────────────────────────────────────
 
 @router.post("/microvm/{vm_id}/exec")
-async def exec_in_microvm(vm_id: str, req: ExecRequest, request: Request):
+async def exec_in_microvm(vm_id: str, req: ExecRequest, request: Request, user: dict = Depends(get_current_user)):
     """Execute a command inside a running MicroVM guest via the HTTP command server."""
+    _require_microvm_admin(user)
     executor = _get_microvm_executor(request)
     instance = executor.instances.get(vm_id)
     if not instance:
@@ -212,8 +228,9 @@ async def exec_in_microvm(vm_id: str, req: ExecRequest, request: Request):
 # ─── Destroy All ─────────────────────────────────────────────────────────────
 
 @router.delete("/microvm")
-async def destroy_all_microvms(request: Request):
+async def destroy_all_microvms(request: Request, user: dict = Depends(get_current_user)):
     """Destroy all active MicroVM instances and clean up infrastructure."""
+    _require_microvm_admin(user)
     executor = _get_microvm_executor(request)
     try:
         await executor.shutdown()

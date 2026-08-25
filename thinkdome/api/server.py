@@ -390,6 +390,8 @@ def create_app() -> FastAPI:
                     target_file = files[0]
 
         if not target_file.exists() or not target_file.is_file():
+            import html
+            safe_site_id = html.escape(site_id)
             expired_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -430,7 +432,7 @@ def create_app() -> FastAPI:
     </div>
     <h1>Hosted Site Expired</h1>
     <p class="sub">The temporary hosted application or preview has expired (TTL timeout) or the URL is invalid.</p>
-    <div class="token-badge">Token: {site_id}</div>
+    <div class="token-badge">Token: {safe_site_id}</div>
     <a href="/" class="action-btn">
       Return to ThinkDome Console
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>

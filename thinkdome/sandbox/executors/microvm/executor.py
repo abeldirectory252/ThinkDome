@@ -19,6 +19,7 @@ Architecture mirrors the Arrakis reference implementation (Ref/arrakis-main/):
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import time
 import json
@@ -27,6 +28,7 @@ import shutil
 import asyncio
 import logging
 import subprocess
+import shlex
 from enum import Enum
 from pathlib import Path
 from typing import Optional, AsyncGenerator, Dict, Any, List
@@ -633,6 +635,13 @@ class MicroVMExecutor(BaseExecutor):
             if request.files:
                 workspace_files = {}
                 for rel_path, content in request.files.items():
+                    rel_parts = str(rel_path).replace("\\", "/").split("/")
+                    if (
+                        not rel_path
+                        or str(rel_path).startswith(("/", "\\"))
+                        or any(part in {"", ".", ".."} for part in rel_parts)
+                    ):
+                        raise PermissionError(f"path escapes guest workspace: {rel_path!r}")
                     if isinstance(content, str):
                         content = content.encode("utf-8")
                     workspace_files[f"/workspace/{rel_path}"] = content
@@ -651,9 +660,9 @@ class MicroVMExecutor(BaseExecutor):
             # 3. Execute inside the guest
             timeout_sec = (request.timeout_ms or 10000) / 1000.0
             if request.language.lower() == "python":
-                cmd = f"cd /workspace && timeout {timeout_sec} python3 {script_filename} 2>&1"
+                cmd = f"cd /workspace && timeout {timeout_sec} python3 {shlex.quote(script_filename)} 2>&1"
             else:
-                cmd = f"cd /workspace && timeout {timeout_sec} ./{script_filename} 2>&1"
+                cmd = f"cd /workspace && timeout {timeout_sec} ./{shlex.quote(script_filename)} 2>&1"
 
             output, error = await instance.guest_http_client.run_command(cmd)
 
@@ -666,7 +675,7 @@ class MicroVMExecutor(BaseExecutor):
             # List files in /workspace and download any new ones
             try:
                 ls_output, _ = await instance.guest_http_client.run_command(
-                    f"find /workspace -type f ! -name '{script_filename}' -printf '%P\\n'"
+                    f"find /workspace -type f ! -name {shlex.quote(script_filename)} -printf '%P\\n'"
                 )
                 if ls_output.strip():
                     file_paths = [
@@ -716,7 +725,11 @@ class MicroVMExecutor(BaseExecutor):
 
             if request.files:
                 for rel_path, content in request.files.items():
-                    target = temp_path / rel_path
+                    target = (temp_path / rel_path).resolve()
+                    try:
+                        target.relative_to(temp_path.resolve())
+                    except ValueError as exc:
+                        raise PermissionError(f"path escapes fallback workspace: {rel_path!r}") from exc
                     target.parent.mkdir(parents=True, exist_ok=True)
                     if isinstance(content, str):
                         content = content.encode("utf-8")
@@ -744,6 +757,7 @@ class MicroVMExecutor(BaseExecutor):
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(temp_path),
                     env=env,
+                    start_new_session=True,
                 )
 
                 timeout_sec = (request.timeout_ms or 10000) / 1000.0
@@ -755,16 +769,20 @@ class MicroVMExecutor(BaseExecutor):
                     exit_code = proc.returncode or 0
                 except asyncio.TimeoutError:
                     try:
-                        proc.kill()
-                    except Exception:
-                        pass
-                    stdout_bytes, stderr_bytes = b"", b"Execution timed out (fallback mode)."
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                    stdout_bytes, stderr_bytes = await proc.communicate()
+                    stderr_bytes = stderr_bytes or b"Execution timed out (fallback mode)."
                     timed_out = True
                     exit_code = 124
 
                 output_files = {}
                 for p in temp_path.rglob("*"):
-                    if p.is_file() and p.name != script_filename:
+                    if not p.is_symlink() and p.is_file() and p.name != script_filename:
                         rel = str(p.relative_to(temp_path)).replace("\\", "/")
                         output_files[rel] = p.read_bytes()
 

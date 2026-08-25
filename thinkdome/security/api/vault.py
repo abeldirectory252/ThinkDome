@@ -17,6 +17,25 @@ from thinkdome.core.dependencies import get_current_user
 router = APIRouter(tags=["Credential Vault"], dependencies=[Depends(get_current_user)])
 
 
+def _authorize_sandbox(request: Request, sandbox_id: str, user: dict) -> None:
+    """Require ownership before mutating or enumerating sandbox credentials."""
+    db = getattr(request.app.state, "db_service", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="Sandbox ownership service is unavailable")
+    role = str(user.get("role", "")).upper()
+    admin_roles = {"ADMIN", "SUPER_ADMIN", "ORCHESTRATOR", "ORCH", "IDE", "AGENT_ADMIN"}
+    if role in admin_roles:
+        return
+    if user.get("token_type") == "sandbox_access" and user.get("sandbox_id") != sandbox_id:
+        raise HTTPException(status_code=404, detail="Sandbox not found")
+    sandbox = db.get_sandbox(sandbox_id)
+    if not sandbox:
+        raise HTTPException(status_code=404, detail="Sandbox not found")
+    owner = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
+    if str(sandbox.get("owner", "")).strip().lower() != owner:
+        raise HTTPException(status_code=403, detail="Forbidden: you do not own this sandbox")
+
+
 class CreateVaultRequest(BaseModel):
     """Payload for setting up credentials and bindings in Vault."""
     credentials: List[Credential]
@@ -49,6 +68,8 @@ def create_vault_entries(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail={"code": SandboxErrorCodes.UNKNOWN_ERROR, "message": "Credential Vault is not initialized."},
         )
+
+    _authorize_sandbox(request, sandbox_id, user)
 
     # Never trust the caller-controlled X-User-Id header for secret ownership.
     owner_id = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
@@ -96,6 +117,8 @@ def list_vault_keys(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail={"code": SandboxErrorCodes.UNKNOWN_ERROR, "message": "Credential Vault is not initialized."},
         )
+
+    _authorize_sandbox(request, sandbox_id, user)
 
     owner_id = str(user.get("workspace_id", user.get("username", ""))).strip().lower()
     keys = vault.list_keys(user_id=owner_id, sandbox_id=sandbox_id)

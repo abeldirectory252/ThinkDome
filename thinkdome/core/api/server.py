@@ -148,19 +148,17 @@ async def serve_hosted_site(site_id: str, filename: str = "index.html"):
 
     hosted_root = (Path(os.getcwd()) / "storage" / "hosted_sites").resolve()
     base_dir = (hosted_root / site_id).resolve()
-    if hosted_root not in base_dir.parents:
-        return HTMLResponse(content="Hosted site not found", status_code=404)
     if not base_dir.exists():
         hosted_root = (Path(__file__).resolve().parents[3] / "storage" / "hosted_sites").resolve()
         base_dir = (hosted_root / site_id).resolve()
-        if hosted_root not in base_dir.parents:
-            return HTMLResponse(content="Hosted site not found", status_code=404)
 
-        base_dir = base_dir.resolve()
-        target_file = (base_dir / (filename if filename else "index.html")).resolve()
-        if base_dir not in target_file.parents and target_file != base_dir:
-            # Never allow a hosted-site URL to traverse outside its site root.
-            target_file = base_dir / "index.html"
+    if hosted_root not in base_dir.parents and base_dir != hosted_root:
+        return HTMLResponse(content="Hosted site not found", status_code=404)
+
+    target_file = (base_dir / (filename if filename else "index.html")).resolve()
+    if base_dir not in target_file.parents and target_file != base_dir:
+        # Never allow a hosted-site URL to traverse outside its site root.
+        target_file = base_dir / "index.html"
 
     if not target_file.exists() or not target_file.is_file():
         target_file = base_dir / "index.html"

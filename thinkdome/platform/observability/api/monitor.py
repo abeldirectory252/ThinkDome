@@ -72,13 +72,11 @@ async def monitor_websocket(websocket: WebSocket):
 
     # Do not accept bearer tokens in URLs; browser history/proxies may log them.
     token = websocket.cookies.get("session_token")
-    if token:
-        auth_service = getattr(websocket.app.state, "auth_service", None)
-        if auth_service:
-            identity = auth_service.verify_token(token)
-            if not identity or identity.get("role") not in ("ADMIN", "ORCH", "IDE"):
-                await websocket.close(code=1008, reason="Unauthorized")
-                return
+    auth_service = getattr(websocket.app.state, "auth_service", None)
+    identity = auth_service.verify_token(token) if token and auth_service else None
+    if not identity or str(identity.get("role", "")).upper() not in {"ADMIN", "SUPER_ADMIN", "ORCH", "ORCHESTRATOR", "IDE"}:
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
 
     await websocket.accept()
     logger.info("📊 Monitor WebSocket client connected")
