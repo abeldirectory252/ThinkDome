@@ -1,7 +1,26 @@
 // static/js/app.js
 
 /* =================== SIDEBAR & PAGES SWITCHING =================== */
+const ROLE_PAGE_ACCESS = Object.freeze({
+    SUPER_ADMIN: new Set(['dashboard', 'sandboxes', 'console', 'snapshots', 'mcp', 'webhooks', 'limits', 'apikeys', 'audit', 'users', 'roles', 'members', 'account', 'general', 'billing']),
+    ADMIN: new Set(['dashboard', 'sandboxes', 'console', 'snapshots', 'mcp', 'webhooks', 'limits', 'apikeys', 'audit', 'users', 'roles', 'members', 'account', 'general', 'billing']),
+    AUDITOR: new Set(['dashboard', 'snapshots', 'audit', 'account']),
+    FINANCE: new Set(['dashboard', 'billing', 'audit', 'account']),
+    AGENT_STANDARD: new Set(['dashboard', 'sandboxes', 'console', 'snapshots', 'mcp', 'account']),
+});
+
+function allowedPagesForRole(role) {
+    const normalized = (role || 'AGENT_STANDARD').toUpperCase();
+    if (normalized.includes('ADMIN')) return ROLE_PAGE_ACCESS.ADMIN;
+    return ROLE_PAGE_ACCESS[normalized] || ROLE_PAGE_ACCESS.AGENT_STANDARD;
+}
+
 function navTo(pageId) {
+    const stateRole = localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD';
+    const allowedPages = allowedPagesForRole(stateRole);
+    if (!allowedPages.has(pageId)) {
+        pageId = 'dashboard';
+    }
     state.activePage = pageId;
     document.querySelectorAll('.nav-item').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.page === pageId);
@@ -158,19 +177,20 @@ function applyRoleBasedUINavigation(role, username) {
     if (adminBannerEl) adminBannerEl.hidden = !(isAdminRole(activeRole));
 
     // Show/Hide Nav Buttons according to Role Privileges
-    const isAdmin = isAdminRole(activeRole);
-    const isAuditor = activeRole.includes('AUDIT');
-    const isFinance = activeRole.includes('FINANCE');
+    const allowedPages = allowedPagesForRole(activeRole);
+    document.documentElement.dataset.thinkdomeRole = activeRole;
 
     document.querySelectorAll('.nav-item').forEach(btn => {
         const page = btn.dataset.page;
-        if (page === 'roles' || page === 'apikeys' || page === 'billing') {
-            btn.style.display = (isAdmin || isFinance) ? 'flex' : 'none';
-        } else if (page === 'audit') {
-            btn.style.display = (isAdmin || isAuditor) ? 'flex' : 'none';
-        } else {
-            btn.style.display = 'flex';
-        }
+        btn.style.display = allowedPages.has(page) ? 'flex' : 'none';
+    });
+
+    // Hide inaccessible content as well as its navigation entry. This keeps
+    // direct DOM access from presenting an administrator page to a standard
+    // agent and makes the role boundary visible immediately after login.
+    document.querySelectorAll('.page[id^="page-"]').forEach(page => {
+        const pageId = page.id.slice('page-'.length);
+        if (!allowedPages.has(pageId)) page.classList.add('hidden');
     });
 }
 
