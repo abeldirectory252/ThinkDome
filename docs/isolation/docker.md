@@ -358,3 +358,142 @@ enabling networked production sandboxes, provision **inside the DinD daemon**:
 If those objects are absent from the daemon referenced by `DOCKER_HOST`, the
 backend must reject network-enabled sandbox creation. Never point production
 sandboxes at the outer host bridge as a workaround.
+
+## Latest Test — 2026-08-25
+
+The following campaign was executed against the local Docker daemon (`29.6.1`)
+using `thinkdome-executor:latest`.
+
+### Runtime baseline
+
+```bash
+docker image inspect thinkdome-executor:latest --format '{{.Id}} user={{.Config.User}}'
+docker info --format 'Driver={{.Driver}} Security={{json .SecurityOptions}} Cgroup={{.CgroupVersion}} Runtimes={{json .Runtimes}} Default={{.DefaultRuntime}}'
+```
+
+Observed:
+
+- image ID: `sha256:57e9a52187660b14b3b2d061235099c1a87afdcfe6fec6ebe2eb501de23937be`
+- image user: `sandbox`
+- storage driver: `overlayfs`
+- cgroups: `v2`
+- AppArmor and seccomp: enabled
+- available runtimes: `runc`, `runsc`, `kata-runtime`
+- default runtime: `runc`
+
+`runc` is acceptable for this compatibility test only. Production untrusted
+execution must explicitly select and verify `runsc` or `kata-runtime`.
+
+### Host filesystem and PID namespace
+
+```bash
+docker run --rm --network none --entrypoint python3 \
+  --read-only \
+  --tmpfs /tmp:size=64m,noexec,nosuid,nodev,mode=1777 \
+  --tmpfs /workspace:size=64m,noexec,nosuid,nodev,mode=1777 \
+  --user 1000:1000 --cap-drop ALL \
+  --security-opt no-new-privileges --pids-limit 64 \
+  --memory 128m --memory-swap 128m --cpus 1 \
+  --ipc private --shm-size 64m --workdir /workspace \
+  thinkdome-executor:latest -c \
+  'import os,json; print(json.dumps({"uid":os.getuid(),"pid1":open("/proc/1/cmdline","rb").read().replace(b"\0",b" ").decode(errors="replace"),"host_files":[p for p in ["/home/sandbox/ThinkDome/.env","/var/run/docker.sock"] if os.path.exists(p)]}))'
+```
+
+Observed:
+
+```json
+{"uid":1000,"pid1":"python3 ...","host_files":[]}
+```
+
+Host marker files and `/var/run/docker.sock` were not visible. PID 1 belonged
+to the sandbox process, not the host.
+
+### Network namespace differential
+
+Docker bridge gateway:
+
+```text
+172.17.0.1
+```
+
+Isolated container results:
+
+```text
+127.0.0.1       ConnectionRefusedError
+172.17.0.1      OSError: [Errno 101] Network is unreachable
+1.1.1.1         OSError: [Errno 101] Network is unreachable
+```
+
+The deliberately unsafe `--network bridge` baseline reached the gateway
+namespace and returned `ConnectionRefusedError` for ports 22, 80, and 3128.
+This confirms the bridge has a route to the Docker host namespace while
+`network_mode=none` has no route.
+
+### Process and memory limits
+
+With `--pids-limit 16`, the process-fork probe produced:
+
+```text
+spawned=15 failed=85
+```
+
+The 64 MiB memory probe exited with:
+
+```text
+exit=137
+```
+
+These results confirm descendant process and memory enforcement for the tested
+container profile.
+
+### Cross-sandbox filesystem test
+
+Two disposable containers were created with independent tmpfs workspaces. A
+marker written in sandbox A was not visible in sandbox B:
+
+```text
+CROSS_SANDBOX_NOT_VISIBLE
+```
+
+The first version of this probe exposed a real configuration bug: backend and
+pooled `/workspace` mounts lacked `mode=1777`, causing UID 1000 writes to fail
+with `Permission denied`. The profiles were corrected and the write/re-read
+probe then succeeded.
+
+### Egress proxy and firewall
+
+Proxy container status:
+
+```text
+thinkbox-proxy: running, healthy
+thinkbox-egress: bridge, Internal=true
+label: thinkdome.network=egress-proxy
+```
+
+Allowlist probes through `http://thinkbox-proxy:3128`:
+
+```text
+https://pypi.org/simple/     HTTP 200
+https://example.com/         HTTP 403 Forbidden
+http://172.17.0.1/           HTTP 403 Forbidden
+raw socket to 172.17.0.1:80 Network is unreachable
+```
+
+This demonstrates that network-enabled sandboxes use the proxy allowlist and
+cannot bypass it with a direct socket on the internal egress network.
+
+### Latest campaign status
+
+| Boundary | Result | Meaning |
+|---|---|---|
+| Host filesystem | PASS (tested paths) | No host marker or Docker socket visibility |
+| Process namespace | PASS (tested probes) | PID 1 and process tree isolated |
+| Cross-sandbox filesystem | PASS | Marker not visible between tmpfs containers |
+| PID limit | PASS | Descendant process creation capped |
+| Memory limit | PASS | OOM termination observed |
+| `network_mode=none` | PASS | No route to gateway or Internet |
+| Egress proxy allowlist | PASS | Allowed domain succeeds; denied domains return 403 |
+| Hardened runtime | NOT VERIFIED | `runc` was the active runtime in this campaign |
+
+The workspace permission fix is covered by the Docker regression tests and must
+be included in the next commit before deployment.

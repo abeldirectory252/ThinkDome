@@ -84,8 +84,8 @@ class DockerContainerPolicy:
     def _tmpfs_config(settings: Any) -> dict[str, str]:
         size = DockerContainerPolicy._bounded_size(settings, "SANDBOX_TMPFS_SIZE_MB", 64, 4096)
         return {
-            "/tmp": f"size={size}m,noexec,nosuid,nodev",
-            "/workspace": f"size={size}m,noexec,nosuid,nodev",
+            "/tmp": f"size={size}m,noexec,nosuid,nodev,mode=1777",
+            "/workspace": f"size={size}m,noexec,nosuid,nodev,mode=1777",
         }
 
 

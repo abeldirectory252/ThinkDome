@@ -231,6 +231,8 @@ def test_workspace_and_shared_memory_profiles_are_bounded_everywhere():
     assert "SANDBOX_TMPFS_SIZE_MB" in policy
     assert "shm_size=DockerContainerPolicy.shm_size(self.settings)" in backend
     assert '"shm_size": cls.shm_size(settings)' in policy
+    assert "mode=1777" in backend
+    assert "mode=1777" in policy
 
 
 def test_shared_memory_is_a_validated_general_setting():

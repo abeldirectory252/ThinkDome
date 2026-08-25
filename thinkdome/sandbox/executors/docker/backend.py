@@ -105,8 +105,8 @@ class DockerBackend(ExecutorBackend):
                 user="1000:1000",
                 read_only=True,
                 tmpfs={
-                    "/tmp": f"size={DockerContainerPolicy._bounded_size(self.settings, 'SANDBOX_TMPFS_SIZE_MB', 64, 4096)}m,noexec,nosuid,nodev",
-                    "/workspace": f"size={DockerContainerPolicy._bounded_size(self.settings, 'SANDBOX_TMPFS_SIZE_MB', 64, 4096)}m,noexec,nosuid,nodev",
+                    "/tmp": f"size={DockerContainerPolicy._bounded_size(self.settings, 'SANDBOX_TMPFS_SIZE_MB', 64, 4096)}m,noexec,nosuid,nodev,mode=1777",
+                    "/workspace": f"size={DockerContainerPolicy._bounded_size(self.settings, 'SANDBOX_TMPFS_SIZE_MB', 64, 4096)}m,noexec,nosuid,nodev,mode=1777",
                 },
                 cap_drop=["ALL"],
                 privileged=False,
