@@ -21,6 +21,10 @@ def test_canonical_sandbox_routes_are_registered(app):
     assert "/v1/sandboxes/{sandbox_id}" in paths
 
 
+def test_dashboard_index_alias_is_registered(app):
+    assert any(route.path == "/index.html" for route in app.routes)
+
+
 def test_sandbox_serializer_exposes_stable_resource_schema():
     payload = _serialize_sandbox(
         {"id": "sb_test", "memory_limit": 512, "cpu_limit": 2.0, "status": "Running"}

@@ -105,6 +105,7 @@ if (static_dir / "assets").exists():
 
 
 @app.get("/")
+@app.get("/index.html")
 @app.get("/console")
 @app.get("/console/{full_path:path}")
 async def serve_dashboard(full_path: str = ""):
