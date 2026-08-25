@@ -427,7 +427,11 @@ def _validate_host_memory_for_sandbox(memory_mb: int) -> None:
             ),
         )
 
-@router.get("/sandboxes")
+@router.get(
+    "/sandboxes",
+    deprecated=True,
+    description="Deprecated compatibility alias. Use /v1/sandboxes.",
+)
 async def list_sandboxes(
     auth_svc: AuthService = Depends(get_auth_service),
     user: dict = Depends(get_current_user)
@@ -453,7 +457,11 @@ async def list_sandboxes(
     return rows
 
 
-@router.get("/sandbox-capacity")
+@router.get(
+    "/sandbox-capacity",
+    deprecated=True,
+    description="Deprecated compatibility alias. Use /v1/sandboxes/capacity.",
+)
 async def sandbox_capacity(
     auth_svc: AuthService = Depends(get_auth_service),
     _user: dict = Depends(get_current_user),
@@ -483,7 +491,12 @@ async def sandbox_capacity(
             logger.debug("Capacity cache write failed: %s", exc)
     return payload
 
-@router.post("/sandboxes", status_code=201)
+@router.post(
+    "/sandboxes",
+    status_code=201,
+    deprecated=True,
+    description="Deprecated compatibility alias. Use /v1/sandboxes.",
+)
 async def create_sandbox(
     req: CreateSandboxRequest,
     request: Request,
@@ -537,7 +550,11 @@ async def create_sandbox(
     )
     return res
 
-@router.post("/sandboxes/{sandbox_id}/toggle")
+@router.post(
+    "/sandboxes/{sandbox_id}/toggle",
+    deprecated=True,
+    description="Deprecated compatibility alias. Use /v1/sandboxes/{sandbox_id}/toggle.",
+)
 async def toggle_sandbox(
     sandbox_id: str,
     request: Request,
@@ -566,7 +583,11 @@ async def toggle_sandbox(
     )
     return {"status": "success", "sandbox_id": sandbox_id, "new_status": new_status}
 
-@router.delete("/sandboxes/{sandbox_id}")
+@router.delete(
+    "/sandboxes/{sandbox_id}",
+    deprecated=True,
+    description="Deprecated compatibility alias. Use /v1/sandboxes/{sandbox_id}.",
+)
 async def delete_sandbox(
     sandbox_id: str,
     request: Request,

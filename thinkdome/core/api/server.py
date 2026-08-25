@@ -36,6 +36,7 @@ from thinkdome.platform.storage.api.filebox import router as filebox_router
 from thinkdome.sandbox.sessions.api import router as sessions_router
 from thinkdome.api.routes.execution.languages import router as languages_router
 from thinkdome.security.api.admin import router as admin_router
+from thinkdome.api.routes.sandboxes import router as sandboxes_router
 from thinkdome.platform.observability.api.observability import router as observability_router
 from thinkdome.security.api.auth import router as auth_router
 from thinkdome.platform.orchestration.api import router as orchestrator_router
@@ -85,6 +86,7 @@ app.include_router(filebox_router)
 app.include_router(sessions_router, prefix="/v1")
 app.include_router(languages_router, prefix="/v1")
 app.include_router(admin_router, prefix="/v1/admin")
+app.include_router(sandboxes_router, prefix="/v1")
 app.include_router(observability_router, prefix="/v1")
 app.include_router(monitor_router, prefix="/v1")
 app.include_router(control_plane_router, prefix="/v1")

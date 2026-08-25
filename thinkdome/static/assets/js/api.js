@@ -512,11 +512,11 @@ export async function getAuditDetail(token, auditId) {
  * @returns {Promise<{ data: Array<sandbox>, error }>}
  */
 export async function getSandboxes(token) {
-    return apiFetch("/v1/admin/sandboxes", { method: "GET" }, token);
+    return apiFetch("/v1/sandboxes", { method: "GET" }, token);
 }
 
 export async function getSandboxCapacity(token) {
-    return apiFetch("/v1/admin/sandbox-capacity", { method: "GET" }, token);
+    return apiFetch("/v1/sandboxes/capacity", { method: "GET" }, token);
 }
 
 /**
@@ -526,7 +526,7 @@ export async function getSandboxCapacity(token) {
  */
 export async function createSandbox(config, token) {
     return apiFetch(
-        "/v1/admin/sandboxes",
+        "/v1/sandboxes",
         { method: "POST", body: JSON.stringify(config) },
         token
     );
@@ -539,7 +539,7 @@ export async function createSandbox(config, token) {
  */
 export async function toggleSandbox(sandboxId, token) {
     return apiFetch(
-        `/v1/admin/sandboxes/${sandboxId}/toggle`,
+        `/v1/sandboxes/${sandboxId}/toggle`,
         { method: "POST" },
         token
     );
@@ -552,7 +552,7 @@ export async function toggleSandbox(sandboxId, token) {
  */
 export async function terminateSandbox(sandboxId, token) {
     return apiFetch(
-        `/v1/admin/sandboxes/${sandboxId}`,
+        `/v1/sandboxes/${sandboxId}`,
         { method: "DELETE" },
         token
     );
