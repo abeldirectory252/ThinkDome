@@ -220,7 +220,7 @@ def handle_create_site(site_name: str, db_url: Optional[str]) -> None:
     (site_dir / "private").mkdir(exist_ok=True)
 
     config = {
-        "db_url": db_url or f"sqlite:///{site_dir}/db.sqlite",
+        "db_url": db_url or f"sqlite:///{site_dir / 'storage' / 'thinkbox.db'}",
         "installed_apps": ["sandbox", "agents", "workflows", "monitoring"],
         "site_name": site_name,
         "created_at": time_now_iso(),
