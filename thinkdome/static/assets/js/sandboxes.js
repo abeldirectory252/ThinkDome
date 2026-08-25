@@ -668,7 +668,10 @@ function registerNewSandboxNode() {
     if (modal) {
         sandboxHostAdmissibleMb = null;
         const provisionSubmit = document.getElementById('sbxProvisionSubmit');
-        if (provisionSubmit) provisionSubmit.disabled = true;
+        // Capacity telemetry is advisory; do not make modal opening or form
+        // submission wait on Redis/network latency. The API remains the
+        // authoritative admission gate.
+        if (provisionSubmit) provisionSubmit.disabled = false;
         const cachedCapacity = sessionStorage.getItem('thinkdome_host_capacity');
         if (cachedCapacity) {
             try {
