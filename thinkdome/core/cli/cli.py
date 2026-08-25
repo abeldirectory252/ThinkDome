@@ -501,7 +501,7 @@ def handle_migration_status(site_name: str) -> None:
 def handle_run(code: Optional[str], file: Optional[str], timeout: int, backend: str) -> None:
     """Execute code in a sandbox."""
     from thinkdome import Sandbox
-    from thinkdome.core.error_codes import present_sandbox_error
+    from thinkdome.core.error_codes import classify_sandbox_error, present_sandbox_error
 
     if file:
         with open(file, "r", encoding="utf-8") as f:
@@ -515,13 +515,17 @@ def handle_run(code: Optional[str], file: Optional[str], timeout: int, backend: 
         with Sandbox(timeout=timeout, backend=backend) as dome:
             result = dome.run(code)
     except Exception as exc:
-        print(present_sandbox_error(exc), file=sys.stderr)
+        code = classify_sandbox_error(exc)
+        message = present_sandbox_error(exc, code)
+        print(message if f"[{code}]" in message else f"Sandbox error [{code}]: {message}", file=sys.stderr)
         sys.exit(1)
 
     if result.output:
         print(result.output, end="")
     if result.error:
-        print(present_sandbox_error(result.error, result.error_code), file=sys.stderr)
+        code = classify_sandbox_error(result.error, result.error_code)
+        message = present_sandbox_error(result.error, code)
+        print(message if f"[{code}]" in message else f"Sandbox error [{code}]: {message}", file=sys.stderr)
     sys.exit(result.exit_code)
 
 

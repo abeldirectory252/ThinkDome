@@ -28,7 +28,7 @@ import requests
 
 from thinkdome.sandbox.executors.base import BaseExecutor, ExecRequest, ExecResult
 from thinkdome.core.config import Settings
-from thinkdome.core.error_codes import SandboxErrorCodes
+from thinkdome.core.error_codes import SandboxErrorCodes, classify_sandbox_error
 from thinkdome.sandbox.executors.host.bubblewrap import _is_env_var_sensitive, _BLOCKED_INTERPRETER_ENV_KEYS
 from thinkdome.sandbox.executors.docker.container_policy import DockerContainerPolicy, DockerExecutionPolicy
 from thinkdome.sandbox.network.docker_policy import DockerSandboxPolicy
@@ -625,12 +625,14 @@ class PythonDockerExecutor(BaseExecutor):
         except Exception as e:
             duration_ms = (time.monotonic() - start) * 1000
             logger.error(f"Execution error: {e}", exc_info=True)
+            error_code = classify_sandbox_error(e)
             return ExecResult(
                 stdout="",
                 stderr="Sandbox Execution Error: Unable to launch execution environment.",
                 exit_code=-1,
                 timed_out=False,
                 duration_ms=round(duration_ms, 2),
+                error_code=error_code,
             )
         finally:
             # Layer 1: Destroy ephemeral container after every execution

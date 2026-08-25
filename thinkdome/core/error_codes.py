@@ -112,6 +112,20 @@ _CLI_ERROR_MESSAGES = {
 }
 
 
+def classify_sandbox_error(error: object, error_code: str | None = None) -> str:
+    """Return the stable framework code for a runtime failure."""
+    detail = str(error or "").strip().lower()
+    if error_code and error_code != SandboxErrorCodes.EXECUTION_FAILED:
+        return error_code
+    if "setpgid failed" in detail or "operation not permitted" in detail:
+        return SandboxErrorCodes.DOCKER_RUNTIME_PERMISSION
+    if "no such image" in detail or "image not found" in detail:
+        return SandboxErrorCodes.DOCKER_IMAGE_UNAVAILABLE
+    if "network" in detail and ("docker" in detail or "netns" in detail):
+        return SandboxErrorCodes.DOCKER_NETNS_SETUP_FAILED
+    return error_code or SandboxErrorCodes.EXECUTION_FAILED
+
+
 def present_sandbox_error(error: object, error_code: str | None = None) -> str:
     """Return stable, actionable user-facing text for sandbox diagnostics.
 
@@ -120,16 +134,9 @@ def present_sandbox_error(error: object, error_code: str | None = None) -> str:
     """
     detail = str(error or "").strip()
     lowered = detail.lower()
-    code = error_code
-    if not code:
-        if "setpgid failed" in lowered or "operation not permitted" in lowered:
-            code = SandboxErrorCodes.DOCKER_RUNTIME_PERMISSION
-        elif "no such image" in lowered or "image not found" in lowered:
-            code = SandboxErrorCodes.DOCKER_IMAGE_UNAVAILABLE
-        elif "network" in lowered and ("docker" in lowered or "netns" in lowered):
-            code = SandboxErrorCodes.DOCKER_NETNS_SETUP_FAILED
+    code = classify_sandbox_error(detail, error_code)
     if code in _CLI_ERROR_MESSAGES:
         return _CLI_ERROR_MESSAGES[code]
     if not detail:
         return "Sandbox execution failed. Please check the runtime configuration and retry."
-    return f"Sandbox execution failed: {detail}"
+    return f"Sandbox execution failed [{code}]: {detail}"
