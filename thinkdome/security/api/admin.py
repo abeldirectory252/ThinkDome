@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.responses import FileResponse
@@ -20,6 +23,68 @@ from thinkdome.platform.billing.service import BillingService
 from thinkdome.core.config import get_settings
 
 router = APIRouter(tags=["admin"])
+logger = logging.getLogger(__name__)
+_SANDBOX_CACHE_PREFIX = "thinkdome:sandboxes:v1"
+_sandbox_redis = None
+
+
+async def _sandbox_cache_client():
+    """Return Redis when available; the ORM remains the source of truth."""
+    global _sandbox_redis
+    if _sandbox_redis is False:
+        return None
+    if _sandbox_redis is not None:
+        return _sandbox_redis
+    try:
+        from redis.asyncio import from_url
+        client = from_url(get_settings().REDIS_URL, decode_responses=True)
+        await client.ping()
+        _sandbox_redis = client
+        return client
+    except Exception as exc:
+        logger.debug("Sandbox Redis cache unavailable: %s", exc)
+        _sandbox_redis = False
+        return None
+
+
+def _sandbox_cache_key(owner: Optional[str]) -> str:
+    scope = owner or "__admin_fleet__"
+    digest = hashlib.sha256(scope.encode("utf-8")).hexdigest()[:24]
+    return f"{_SANDBOX_CACHE_PREFIX}:{digest}"
+
+
+async def _get_cached_sandboxes(owner: Optional[str]):
+    client = await _sandbox_cache_client()
+    if not client:
+        return None
+    try:
+        value = await client.get(_sandbox_cache_key(owner))
+        return json.loads(value) if value else None
+    except Exception as exc:
+        logger.debug("Sandbox cache read failed: %s", exc)
+        return None
+
+
+async def _cache_sandboxes(owner: Optional[str], rows: list[dict]) -> None:
+    client = await _sandbox_cache_client()
+    if not client:
+        return
+    try:
+        await client.setex(_sandbox_cache_key(owner), 5, json.dumps(rows, default=str))
+    except Exception as exc:
+        logger.debug("Sandbox cache write failed: %s", exc)
+
+
+async def _invalidate_sandbox_cache() -> None:
+    client = await _sandbox_cache_client()
+    if not client:
+        return
+    try:
+        keys = [key async for key in client.scan_iter(match=f"{_SANDBOX_CACHE_PREFIX}:*")]
+        if keys:
+            await client.delete(*keys)
+    except Exception as exc:
+        logger.debug("Sandbox cache invalidation failed: %s", exc)
 
 
 @router.get("/settings")
@@ -310,7 +375,12 @@ async def list_sandboxes(
     from thinkdome.security.identity.core import UserIdentity
     identity = UserIdentity.from_dict(user)
     owner = None if identity.is_admin() else _principal(user)
-    return auth_svc.db_service.list_sandboxes(owner=owner)
+    cached = await _get_cached_sandboxes(owner)
+    if cached is not None:
+        return cached
+    rows = auth_svc.db_service.list_sandboxes(owner=owner)
+    await _cache_sandboxes(owner, rows)
+    return rows
 
 @router.post("/sandboxes", status_code=201)
 async def create_sandbox(
@@ -339,6 +409,7 @@ async def create_sandbox(
         status="Created",
     )
     sandbox.save()
+    await _invalidate_sandbox_cache()
     res = sandbox.to_dict()
     res["sandbox_id"] = sandbox_id
     res["timeout_sec"] = req.timeout_sec
@@ -377,6 +448,7 @@ async def toggle_sandbox(
         
     new_status = "stopped" if sb["status"] == "active" else "active"
     auth_svc.db_service.update_sandbox_status(sandbox_id, new_status)
+    await _invalidate_sandbox_cache()
     
     # Log audit event
     auth_svc.db_service.log_audit(
@@ -404,6 +476,7 @@ async def delete_sandbox(
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this sandbox.")
         
     auth_svc.db_service.delete_sandbox(sandbox_id)
+    await _invalidate_sandbox_cache()
     
     # Log audit event
     auth_svc.db_service.log_audit(
