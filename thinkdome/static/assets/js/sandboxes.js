@@ -41,6 +41,27 @@ function getCardsSkeletonHTML(cardCount = 3) {
 }
 
 /* =================== SANDBOX NODES GRID & TABLE =================== */
+let sandboxHostAdmissibleMb = null;
+
+function selectedSandboxMemoryMb() {
+    const value = document.getElementById('sbxRamInput')?.value || '';
+    const amount = parseInt(value, 10);
+    return value.toUpperCase().includes('MB') ? amount : amount * 1024;
+}
+
+function validateSandboxMemorySelection() {
+    const hint = document.getElementById('sbxHostMemoryHint');
+    const selected = selectedSandboxMemoryMb();
+    const exceeds = Number.isFinite(selected) && sandboxHostAdmissibleMb !== null && selected > sandboxHostAdmissibleMb;
+    if (hint && sandboxHostAdmissibleMb !== null) {
+        hint.textContent = exceeds
+            ? `Selected RAM exceeds current host capacity (${Math.floor(sandboxHostAdmissibleMb / 1024)} GB admissible). Choose a smaller value.`
+            : `Host capacity: approximately ${Math.floor(sandboxHostAdmissibleMb / 1024)} GB is currently admissible.`;
+        hint.style.color = exceeds ? 'var(--danger)' : 'var(--fg-subtle)';
+    }
+    return !exceeds;
+}
+window.validateSandboxMemorySelection = validateSandboxMemorySelection;
 async function fetchSandboxesData() {
     const token = localStorage.getItem('thinkdome_token');
 
@@ -648,8 +669,10 @@ function registerNewSandboxNode() {
             window.API.getSandboxCapacity(token).then(({data}) => {
                 const hint = document.getElementById('sbxHostMemoryHint');
                 if (hint && data) {
-                    const available = Math.max(0, Math.floor((data.admissible_mb || 0) / 1024));
+                    sandboxHostAdmissibleMb = Number(data.admissible_mb) || 0;
+                    const available = Math.max(0, Math.floor(sandboxHostAdmissibleMb / 1024));
                     hint.textContent = `Host capacity: approximately ${available} GB is currently admissible; larger requests will be rejected.`;
+                    validateSandboxMemorySelection();
                 }
             }).catch(() => {});
         }
@@ -770,6 +793,13 @@ async function submitRegisterModal(e) {
     }
 
     const memory_mb = Math.round(ramGb * 1024);
+    if (!validateSandboxMemorySelection()) {
+        if (alertEl) {
+            alertEl.textContent = "Selected RAM exceeds the currently admissible host capacity. Choose a smaller allocation.";
+            alertEl.hidden = false;
+        }
+        return;
+    }
     const token = localStorage.getItem('thinkdome_token');
 
     const newSandboxObj = {

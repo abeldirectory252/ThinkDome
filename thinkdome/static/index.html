@@ -2673,7 +2673,7 @@
               </div>
               <div class="field">
                 <label for="sbxRamInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">RAM Allocation (host-aware) *</label>
-                <select id="sbxRamInput" class="form-select">
+                <select id="sbxRamInput" class="form-select" onchange="validateSandboxMemorySelection()">
                   <option value="512 MB">512 MB</option>
                   <option value="1 GB">1 GB</option>
                   <option value="2 GB">2 GB</option>
