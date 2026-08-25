@@ -162,6 +162,12 @@ class PythonDockerExecutor(BaseExecutor):
                 ) from e
             raise RuntimeError(f"Could not connect to Docker daemon: {e}") from e
 
+        # Never serve untrusted execution until the configured runtime and
+        # production isolation contract have been validated.
+        self.settings.validate_production_runtime()
+        from thinkdome.sandbox.security.runtime_guard import validate_secure_runtime_on_startup
+        validate_secure_runtime_on_startup(self.settings, docker_client=self.client)
+
         # Ensure executor image
         try:
             self.client.images.get(self.image)
@@ -327,7 +333,14 @@ class PythonDockerExecutor(BaseExecutor):
 
         # Secure OCI runtime (e.g., 'runsc' for gVisor, 'kata-runtime' for Kata)
         if getattr(self.settings, "SECURE_RUNTIME_TYPE", ""):
-            config["runtime"] = getattr(self.settings, "DOCKER_RUNTIME", "runsc")
+            secure_type = str(self.settings.SECURE_RUNTIME_TYPE).lower()
+            expected_runtime = {"gvisor": "runsc", "kata": "kata-runtime"}.get(secure_type)
+            configured_runtime = getattr(self.settings, "DOCKER_RUNTIME", "runsc")
+            if expected_runtime is None or configured_runtime != expected_runtime:
+                raise RuntimeError(
+                    f"Secure runtime configuration mismatch: {secure_type} requires {expected_runtime}"
+                )
+            config["runtime"] = configured_runtime
 
         # Remove None values to avoid Docker API errors
         config = {k: v for k, v in config.items() if v is not None}

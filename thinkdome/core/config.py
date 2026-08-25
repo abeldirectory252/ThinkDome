@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Dict
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -93,6 +94,11 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "Docker production execution requires SECURE_RUNTIME_TYPE=gvisor or kata"
             )
+        expected_runtime = {"gvisor": "runsc", "kata": "kata-runtime"}[secure_runtime]
+        if self.DOCKER_RUNTIME != expected_runtime:
+            raise RuntimeError(
+                f"SECURE_RUNTIME_TYPE={secure_runtime} requires DOCKER_RUNTIME={expected_runtime}"
+            )
         if self.NODE_ID and not self.CONTROL_PLANE_INTERNAL_URL:
             raise RuntimeError("production node agents require CONTROL_PLANE_INTERNAL_URL")
         if not (self.WORKSPACE_MASTER_KEY or self.VAULT_MASTER_KEY):
@@ -158,6 +164,9 @@ class Settings(BaseSettings):
     CPU_TIME_LIMIT_SEC: int = 5
     MEMORY_LIMIT_MB: int = 128
     MAX_OUTPUT_BYTES: int = 1_048_576  # 1 MB
+    MCP_MAX_MESSAGE_BYTES: int = Field(default=1_048_576, ge=16_384, le=16_777_216)
+    REQUEST_LOG_MAX_PAYLOAD_BYTES: int = Field(default=262_144, ge=16_384, le=16_777_216)
+    EXECUTION_HOOK_TIMEOUT_MS: int = Field(default=5000, ge=100, le=120_000)
 
     # GPU support
     GPU_ENABLED: bool = False
@@ -167,6 +176,7 @@ class Settings(BaseSettings):
     # File management
     MAX_FILE_SIZE_MB: int = 10
     FILE_STORAGE_DIR: str = "./storage"
+    FILEBOX_DEFAULT_QUOTA_MB: int = 10240
 
     # Security
     API_KEY: Optional[str] = None  # Optional: set to enable API key auth

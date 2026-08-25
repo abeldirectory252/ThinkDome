@@ -8,6 +8,7 @@ import shutil
 import time
 import uuid
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,12 +25,30 @@ logger = logging.getLogger(__name__)
 
 
 class FileBoxService:
+    _quota_locks: dict[tuple[str, str], threading.Lock] = {}
+    _quota_locks_guard = threading.Lock()
+
+    @classmethod
+    def _quota_lock(cls, tenant_id: str, owner_id: str) -> threading.Lock:
+        key = (tenant_id, owner_id)
+        with cls._quota_locks_guard:
+            return cls._quota_locks.setdefault(key, threading.Lock())
+
     def __init__(self, settings=None):
         self.settings = settings or get_settings()
         storage_dir = Path(self.settings.FILE_STORAGE_DIR)
         if not storage_dir.is_absolute():
             storage_dir = get_workspace_root() / storage_dir
         self.root = storage_dir / "filebox"
+        quota_mb = int(getattr(self.settings, "FILEBOX_DEFAULT_QUOTA_MB", 10240))
+        try:
+            from thinkdome.apps.sandbox.models import SystemSetting
+            record = SystemSetting.query().filter(key="filebox_default_quota_mb").first()
+            if record and str(record.value).isdigit():
+                quota_mb = int(record.value)
+        except Exception:
+            pass
+        self.default_quota_bytes = quota_mb * 1024 * 1024
         self.root.mkdir(parents=True, exist_ok=True)
         # FileBox models are loaded by the API router after the kernel's
         # initial schema pass. Ensure the virtual-volume table exists before
@@ -79,7 +98,7 @@ class FileBoxService:
                 tenant_id=tenant_id, owner_id=owner_id, volume_name="default",
                 container_format="thinkdome-box-v1", root_path=str(box_root),
                 encryption="fernet",
-                key_scope=f"{tenant_id}:{owner_id}", quota_bytes=DEFAULT_QUOTA_BYTES,
+                key_scope=f"{tenant_id}:{owner_id}", quota_bytes=self.default_quota_bytes,
                 used_bytes=0, created_at=datetime.now(timezone.utc).isoformat(),
             ).save()
             owner_root = box_root
@@ -181,30 +200,34 @@ class FileBoxService:
         # Refresh after conflict handling because override/expiry may have
         # released bytes from the volume while this request was in progress.
         volume = self.get_volume(tenant_id=tenant_id, owner_id=owner_id)
-        box_id = str(uuid.uuid4())
-        if int(volume.used_bytes or 0) + len(content) > int(volume.quota_bytes or DEFAULT_QUOTA_BYTES):
-            raise OSError("FileBox virtual volume quota exceeded")
-        path = Path(volume.root_path) / folder / safe_name
-        self._container(volume).put(f"{folder}/{box_id}/{safe_name}", content)
-        now = time.time()
-        meta = FileBox(
-            id=box_id,
-            tenant_id=tenant_id,
-            owner_id=owner_id,
-            volume_id="default",
-            filename=safe_name,
-            folder=folder,
-            storage_path=str(path),
-            retention="permanent" if permanent else "temporary",
-            expires_at=0.0 if permanent else now + int(ttl_seconds),
-            size_bytes=len(content),
-            sha256=hashlib.sha256(content).hexdigest(),
-            created_at=datetime.now(timezone.utc).isoformat(),
-        )
-        meta.save()
-        volume._values["used_bytes"] = int(volume.used_bytes or 0) + len(content)
-        volume.save()
-        return meta
+        with self._quota_lock(tenant_id, owner_id):
+            volume = self.get_volume(tenant_id=tenant_id, owner_id=owner_id)
+            if volume is None:
+                raise RuntimeError("FileBox volume could not be initialized")
+            if int(volume.used_bytes or 0) + len(content) > int(volume.quota_bytes or self.default_quota_bytes):
+                raise OSError("Storage quota exceeded: FileBox virtual volume quota exceeded")
+            box_id = str(uuid.uuid4())
+            path = Path(volume.root_path) / folder / safe_name
+            self._container(volume).put(f"{folder}/{box_id}/{safe_name}", content)
+            now = time.time()
+            meta = FileBox(
+                id=box_id,
+                tenant_id=tenant_id,
+                owner_id=owner_id,
+                volume_id="default",
+                filename=safe_name,
+                folder=folder,
+                storage_path=str(path),
+                retention="permanent" if permanent else "temporary",
+                expires_at=0.0 if permanent else now + int(ttl_seconds),
+                size_bytes=len(content),
+                sha256=hashlib.sha256(content).hexdigest(),
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            meta.save()
+            volume._values["used_bytes"] = int(volume.used_bytes or 0) + len(content)
+            volume.save()
+            return meta
 
     def get(self, filebox_id: str, *, tenant_id: str, owner_id: str) -> FileBox | None:
         meta = FileBox.query().filter(id=filebox_id).first()

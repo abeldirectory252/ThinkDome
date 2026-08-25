@@ -23,6 +23,46 @@ services:
       - FILE_STORAGE_DIR=/tmp/thinkdome-files
     user: root
     restart: unless-stopped
+    depends_on:
+      thinkbox-proxy:
+        condition: service_healthy
+
+  thinkbox-proxy:
+    image: ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+    container_name: thinkbox-proxy
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    cap_add:
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/run/squid
+      - /var/spool/squid
+    healthcheck:
+      test: ["CMD-SHELL", "squid -k parse >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./proxy/squid.conf:/etc/squid/squid.conf:ro
+    networks:
+      thinkbox-egress:
+        aliases: [thinkbox-proxy]
+      thinkbox-upstream: {}
 
 volumes:
   thinkdome-files:
+
+networks:
+  thinkbox-egress:
+    name: thinkbox-egress
+    driver: bridge
+    internal: true
+    labels:
+      thinkdome.network: egress-proxy
+  thinkbox-upstream:
+    name: thinkbox-upstream
+    driver: bridge

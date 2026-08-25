@@ -23,6 +23,7 @@ class Sandbox(Model):
     pids_limit = IntegerField(default=64)
     gpu_limit = IntegerField(default=0)
     storage_limit = IntegerField(default=10)
+    storage_quota_mb = IntegerField(default=10240)
     network_enabled = BooleanField(default=False)
     status = SelectField(
         choices=["Created", "Provisioning", "Running", "Paused", "Stopped", "Destroyed"],
@@ -125,4 +126,3 @@ class SystemSetting(Model):
     smtp_port = IntegerField(default=587)
     timezone = StringField(default="UTC")
     __unique_together__ = ("key",)
-

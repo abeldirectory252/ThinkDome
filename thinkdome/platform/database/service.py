@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS sandboxes (
     gpu_count INTEGER DEFAULT 0,
     timeout_sec INTEGER DEFAULT 30,
     network_enabled INTEGER DEFAULT 0,
+    storage_quota_mb INTEGER DEFAULT 10240,
     cost_per_hour REAL DEFAULT 0.0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -169,6 +170,7 @@ CREATE TABLE IF NOT EXISTS sandboxes (
     gpu_count INTEGER DEFAULT 0,
     timeout_sec INTEGER DEFAULT 30,
     network_enabled BOOLEAN DEFAULT FALSE,
+    storage_quota_mb INTEGER DEFAULT 10240,
     cost_per_hour REAL DEFAULT 0.0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     last_active_at TIMESTAMPTZ DEFAULT NOW()
@@ -351,6 +353,9 @@ class DatabaseService:
             for stmt in SQLITE_SCHEMA_SQL.strip().split(";"):
                 if stmt.strip():
                     conn.execute(stmt)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(sandboxes)")}
+            if "storage_quota_mb" not in columns:
+                conn.execute("ALTER TABLE sandboxes ADD COLUMN storage_quota_mb INTEGER DEFAULT 10240")
             conn.commit()
 
     async def _setup_postgres_schema(self) -> None:
@@ -363,6 +368,7 @@ class DatabaseService:
                 # ── Migrations: fix column types on existing tables ──
                 # ALTER won't error if column is already TEXT thanks to the check.
                 migrations = [
+                    "ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS storage_quota_mb INTEGER DEFAULT 10240",
                     """
                     DO $$ BEGIN
                         IF EXISTS (
@@ -499,21 +505,40 @@ class DatabaseService:
         cost_per_hour: float,
         backend_type: str = "docker",
         gpu_count: int = 0,
+        storage_quota_mb: int = 10240,
     ) -> Optional[Dict[str, Any]]:
-        """Insert or replace a sandbox registry record."""
-        # Insert or replace logic using standard standard statements
-        existing = self.get_sandbox(sandbox_id)
-        if existing:
-            self.execute(
-                "UPDATE sandboxes SET name=?, owner=?, status='active', memory_mb=?, cpu_cores=?, gpu_count=?, timeout_sec=?, network_enabled=?, cost_per_hour=?, backend_type=? WHERE sandbox_id=?",
-                (name, owner, memory_mb, cpu_cores, gpu_count, timeout_sec, bool(network_enabled), cost_per_hour, backend_type, sandbox_id)
-            )
+        """Insert or replace a sandbox registry record through the ORM."""
+        from thinkdome.apps.sandbox.models import Sandbox
+
+        sandbox = Sandbox.query().filter(id=sandbox_id).first()
+        values = {
+            "name": name,
+            "owner": owner,
+            "status": "Running",
+            "memory_limit": memory_mb,
+            "cpu_limit": cpu_cores,
+            "gpu_limit": gpu_count,
+            "network_enabled": bool(network_enabled),
+            "storage_quota_mb": storage_quota_mb,
+            "runtime": backend_type if backend_type in {"docker", "kubernetes", "subprocess", "microvm"} else "docker",
+        }
+        if sandbox is None:
+            sandbox = Sandbox(id=sandbox_id, **values)
         else:
-            self.execute(
-                "INSERT INTO sandboxes (sandbox_id, name, owner, status, memory_mb, cpu_cores, gpu_count, timeout_sec, network_enabled, cost_per_hour, backend_type) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)",
-                (sandbox_id, name, owner, memory_mb, cpu_cores, gpu_count, timeout_sec, bool(network_enabled), cost_per_hour, backend_type)
-            )
-        return self.get_sandbox(sandbox_id)
+            sandbox._values.update(values)
+        sandbox.save()
+
+        result = sandbox.to_dict()
+        result["sandbox_id"] = sandbox_id
+        result["memory_mb"] = memory_mb
+        result["cpu_cores"] = cpu_cores
+        result["gpu_count"] = gpu_count
+        result["timeout_sec"] = timeout_sec
+        result["network_enabled"] = bool(network_enabled)
+        result["storage_quota_mb"] = storage_quota_mb
+        result["cost_per_hour"] = cost_per_hour
+        result["backend_type"] = backend_type
+        return result
 
     def get_sandbox(self, sandbox_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single sandbox by ID using ThinkDome Sandbox ORM Model."""
@@ -525,11 +550,7 @@ class DatabaseService:
             d = sb.to_dict()
             d["sandbox_id"] = d.get("id")
             return d
-        row = self.fetch_one("SELECT * FROM sandboxes WHERE sandbox_id = ?", (sandbox_id,))
-        if row:
-            row = dict(row)
-            row["network_enabled"] = bool(row["network_enabled"])
-        return row
+        return None
 
     def list_sandboxes(self, owner: Optional[str] = None) -> List[Dict[str, Any]]:
         """List active sandboxes using ThinkDome Sandbox ORM Model."""
@@ -539,36 +560,31 @@ class DatabaseService:
         else:
             sbs = Sandbox.query().all()
 
-        if sbs:
-            results = []
-            for sb in sbs:
-                d = sb.to_dict()
-                d["sandbox_id"] = d.get("id")
-                results.append(d)
-            return results
-
-        if owner:
-            rows = self.fetch_all("SELECT * FROM sandboxes WHERE owner = ? ORDER BY created_at DESC", (owner,))
-        else:
-            rows = self.fetch_all("SELECT * FROM sandboxes ORDER BY created_at DESC")
-        for r in rows:
-            r["network_enabled"] = bool(r["network_enabled"])
-        return rows
+        results = []
+        for sb in sbs:
+            d = sb.to_dict()
+            d["sandbox_id"] = d.get("id")
+            results.append(d)
+        return results
 
     def update_sandbox_status(self, sandbox_id: str, status: str) -> bool:
         """Update active status."""
-        existing = self.get_sandbox(sandbox_id)
-        if not existing:
+        from thinkdome.apps.sandbox.models import Sandbox
+        sandbox = Sandbox.query().filter(id=sandbox_id).first()
+        if not sandbox:
             return False
-        self.execute("UPDATE sandboxes SET status = ? WHERE sandbox_id = ?", (status, sandbox_id))
+        status_map = {"active": "Running", "running": "Running", "stopped": "Stopped", "paused": "Paused"}
+        sandbox._values["status"] = status_map.get(str(status).lower(), status)
+        sandbox.save()
         return True
 
     def delete_sandbox(self, sandbox_id: str) -> bool:
         """Remove a sandbox record."""
-        existing = self.get_sandbox(sandbox_id)
-        if not existing:
+        from thinkdome.apps.sandbox.models import Sandbox
+        sandbox = Sandbox.query().filter(id=sandbox_id).first()
+        if not sandbox:
             return False
-        self.execute("DELETE FROM sandboxes WHERE sandbox_id = ?", (sandbox_id,))
+        sandbox.delete(soft=False)
         return True
 
     def health_check(self) -> dict:

@@ -50,6 +50,29 @@ def test_netns_mount_failure_does_not_weaken_network_isolation():
     assert result.exit_code == 1
     assert result.error_code == SandboxErrorCodes.DOCKER_NETNS_SETUP_FAILED
     assert "Docker could not create the sandbox network namespace" in result.stderr
+
+
+def test_docker_backend_never_falls_back_to_bridge_networking():
+    source = Path("thinkdome/sandbox/executors/docker/backend.py").read_text()
+    assert 'network_mode="none" if not network_enabled else "bridge"' not in source
+    policy = Path("thinkdome/sandbox/network/docker_policy.py").read_text()
+    assert 'PROXY_NETWORK = "thinkbox-egress"' in policy
+    assert "Approved egress network" in policy
+    backend = Path("thinkdome/sandbox/executors/docker/backend.py").read_text()
+    assert "validate_secure_runtime_on_startup" in backend
+    assert "runtime=runtime" in backend
+    assert "enforce_environment" in backend
+    policy = Path("thinkdome/sandbox/network/docker_policy.py").read_text()
+    assert '"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"' in policy
+    assert "Sandbox execution user is fixed" in backend
+    assert "effective_timeout_ms = min" in backend
+    assert "class DockerSandboxPolicy" in policy
+    assert "validate_execution" in policy
+    assert "validate_resources" in policy
+    assert "SANDBOX_ID_PATTERN" in policy
+    assert "PROXY_NETWORK_LABEL" in policy
+    assert 'attrs.get("Driver") != "bridge"' in policy
+    assert 'not attrs.get("Internal", False)' in policy
     assert "before the container or its seccomp profile starts" in result.stderr
     assert len(executor.client.containers.create_calls) == 1
     assert executor.client.containers.create_calls[0]["network_mode"] == "none"

@@ -16,6 +16,7 @@ from thinkdome.platform.orchestration.orchestrator_service import OrchestratorSe
 from thinkdome.platform.orchestration.request_log import RequestLogService
 
 router = APIRouter(tags=["orchestrator"])
+_MAX_ORCHESTRATOR_BODY_BYTES = 1 * 1024 * 1024
 
 @router.post("/orchestrate")
 async def orchestrate_tool(
@@ -28,7 +29,22 @@ async def orchestrate_tool(
     start_time = time.perf_counter()
     client_ip = request.client.host if request.client else "unknown"
     
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > _MAX_ORCHESTRATOR_BODY_BYTES:
+                return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                                     content={"error": {"type": "invalid_request_error",
+                                                        "message": "Request body too large."}})
+        except ValueError:
+            return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST,
+                                 content={"error": {"type": "invalid_request_error",
+                                                    "message": "Invalid Content-Length."}})
     raw_body = await request.body()
+    if len(raw_body) > _MAX_ORCHESTRATOR_BODY_BYTES:
+        return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                             content={"error": {"type": "invalid_request_error",
+                                                "message": "Request body too large."}})
     try:
         body_str = raw_body.decode("utf-8")
         if not body_str.strip():
@@ -178,7 +194,11 @@ async def list_tools(current_user: dict = Depends(get_current_user)):
     """Retrieve all registered tools and their metadata."""
     import os
     from thinkdome.platform.orchestration.tools import registry
+    from thinkdome.platform.orchestration.orchestrator_service import ROLE_SCOPES
+    role = str(current_user.get("role", "LLM")).upper()
+    allowed_scopes = ROLE_SCOPES.get(role, ROLE_SCOPES["LLM"])
     tools = registry.list_all_tools()
+    tools = [t for t in tools if not t.required_scope or t.required_scope in allowed_scopes]
     
     response = []
     for t in tools:

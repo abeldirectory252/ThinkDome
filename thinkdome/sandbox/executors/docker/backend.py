@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+import threading
 from typing import Any, Dict, Optional
 
 import docker
@@ -20,6 +21,8 @@ from thinkdome.sandbox.executors.executor_backend import (
     SandboxHandle,
 )
 from thinkdome.core.config import Settings
+from thinkdome.sandbox.network.docker_policy import DockerSandboxPolicy
+from thinkdome.sandbox.security.runtime_guard import validate_secure_runtime_on_startup
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,19 @@ class DockerBackend(ExecutorBackend):
     def __init__(self, settings: Settings, client: Optional[docker.DockerClient] = None) -> None:
         self.settings = settings
         self.client = client
+        self.network_policy = DockerSandboxPolicy(client) if client else None
+        self._runtime_validation_lock = threading.Lock()
+        self._runtime_validated = False
+
+    def _ensure_runtime_validated(self) -> None:
+        if self._runtime_validated:
+            return
+        with self._runtime_validation_lock:
+            if self._runtime_validated:
+                return
+            self.settings.validate_production_runtime()
+            validate_secure_runtime_on_startup(self.settings, docker_client=self.client)
+            self._runtime_validated = True
         from thinkdome.core.config import get_workspace_root
         self.seccomp_path = str(get_workspace_root() / "security" / "seccomp.json")
 
@@ -43,6 +59,9 @@ class DockerBackend(ExecutorBackend):
     ) -> SandboxHandle:
         if not self.client:
             raise RuntimeError("Docker client not initialized")
+        DockerSandboxPolicy.validate_resources(sandbox_id, memory_mb, cpu_cores, gpu_count)
+
+        self._ensure_runtime_validated()
 
         # Load seccomp profile
         seccomp_profile = None
@@ -64,9 +83,21 @@ class DockerBackend(ExecutorBackend):
                 docker.types.DeviceRequest(count=gpu_count, capabilities=[["gpu"]])
             )
 
+        attachment = self.network_policy.attachment(network_enabled)
+
         loop = asyncio.get_event_loop()
 
         def _create():
+            secure_type = str(getattr(self.settings, "SECURE_RUNTIME_TYPE", "")).lower()
+            runtime = None
+            if secure_type:
+                expected_runtime = {"gvisor": "runsc", "kata": "kata-runtime"}.get(secure_type)
+                configured_runtime = getattr(self.settings, "DOCKER_RUNTIME", "runsc")
+                if expected_runtime is None or configured_runtime != expected_runtime:
+                    raise RuntimeError(
+                        f"Secure runtime configuration mismatch: {secure_type} requires {expected_runtime}"
+                    )
+                runtime = configured_runtime
             container = self.client.containers.run(
                 image=self.settings.EXECUTOR_IMAGE,
                 command=["sleep", "infinity"],
@@ -85,7 +116,9 @@ class DockerBackend(ExecutorBackend):
                 security_opt=security_opt,
                 pids_limit=100,
                 ipc_mode="private",
-                network_mode="none" if not network_enabled else "bridge",
+                network_mode=attachment.mode,
+                environment=attachment.environment,
+                runtime=runtime,
                 device_requests=device_requests,
                 init=True,
             )
@@ -96,7 +129,7 @@ class DockerBackend(ExecutorBackend):
             sandbox_id=sandbox_id,
             container_id=container.id,
             backend_type="docker",
-            metadata={"name": container.name},
+            metadata={"name": container.name, "network_mode": attachment.mode},
         )
 
     async def execute_in_sandbox(
@@ -112,16 +145,23 @@ class DockerBackend(ExecutorBackend):
     ) -> ExecutionResult:
         if not self.client:
             raise RuntimeError("Docker client not initialized")
+        effective_timeout_ms = DockerSandboxPolicy.validate_execution(
+            command, user, timeout_ms, int(self.settings.MAX_EXEC_TIMEOUT_MS)
+        )
 
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
 
         def _exec():
             container = self.client.containers.get(handle.container_id)
+            network_mode = str(handle.metadata.get("network_mode", "none"))
+            execution_env = self.network_policy.enforce_environment(
+                dict(env_vars or {}), network_mode
+            )
             res = container.exec_run(
                 cmd=command,
                 user=user,
-                environment=env_vars,
+                environment=execution_env,
                 workdir="/workspace",
             )
             return res.exit_code, res.output
@@ -129,7 +169,7 @@ class DockerBackend(ExecutorBackend):
         try:
             exit_code, output = await asyncio.wait_for(
                 loop.run_in_executor(None, _exec),
-                timeout=timeout_ms / 1000.0,
+                timeout=effective_timeout_ms / 1000.0,
             )
             duration_ms = (time.perf_counter() - start) * 1000.0
             return ExecutionResult(

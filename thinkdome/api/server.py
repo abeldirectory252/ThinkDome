@@ -152,6 +152,7 @@ async def lifespan(app: FastAPI):
         security_scanner=app.state.security_scanner,
         credential_vault=app.state.credential_vault,
     )
+    app.state.orchestrator_service.db = app.state.db_service
 
     await app.state.execution_service.initialize()
     python_executor = app.state.execution_service._executors.get("python")
@@ -461,21 +462,44 @@ def create_app() -> FastAPI:
 
     async def _authenticated_mcp_messages(scope, receive, send):
         """Protect mounted MCP POST messages with the same auth as SSE."""
+        max_message_bytes = get_settings().MCP_MAX_MESSAGE_BYTES
         if scope.get("type") == "http":
             headers = {key.decode().lower(): value.decode() for key, value in scope.get("headers", [])}
+            try:
+                if int(headers.get("content-length", "0")) > max_message_bytes:
+                    await send({"type": "http.response.start", "status": 413,
+                                "headers": [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": b'{"detail":"MCP message too large"}'})
+                    return
+            except ValueError:
+                await send({"type": "http.response.start", "status": 400,
+                            "headers": [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": b'{"detail":"Invalid Content-Length"}'})
+                return
             auth = headers.get("authorization", "")
             token = auth[7:] if auth.lower().startswith("bearer ") else auth
             if not token:
                 cookie = headers.get("cookie", "")
                 token = next((part.split("=", 1)[1] for part in cookie.split("; ")
-                              if part.startswith("session_token=")), "")
+                              if part.startswith("session_token=") and "=" in part), "")
             auth_svc = getattr(app.state, "auth_service", None)
             if not token or not auth_svc or not auth_svc.verify_token(token):
                 await send({"type": "http.response.start", "status": 401,
                             "headers": [(b"content-type", b"application/json")]})
                 await send({"type": "http.response.body", "body": b'{"detail":"Unauthorized"}'})
                 return
-        await sse.handle_post_message(scope, receive, send)
+        received_bytes = 0
+
+        async def bounded_receive():
+            nonlocal received_bytes
+            message = await receive()
+            if message.get("type") == "http.request":
+                received_bytes += len(message.get("body", b""))
+                if received_bytes > max_message_bytes:
+                    return {"type": "http.disconnect"}
+            return message
+
+        await sse.handle_post_message(scope, bounded_receive, send)
 
     @app.get("/mcp/sse")
     async def handle_sse(request: Request, user: dict = Depends(get_current_user)):

@@ -8,10 +8,36 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Any, List, Dict
-from thinkdome.core.config import Settings
+from thinkdome.core.config import Settings, get_settings
 from thinkdome.platform.database.service import DatabaseService
 
 logger = logging.getLogger(__name__)
+_SENSITIVE_LOG_KEYS = ("password", "secret", "token", "api_key", "authorization", "credential", "private_key")
+
+
+def _safe_log_payload(value: Any, key: str = "", max_bytes: int = 262_144) -> Any:
+    """Redact sensitive fields and bound persisted request/response payloads."""
+    key_normalized = key.lower().replace("-", "_")
+    if any(part in key_normalized for part in _SENSITIVE_LOG_KEYS):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        value = {str(k): _safe_log_payload(v, str(k), max_bytes) for k, v in value.items()}
+    elif isinstance(value, list):
+        value = [_safe_log_payload(v, max_bytes=max_bytes) for v in value[:1000]]
+    elif not isinstance(value, (str, int, float, bool)) and value is not None:
+        value = f"<{type(value).__name__}>"
+    if isinstance(value, str) and len(value.encode("utf-8")) > max_bytes:
+        value = value.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore") + "...[truncated]"
+    return value
+
+
+def _serialize_log_payload(value: Any) -> str:
+    max_bytes = get_settings().REQUEST_LOG_MAX_PAYLOAD_BYTES
+    safe = _safe_log_payload(value, max_bytes=max_bytes)
+    encoded = json.dumps(safe, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > max_bytes:
+        encoded = encoded.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore") + "...[truncated]"
+    return encoded
 
 class RequestLogService:
     """Inspects and persists orchestrator execution logs in SQLite database."""
@@ -81,14 +107,14 @@ class RequestLogService:
             display_name = user_info.get("display_name", "Anonymous")
             role = user_info.get("role", "LLM")
             tool_name = tool_use.get("name", "unknown")
-            request_payload = json.dumps(tool_use.get("input", {}))
+            request_payload = _serialize_log_payload(tool_use.get("input", {}))
             
             # response payload can be string or dict
             resp_content = tool_result.get("content", "")
             if isinstance(resp_content, (dict, list)):
-                response_payload = json.dumps(resp_content)
+                response_payload = _serialize_log_payload(resp_content)
             else:
-                response_payload = str(resp_content)
+                response_payload = _serialize_log_payload(str(resp_content))
                 
             status = "error" if tool_result.get("is_error", False) else "success"
             duration = round(duration_ms, 2)
@@ -167,4 +193,3 @@ class RequestLogService:
             logger.info("Request logs cleared by admin.")
         except Exception as e:
             logger.error(f"Failed to clear request logs: {e}")
-

@@ -1,6 +1,7 @@
 """Security-sensitive configuration defaults and parsing."""
 
 import pytest
+from pathlib import Path
 
 from thinkdome.core.config import Settings
 from thinkdome.security.api.admin import CreateSandboxRequest
@@ -61,6 +62,28 @@ def test_production_rejects_plain_docker_runtime():
             EXECUTOR_IMAGE="runner@sha256:" + "a" * 64,
             SECURE_RUNTIME_TYPE="microvm",
         ).validate_production_runtime()
+
+
+def test_production_rejects_hardened_runtime_name_mismatch():
+    with pytest.raises(RuntimeError, match="requires DOCKER_RUNTIME=runsc"):
+        Settings(
+            DEPLOYMENT_ENV="production",
+            EXECUTOR_BACKEND="docker",
+            EXECUTOR_IMAGE="runner@sha256:" + "a" * 64,
+            SECURE_RUNTIME_TYPE="gvisor",
+            DOCKER_RUNTIME="runc",
+            WORKSPACE_MASTER_KEY="x" * 32,
+            DATABASE_URL="postgresql://prod:secret@db:5432/thinkdome",
+            RABBITMQ_URL="amqp://prod:secret@mq:5672/",
+            JWT_SECRET_KEY="j" * 32,
+        ).validate_production_runtime()
+
+
+def test_docker_executor_validates_runtime_before_image_startup():
+    source = Path("thinkdome/sandbox/executors/docker/python_executor.py").read_text()
+    assert "validate_production_runtime()" in source
+    assert "validate_secure_runtime_on_startup" in source
+    assert source.index("validate_secure_runtime_on_startup") < source.index("# Ensure executor image")
 
 
 @pytest.mark.parametrize(

@@ -22,10 +22,33 @@ from thinkdome.core.kernel.kernel import Kernel
 from thinkdome.platform.database.service import DatabaseService
 from thinkdome.sandbox.core.service import ExecutionService
 from thinkdome.platform.orchestration.search.service import SearchService
-from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
+from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService, ROLE_SCOPES
 from thinkdome.platform.orchestration.tools import registry
 from thinkdome.security.identity.core import UserIdentity, select_effective_role
 from thinkdome.apps.sandbox.models import Sandbox
+
+_MCP_ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH", "ORCHESTRATOR", "IDE"}
+_MCP_SENSITIVE_KEYS = {
+    "password", "passwd", "secret", "token", "api_key", "apikey", "authorization",
+    "credential", "credentials", "private_key", "access_key", "refresh_token",
+}
+_MCP_MAX_LOG_VALUE = 512
+
+
+def _redact_mcp_value(value: Any, key: str | None = None) -> Any:
+    """Return a bounded, non-sensitive representation for MCP logs/audit records."""
+    normalized_key = (key or "").lower().replace("-", "_")
+    if any(part in normalized_key for part in _MCP_SENSITIVE_KEYS):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {str(k): _redact_mcp_value(v, str(k)) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_mcp_value(v) for v in value[:100]]
+    if isinstance(value, str):
+        return value if len(value) <= _MCP_MAX_LOG_VALUE else value[:_MCP_MAX_LOG_VALUE] + "...[truncated]"
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return f"<{type(value).__name__}>"
 
 # Route all logs to standard error to keep stdout free of JSON-RPC protocol noise
 logging.basicConfig(
@@ -68,6 +91,12 @@ def get_mcp_server(
             logger.error(f"Failed to log list_tools audit: {ae}")
 
         active_tools = registry.get_active_tools(site_name)
+        role_scopes = ROLE_SCOPES.get(str(caller_role).upper(), ROLE_SCOPES["LLM"])
+        # Do not advertise tools the authenticated caller cannot invoke.
+        active_tools = [
+            tool for tool in active_tools
+            if not tool.required_scope or tool.required_scope in role_scopes
+        ]
         mcp_tools = []
         for t in active_tools:
             mcp_tools.append(
@@ -83,7 +112,10 @@ def get_mcp_server(
     async def call_tool(
         name: str, arguments: dict | None
     ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-        logger.info(f"Invoking tool call '{name}' as user '{username}' ({caller_role}) with arguments: {arguments}")
+        if arguments is not None and not isinstance(arguments, dict):
+            return [types.TextContent(type="text", text="Invalid tool arguments")]
+        safe_arguments = _redact_mcp_value(arguments or {})
+        logger.info("Invoking tool call '%s' as user '%s' (%s) with arguments: %s", name, username, caller_role, safe_arguments)
         start_time = time.time()
 
         tool_use = {
@@ -106,12 +138,12 @@ def get_mcp_server(
             user_sandboxes = [
                 sb for sb in all_dicts
                 if (sb.get("sandbox_id") == requested_sandbox_id or sb.get("id") == requested_sandbox_id)
-                and (sb.get("owner") == username or caller_role == ROLE_ADMIN)
+                and (sb.get("owner") == username or str(caller_role).upper() in _MCP_ADMIN_ROLES)
             ]
         else:
             user_sandboxes = [
                 sb for sb in all_dicts
-                if sb.get("owner") == username or caller_role == ROLE_ADMIN
+                if sb.get("owner") == username or str(caller_role).upper() in _MCP_ADMIN_ROLES
             ]
 
         sandbox_id = None
@@ -126,6 +158,11 @@ def get_mcp_server(
                 "timeout_sec": sb.get("timeout_sec", 30),
                 "network_enabled": sb.get("network_enabled", False),
             }
+        elif requested_sandbox_id:
+            # Never reinterpret a stale or unauthorized handle as a request to
+            # create a different sandbox. This prevents lifecycle confusion and
+            # makes cross-sandbox attempts fail closed.
+            return [types.TextContent(type="text", text="Sandbox handle is invalid or unauthorized")]
         else:
             logger.info(f"No active sandbox found for user '{username}'. Creating scoped MCP sandbox context...")
             import secrets
@@ -165,7 +202,7 @@ def get_mcp_server(
                     ip_address=client_ip,
                     details={
                         "tool_name": name,
-                        "arguments": arguments,
+                        "arguments": safe_arguments,
                         "caller_role": caller_role,
                         "status": "success",
                         "duration_ms": round(duration_ms, 2),
@@ -177,7 +214,7 @@ def get_mcp_server(
 
             return [types.TextContent(type="text", text=str(content))]
         except Exception as e:
-            logger.error(f"Error executing tool {name} via orchestrator: {e}")
+            logger.error("Error executing tool %s via orchestrator: %s", name, type(e).__name__)
             duration_ms = (time.time() - start_time) * 1000
 
             try:
@@ -187,10 +224,10 @@ def get_mcp_server(
                     ip_address=client_ip,
                     details={
                         "tool_name": name,
-                        "arguments": arguments,
+                        "arguments": safe_arguments,
                         "caller_role": caller_role,
                         "status": "error",
-                        "error": str(e),
+                        "error_type": type(e).__name__,
                         "duration_ms": round(duration_ms, 2),
                         "sandbox_id": sandbox_id,
                     }
@@ -198,7 +235,7 @@ def get_mcp_server(
             except Exception as ae:
                 logger.error(f"Failed to log call_tool error audit: {ae}")
 
-            return [types.TextContent(type="text", text=f"Error executing tool: {e}")]
+            return [types.TextContent(type="text", text="Error executing tool: operation failed safely")]
 
     return server
 

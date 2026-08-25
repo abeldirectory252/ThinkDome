@@ -417,6 +417,52 @@ def test_file_update_enforces_upload_size_limit():
     assert "status_code=413" in api
 
 
+def test_filebox_quota_accounting_is_serialized_and_reports_quota_exceeded():
+    source = Path("thinkdome/platform/storage/filebox/service.py").read_text()
+    assert "_quota_locks" in source
+    assert "with self._quota_lock(tenant_id, owner_id):" in source
+    assert "Storage quota exceeded: FileBox virtual volume quota exceeded" in source
+
+
+def test_storage_quota_is_configurable_globally_and_per_sandbox():
+    config = Path("thinkdome/core/config.py").read_text()
+    service = Path("thinkdome/platform/storage/filebox/service.py").read_text()
+    admin = Path("thinkdome/security/api/admin.py").read_text()
+    assert "FILEBOX_DEFAULT_QUOTA_MB" in config
+    assert "self.default_quota_bytes" in service
+    assert "filebox_default_quota_mb" in admin
+    assert "storage_quota_mb: int = Field(10240" in admin
+    assert "SystemSetting.query()" in admin
+    assert "class Sandbox(Model)" in Path("thinkdome/apps/sandbox/models.py").read_text()
+
+
+def test_database_sandbox_creation_uses_orm_not_raw_sql():
+    source = Path("thinkdome/platform/database/service.py").read_text()
+    method = source[source.index("    def create_sandbox("):source.index("    def get_sandbox(")]
+    assert "Sandbox.query()" in method
+    assert "sandbox.save()" in method
+    assert "INSERT INTO sandboxes" not in method
+    assert "UPDATE sandboxes SET" not in method
+
+
+def test_database_sandbox_reads_updates_and_deletes_use_orm():
+    source = Path("thinkdome/platform/database/service.py").read_text()
+    for name in ("get_sandbox", "list_sandboxes", "update_sandbox_status", "delete_sandbox"):
+        start = source.index(f"    def {name}(")
+        end = source.find("\n    def ", start + 5)
+        method = source[start:] if end == -1 else source[start:end]
+        assert "Sandbox.query()" in method
+        assert "fetch_one(\"SELECT * FROM sandboxes" not in method
+        assert "UPDATE sandboxes SET" not in method
+
+
+def test_mcp_authorization_does_not_use_missing_role_constant_or_leak_errors():
+    source = Path("thinkdome/platform/orchestration/mcp_server.py").read_text()
+    assert "ROLE_ADMIN" not in source
+    assert "_MCP_ADMIN_ROLES" in source
+    assert 'operation failed safely' in source
+
+
 @pytest.mark.asyncio
 async def test_subprocess_output_does_not_dereference_symlink_to_host_file():
     executor = SubprocessExecutor()

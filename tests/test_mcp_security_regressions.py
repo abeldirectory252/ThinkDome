@@ -5,13 +5,133 @@ import asyncio
 from pathlib import Path
 from thinkdome.core.config import get_settings
 from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
-from thinkdome.platform.orchestration.mcp_server import get_mcp_server
+from thinkdome.platform.orchestration.mcp_server import get_mcp_server, _redact_mcp_value
 from thinkdome.platform.orchestration.network.tools import HttpRequestTool
 from thinkdome.sandbox.tools.execution_tools import HostHtmlTool
 from thinkdome.platform.orchestration.tools import ToolContext, current_tool_context
 from thinkdome.sandbox.core.service import ExecutionService
 from thinkdome.platform.database.service import DatabaseService
 from thinkdome.platform.orchestration.search.service import SearchService
+from thinkdome.platform.orchestration.request_log import _serialize_log_payload
+from thinkdome.platform.orchestration.hooks import ExecutionHookManager
+
+
+def test_mcp_logs_redact_secrets_and_bound_large_values():
+    safe = _redact_mcp_value({
+        "api_key": "super-secret",
+        "nested": {"authorization": "Bearer secret"},
+        "content": "x" * 600,
+    })
+    assert safe["api_key"] == "[REDACTED]"
+    assert safe["nested"]["authorization"] == "[REDACTED]"
+    assert len(safe["content"]) < 600
+
+
+def test_mcp_sse_message_size_and_cookie_parsing_are_guarded():
+    for filename in ("thinkdome/api/server.py", "thinkdome/core/api/server.py"):
+        source = Path(filename).read_text()
+        assert "MCP_MAX_MESSAGE_BYTES" in source
+        assert 'if int(headers.get("content-length", "0")) > max_message_bytes' in source
+        assert 'and "=" in part' in source
+        assert "async def bounded_receive()" in source
+        assert 'return {"type": "http.disconnect"}' in source
+
+
+def test_orchestrator_telemetry_does_not_log_raw_tool_inputs_or_errors():
+    source = Path("thinkdome/platform/orchestration/orchestrator_service.py").read_text()
+    assert "with inputs {tool_input}" not in source
+    assert 'type(e).__name__' in source
+    assert 'message = "The tool input was invalid."' in source
+
+
+def test_mcp_tool_listing_is_role_scoped():
+    source = Path("thinkdome/platform/orchestration/mcp_server.py").read_text()
+    assert "role_scopes = ROLE_SCOPES.get" in source
+    assert "Do not advertise tools the authenticated caller cannot invoke." in source
+
+
+def test_mcp_stale_sandbox_handles_fail_closed():
+    source = Path("thinkdome/platform/orchestration/mcp_server.py").read_text()
+    assert "elif requested_sandbox_id:" in source
+    assert "Sandbox handle is invalid or unauthorized" in source
+
+
+def test_http_orchestrator_limits_body_and_filters_tool_listing():
+    source = Path("thinkdome/platform/orchestration/api.py").read_text()
+    assert "_MAX_ORCHESTRATOR_BODY_BYTES = 1 * 1024 * 1024" in source
+    assert "HTTP_413_REQUEST_ENTITY_TOO_LARGE" in source
+    assert "allowed_scopes = ROLE_SCOPES.get" in source
+
+
+def test_request_logs_redact_sensitive_payloads_and_bound_size():
+    encoded = _serialize_log_payload({"token": "secret-value", "output": "x" * 300_000})
+    assert "secret-value" not in encoded
+    assert "[REDACTED]" in encoded
+    assert len(encoded.encode("utf-8")) <= 256 * 1024 + len("...[truncated]".encode())
+
+
+def test_general_limits_have_configuration_bounds():
+    source = Path("thinkdome/core/config.py").read_text()
+    assert "MCP_MAX_MESSAGE_BYTES: int = Field" in source
+    assert "REQUEST_LOG_MAX_PAYLOAD_BYTES: int = Field" in source
+    admin = Path("thinkdome/security/api/admin.py").read_text()
+    assert "configured_int(key: str, default: int, minimum: int, maximum: int)" in admin
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_sandbox_hooks_support_async_callbacks():
+    service = OrchestratorService.__new__(OrchestratorService)
+    events = []
+
+    async def before_execute(**payload):
+        events.append(("before", payload["sandbox_id"]))
+
+    def after_execute(**payload):
+        events.append(("after", payload["result"]["is_error"]))
+
+    service.before_execute_hooks = [before_execute]
+    service.after_execute_hooks = [after_execute]
+    await service._run_sandbox_hooks(service.before_execute_hooks, sandbox_id="sb-1")
+    await service._run_sandbox_hooks(service.after_execute_hooks, result={"is_error": False})
+    assert events == [("before", "sb-1"), ("after", False)]
+
+
+def test_hook_manager_supports_priority_and_unregister():
+    manager = ExecutionHookManager()
+    hook = object()
+    registration = manager.register(hook, priority=10)
+    assert registration.priority == 10
+    assert manager.unregister(registration) is True
+    assert manager.unregister(registration) is False
+
+
+def test_hook_inputs_are_recursively_frozen_and_time_bounded():
+    hooks = Path("thinkdome/platform/orchestration/hooks.py").read_text()
+    assert "def freeze_execution_value" in hooks
+    assert "MappingProxyType" in hooks
+    assert "asyncio.wait_for" in hooks
+    config = Path("thinkdome/core/config.py").read_text()
+    assert "EXECUTION_HOOK_TIMEOUT_MS" in config
+
+
+def test_hook_timeout_has_explicit_policy_error():
+    hooks = Path("thinkdome/platform/orchestration/hooks.py").read_text()
+    service = Path("thinkdome/platform/orchestration/orchestrator_service.py").read_text()
+    assert "class ExecutionHookTimeout" in hooks
+    assert "Execution policy hook exceeded the" in hooks
+    assert 'code = "POLICY::HOOK_TIMEOUT"' in service
+
+
+def test_default_execution_intent_audit_can_be_overridden():
+    source = Path("thinkdome/platform/orchestration/orchestrator_service.py").read_text()
+    assert "self.before_execute_audit_hook" in source
+    assert "set_before_execute_audit_hook" in source
+    assert 'action="sandbox_execution_intent"' in source
+    assert "await self.hooks.before_execute(execution_context)" in source
+    hooks = Path("thinkdome/platform/orchestration/hooks.py").read_text()
+    assert "class ExecutionContext" in hooks
+    assert "class ExecutionHookManager" in hooks
+    assert "self._hooks.sort" in hooks
 
 
 # ── MCP-1: Cross-Sandbox Contamination / Isolation ──

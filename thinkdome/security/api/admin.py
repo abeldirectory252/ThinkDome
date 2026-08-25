@@ -17,8 +17,76 @@ from thinkdome.core.dependencies import (
 from thinkdome.security.auth.service import AuthService
 from thinkdome.platform.orchestration.request_log import RequestLogService
 from thinkdome.platform.billing.service import BillingService
+from thinkdome.core.config import get_settings
 
 router = APIRouter(tags=["admin"])
+
+
+@router.get("/settings")
+async def get_web_settings(_admin: dict = Depends(get_current_admin)):
+    settings = get_settings()
+    from thinkdome.apps.sandbox.models import SystemSetting
+    records = {r.key: r for r in SystemSetting.query().all()}
+    def configured_int(key: str, default: int, minimum: int, maximum: int) -> int:
+        value = records.get(key).value if records.get(key) else None
+        try:
+            parsed = int(value)
+            return parsed if minimum <= parsed <= maximum else default
+        except (TypeError, ValueError):
+            return default
+    quota = configured_int("filebox_default_quota_mb", settings.FILEBOX_DEFAULT_QUOTA_MB, 1, 1_048_576)
+    settings.MCP_MAX_MESSAGE_BYTES = configured_int("mcp_max_message_bytes", settings.MCP_MAX_MESSAGE_BYTES, 16_384, 16_777_216)
+    settings.REQUEST_LOG_MAX_PAYLOAD_BYTES = configured_int("request_log_max_payload_bytes", settings.REQUEST_LOG_MAX_PAYLOAD_BYTES, 16_384, 16_777_216)
+    return {
+        "filebox_default_quota_mb": quota,
+        "mcp_max_message_bytes": settings.MCP_MAX_MESSAGE_BYTES,
+        "request_log_max_payload_bytes": settings.REQUEST_LOG_MAX_PAYLOAD_BYTES,
+        "execution_hook_timeout_ms": settings.EXECUTION_HOOK_TIMEOUT_MS,
+    }
+
+
+@router.put("/settings")
+async def update_web_settings(payload: dict, _admin: dict = Depends(get_current_admin)):
+    quota = payload.get("filebox_default_quota_mb")
+    mcp_limit = payload.get("mcp_max_message_bytes")
+    log_limit = payload.get("request_log_max_payload_bytes")
+    hook_timeout = payload.get("execution_hook_timeout_ms")
+    if quota is None and mcp_limit is None and log_limit is None and hook_timeout is None:
+        raise HTTPException(status_code=422, detail="At least one setting is required")
+    if quota is not None and (not isinstance(quota, int) or isinstance(quota, bool) or not 1 <= quota <= 1_048_576):
+        raise HTTPException(status_code=422, detail="filebox_default_quota_mb must be an integer from 1 to 1048576")
+    if mcp_limit is not None and (not isinstance(mcp_limit, int) or isinstance(mcp_limit, bool) or not 16_384 <= mcp_limit <= 16_777_216):
+        raise HTTPException(status_code=422, detail="mcp_max_message_bytes must be an integer from 16384 to 16777216")
+    if log_limit is not None and (not isinstance(log_limit, int) or isinstance(log_limit, bool) or not 16_384 <= log_limit <= 16_777_216):
+        raise HTTPException(status_code=422, detail="request_log_max_payload_bytes must be an integer from 16384 to 16777216")
+    if hook_timeout is not None and (not isinstance(hook_timeout, int) or isinstance(hook_timeout, bool) or not 100 <= hook_timeout <= 120_000):
+        raise HTTPException(status_code=422, detail="execution_hook_timeout_ms must be an integer from 100 to 120000")
+    settings = get_settings()
+    if quota is not None:
+        settings.FILEBOX_DEFAULT_QUOTA_MB = quota
+    if mcp_limit is not None:
+        settings.MCP_MAX_MESSAGE_BYTES = mcp_limit
+    if log_limit is not None:
+        settings.REQUEST_LOG_MAX_PAYLOAD_BYTES = log_limit
+    if hook_timeout is not None:
+        settings.EXECUTION_HOOK_TIMEOUT_MS = hook_timeout
+    from thinkdome.apps.sandbox.models import SystemSetting
+    values = {
+        "filebox_default_quota_mb": quota,
+        "mcp_max_message_bytes": mcp_limit,
+        "request_log_max_payload_bytes": log_limit,
+        "execution_hook_timeout_ms": hook_timeout,
+    }
+    for key, value in values.items():
+        if value is None:
+            continue
+        record = SystemSetting.query().filter(key=key).first()
+        if record:
+            record._values["value"] = str(value)
+        else:
+            record = SystemSetting(key=key, value=str(value), category="system")
+        record.save()
+    return await get_web_settings(_admin)
 
 
 def _principal(user: dict) -> str:
@@ -231,6 +299,7 @@ class CreateSandboxRequest(BaseModel):
     cpu_cores: float = Field(1.0, gt=0, le=64)
     timeout_sec: int = Field(30, ge=1, le=86400)
     network_enabled: bool = Field(False)
+    storage_quota_mb: int = Field(10240, gt=0, le=1_048_576)
 
 @router.get("/sandboxes")
 async def list_sandboxes(
@@ -258,16 +327,22 @@ async def create_sandbox(
     # $0.01 per 128MB RAM/hr + $0.02 per vCPU/hr + $0.005 for network
     cost = (req.memory_mb / 128) * 0.01 + req.cpu_cores * 0.02 + (0.005 if req.network_enabled else 0)
     
-    res = auth_svc.db_service.create_sandbox(
-        sandbox_id=sandbox_id,
+    from thinkdome.apps.sandbox.models import Sandbox
+    sandbox = Sandbox(
+        id=sandbox_id,
         name=req.name,
         owner=_principal(user),
-        memory_mb=req.memory_mb,
-        cpu_cores=req.cpu_cores,
-        timeout_sec=req.timeout_sec,
+        memory_limit=req.memory_mb,
+        cpu_limit=req.cpu_cores,
+        storage_quota_mb=req.storage_quota_mb,
         network_enabled=req.network_enabled,
-        cost_per_hour=cost
+        status="Created",
     )
+    sandbox.save()
+    res = sandbox.to_dict()
+    res["sandbox_id"] = sandbox_id
+    res["timeout_sec"] = req.timeout_sec
+    res["cost_per_hour"] = cost
     
     # Log audit event
     auth_svc.db_service.log_audit(
