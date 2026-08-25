@@ -17,14 +17,12 @@ function showServerErrorPopup() {
         popup.setAttribute("aria-modal", "true");
         popup.setAttribute("aria-labelledby", `${id}-title`);
         popup.setAttribute("aria-describedby", `${id}-message`);
-        popup.innerHTML = `
-            <div style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(8,12,20,.62);padding:20px">
-              <div style="max-width:420px;width:100%;border:1px solid #ef4444;border-radius:12px;background:var(--surface,#111827);color:var(--fg,#f9fafb);padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center">
-                <h2 id="${id}-title" style="margin:0 0 10px;font-size:18px">Server error</h2>
-                <p id="${id}-message" style="margin:0 0 20px;line-height:1.5;color:var(--fg-muted,#cbd5e1)">The server could not complete your request. Please contact the administrator.</p>
-                <button type="button" data-close-server-error style="border:0;border-radius:8px;padding:9px 18px;background:#ef4444;color:white;cursor:pointer">Close</button>
-              </div>
-            </div>`;
+        popup.className = "modal-overlay active";
+        popup.innerHTML = `<div class="modal-card" style="max-width:420px">
+          <div class="modal-header"><h3 id="${id}-title">Server error</h3><button type="button" class="close-modal-btn" data-close-server-error aria-label="Close message">×</button></div>
+          <div class="modal-body"><p id="${id}-message" class="modal-text">The server could not complete your request. Please contact the administrator.</p></div>
+          <div class="modal-footer"><button type="button" class="btn btn-ghost" data-close-server-error>Close</button></div>
+        </div>`;
         popup.addEventListener("click", (event) => {
             const target = event.target;
             if (target === popup || (target instanceof Element && target.closest("[data-close-server-error]"))) {
@@ -34,6 +32,72 @@ function showServerErrorPopup() {
         document.body.appendChild(popup);
         popup.querySelector("[data-close-server-error]")?.focus();
     }
+}
+
+export function showValidationErrorPopup(message = "Please review the highlighted fields and try again.") {
+    const id = "thinkdome-validation-error-popup";
+    let popup = document.getElementById(id);
+    if (popup) return;
+
+    popup = document.createElement("div");
+    popup.id = id;
+    popup.setAttribute("role", "alertdialog");
+    popup.setAttribute("aria-modal", "true");
+    popup.setAttribute("aria-labelledby", `${id}-title`);
+    popup.setAttribute("aria-describedby", `${id}-message`);
+
+    const panel = document.createElement("div");
+    panel.className = "modal-overlay active";
+    const content = document.createElement("div");
+    content.className = "modal-card";
+    content.style.maxWidth = "420px";
+    const header = document.createElement("div");
+    header.className = "modal-header";
+    const title = document.createElement("h3");
+    title.id = `${id}-title`;
+    title.textContent = "Please check your information";
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "close-modal-btn";
+    dismiss.textContent = "×";
+    dismiss.setAttribute("aria-label", "Close message");
+    dismiss.dataset.closeValidationError = "true";
+    header.append(title, dismiss);
+    const main = document.createElement("div");
+    main.className = "modal-body";
+    const body = document.createElement("p");
+    body.id = `${id}-message`;
+    body.textContent = message;
+    body.className = "modal-text";
+    main.appendChild(body);
+    const footer = document.createElement("div");
+    footer.className = "modal-footer";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "btn btn-ghost";
+    close.textContent = "Close";
+    close.dataset.closeValidationError = "true";
+    footer.appendChild(close);
+    content.append(header, main, footer);
+    panel.appendChild(content);
+    popup.appendChild(panel);
+    popup.addEventListener("click", (event) => {
+        const target = event.target;
+        if (target === popup || (target instanceof Element && target.closest("[data-close-validation-error]"))) popup.remove();
+    });
+    document.body.appendChild(popup);
+    close.focus();
+}
+
+function validationMessage(data) {
+    const fields = new Set((Array.isArray(data?.detail) ? data.detail : [])
+        .map((error) => Array.isArray(error?.loc) ? error.loc.at(-1) : null));
+    if (fields.has("username") && fields.has("password")) {
+        return "Use a username with at least 3 characters and a password with at least 6 characters.";
+    }
+    if (fields.has("username")) return "Use a username with at least 3 characters.";
+    if (fields.has("password")) return "Use a password with at least 6 characters.";
+    return "Please review the highlighted fields and try again.";
 }
 
 async function refreshAccessToken() {
@@ -93,13 +157,22 @@ async function apiFetch(endpoint, options = {}, token = "", sandboxId = "", retr
         // Access JWTs are deliberately short-lived. Refresh from the HTTP-only
         // cookie and retry the original request once before reporting logout.
         if (response.status === 401) {
-            if (retryAfterRefresh) {
+            // Login/registration requests do not have a refreshable session.
+            // Avoid a guaranteed second 401 request and provide a useful,
+            // non-sensitive message to the user instead of exposing a raw
+            // protocol sentinel such as "UNAUTHORIZED".
+            const isAuthenticationEndpoint = endpoint.startsWith("/v1/auth/");
+            if (retryAfterRefresh && token && !isAuthenticationEndpoint) {
                 const refreshedToken = await refreshAccessToken();
                 if (refreshedToken) {
                     return apiFetch(endpoint, options, refreshedToken, sandboxId, false);
                 }
             }
-            return { data: null, error: "UNAUTHORIZED" };
+            const error = isAuthenticationEndpoint && endpoint.endsWith("/login")
+                ? "The username or password is incorrect. Please check your credentials and try again."
+                : "Your session has expired or you are not authorized for this action. Please sign in again.";
+            showValidationErrorPopup(error);
+            return { data: null, error };
         }
 
         let data = {};
@@ -109,6 +182,11 @@ async function apiFetch(endpoint, options = {}, token = "", sandboxId = "", retr
             if (response.status >= 500) {
                 showServerErrorPopup();
                 return { data: null, error: "SERVER_ERROR" };
+            }
+            if (response.status === 422) {
+                const message = validationMessage(data);
+                showValidationErrorPopup(message);
+                return { data: null, error: message };
             }
             let errorMsg = "Request failed.";
             if (typeof data.detail === "string") {

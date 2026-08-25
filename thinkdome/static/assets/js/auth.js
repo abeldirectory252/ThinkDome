@@ -142,14 +142,11 @@ async function enterApp(e) {
             }
         }
     } catch (err) {
-        if (loginAlert) {
-            loginAlert.className = 'alert alert-error';
-            loginAlert.textContent = err.message || "Authentication failed.";
-            loginAlert.style.display = 'block';
-        } else if (typeof showCustomAlert === 'function') {
-            await showCustomAlert("Authentication Failure", err.message || "Request failed.");
-        } else {
-            alert("Authentication Failure: " + (err.message || "Request failed."));
+        // Keep authentication failures on the same themed modal surface.
+        // The API client de-duplicates an already-open validation modal.
+        const message = err.message || "Authentication failed. Please try again.";
+        if (message !== "SERVER_ERROR" && window.API?.showValidationErrorPopup) {
+            window.API.showValidationErrorPopup(message);
         }
     } finally {
         if (btn) {
