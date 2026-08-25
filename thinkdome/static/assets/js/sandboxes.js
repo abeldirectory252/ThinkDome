@@ -669,12 +669,26 @@ function registerNewSandboxNode() {
         sandboxHostAdmissibleMb = null;
         const provisionSubmit = document.getElementById('sbxProvisionSubmit');
         if (provisionSubmit) provisionSubmit.disabled = true;
+        const cachedCapacity = sessionStorage.getItem('thinkdome_host_capacity');
+        if (cachedCapacity) {
+            try {
+                const cached = JSON.parse(cachedCapacity);
+                if (Date.now() - cached.updated_at < 30000 && Number.isFinite(cached.admissible_mb)) {
+                    sandboxHostAdmissibleMb = cached.admissible_mb;
+                    validateSandboxMemorySelection();
+                }
+            } catch (_) { sessionStorage.removeItem('thinkdome_host_capacity'); }
+        }
         const token = localStorage.getItem('thinkdome_token');
         if (window.API?.getSandboxCapacity && token) {
             window.API.getSandboxCapacity(token).then(({data}) => {
                 const hint = document.getElementById('sbxHostMemoryHint');
                 if (hint && data) {
                     sandboxHostAdmissibleMb = Number(data.admissible_mb) || 0;
+                    sessionStorage.setItem('thinkdome_host_capacity', JSON.stringify({
+                        admissible_mb: sandboxHostAdmissibleMb,
+                        updated_at: Date.now(),
+                    }));
                     const available = Math.max(0, Math.floor(sandboxHostAdmissibleMb / 1024));
                     hint.textContent = `Host capacity: approximately ${available} GB is currently admissible; larger requests will be rejected.`;
                     validateSandboxMemorySelection();

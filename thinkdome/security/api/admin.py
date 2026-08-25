@@ -28,6 +28,7 @@ from thinkdome.core.config import get_settings
 router = APIRouter(tags=["admin"])
 logger = logging.getLogger(__name__)
 _SANDBOX_CACHE_PREFIX = "thinkdome:sandboxes:v1"
+_CAPACITY_CACHE_KEY = "thinkdome:capacity:v1"
 _sandbox_redis = None
 
 
@@ -88,6 +89,7 @@ async def _invalidate_sandbox_cache() -> None:
         keys = [key async for key in client.scan_iter(match=f"{_SANDBOX_CACHE_PREFIX}:*")]
         if keys:
             await client.delete(*keys)
+        await client.delete(_CAPACITY_CACHE_KEY)
     except Exception as exc:
         logger.debug("Sandbox cache invalidation failed: %s", exc)
 
@@ -457,15 +459,29 @@ async def sandbox_capacity(
     _user: dict = Depends(get_current_user),
 ):
     """Expose effective host capacity for admission-aware UI hints."""
+    client = await _sandbox_cache_client()
+    if client:
+        try:
+            cached = await client.get(_CAPACITY_CACHE_KEY)
+            if cached:
+                return json.loads(cached)
+        except Exception as exc:
+            logger.debug("Capacity cache read failed: %s", exc)
     total_mb, available_mb = _host_memory_capacity_mb()
     from thinkdome.apps.sandbox.models import Sandbox
     reserved_mb = sum(int(sb._values.get("memory_limit") or 0) for sb in Sandbox.query().all())
-    return {
+    payload = {
         "total_mb": total_mb,
         "available_mb": available_mb,
         "reserved_mb": reserved_mb,
         "admissible_mb": max(0, min(available_mb - max(128, int(total_mb * 0.10)), int(total_mb * 0.90) - reserved_mb)),
     }
+    if client:
+        try:
+            await client.setex(_CAPACITY_CACHE_KEY, 2, json.dumps(payload))
+        except Exception as exc:
+            logger.debug("Capacity cache write failed: %s", exc)
+    return payload
 
 @router.post("/sandboxes", status_code=201)
 async def create_sandbox(
