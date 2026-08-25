@@ -849,7 +849,7 @@ async function submitRegisterModal(e) {
                 name: name,
                 memory_mb: memory_mb,
                 cpu_cores: cpuCores,
-                timeout_sec: ttlSeconds,
+                timeout_sec: Math.min(ttlSeconds, 86400),
                 ttl_seconds: ttlSeconds,
                 python_dependencies: pythonDependencies,
                 network_enabled: networkMode !== 'lockdown'

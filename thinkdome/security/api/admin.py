@@ -367,7 +367,7 @@ class CreateSandboxRequest(BaseModel):
     # similarly bounds sandbox lifetime instead of accepting arbitrary TTLs.
     memory_mb: int = Field(256, gt=0, le=65536)
     cpu_cores: float = Field(1.0, gt=0, le=64)
-    timeout_sec: int = Field(30, ge=1, le=259200)
+    timeout_sec: int = Field(30, ge=1, le=86400)
     ttl_seconds: int = Field(3600, ge=1, le=259200, description="Lease TTL in seconds; maximum 72 hours")
     network_enabled: bool = Field(False)
     storage_quota_mb: int = Field(10240, gt=0, le=1_048_576)
