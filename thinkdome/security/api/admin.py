@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import re
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.responses import FileResponse
@@ -385,6 +386,45 @@ class CreateSandboxRequest(BaseModel):
             normalized.append(dependency.strip())
         return normalized
 
+
+def _host_memory_capacity_mb() -> tuple[int, int]:
+    """Return (total, available) memory using the host/container cgroup view."""
+    total = available = 0
+    try:
+        values = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            key, value = line.split(":", 1)
+            values[key] = int(value.strip().split()[0]) // 1024
+        total = values.get("MemTotal", 0)
+        available = values.get("MemAvailable", values.get("MemFree", 0))
+    except (OSError, ValueError, IndexError):
+        return 0, 0
+    try:
+        limit = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+        if limit != "max":
+            total = min(total, int(limit) // (1024 * 1024))
+    except (OSError, ValueError):
+        pass
+    return total, max(0, min(available, total))
+
+
+def _validate_host_memory_for_sandbox(memory_mb: int) -> None:
+    """Reject admission when reservations would consume the host safety floor."""
+    from thinkdome.apps.sandbox.models import Sandbox
+    total_mb, available_mb = _host_memory_capacity_mb()
+    if not total_mb:
+        return
+    reserved_mb = sum(int(sb._values.get("memory_limit") or 0) for sb in Sandbox.query().all())
+    safety_floor = max(128, int(total_mb * 0.10))
+    if memory_mb > max(0, available_mb - safety_floor) or reserved_mb + memory_mb > int(total_mb * 0.90):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Insufficient host memory for this sandbox. Requested {memory_mb} MB; "
+                f"approximately {available_mb} MB is available and {reserved_mb} MB is reserved."
+            ),
+        )
+
 @router.get("/sandboxes")
 async def list_sandboxes(
     auth_svc: AuthService = Depends(get_auth_service),
@@ -420,6 +460,7 @@ async def create_sandbox(
     """Create a new sandboxed environment with specific CPU/RAM allocations."""
     import uuid
     sandbox_id = f"sb_{uuid.uuid4().hex[:12]}"
+    _validate_host_memory_for_sandbox(req.memory_mb)
     
     # Calculate running cost based on specifications:
     # $0.01 per 128MB RAM/hr + $0.02 per vCPU/hr + $0.005 for network
