@@ -242,6 +242,8 @@ class DatabaseService:
 
         self._pool: Optional[asyncpg.Pool] = None
         self._loop_thread: Optional[AsyncLoopThread] = None
+        self._sqlite_schema_lock = threading.Lock()
+        self._sqlite_schema_ready = False
 
     async def initialize(self) -> None:
         """Initialize connection pool and declare schema (async startup)."""
@@ -315,17 +317,23 @@ class DatabaseService:
         return self.db_path
 
     def _get_sqlite_conn(self) -> sqlite3.Connection:
+        if not self._sqlite_schema_ready:
+            with self._sqlite_schema_lock:
+                if not self._sqlite_schema_ready:
+                    self._initialize_sqlite()
         conn = sqlite3.connect(str(self.effective_db_path), timeout=15.0)
         conn.row_factory = sqlite3.Row
         return conn
 
     def _initialize_sqlite(self) -> None:
-        with self._get_sqlite_conn() as conn:
+        with sqlite3.connect(str(self.effective_db_path), timeout=15.0) as conn:
+            conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL;")
             for stmt in SQLITE_SCHEMA_SQL.strip().split(";"):
                 if stmt.strip():
                     conn.execute(stmt)
             conn.commit()
+        self._sqlite_schema_ready = True
 
     async def _setup_postgres_schema(self) -> None:
         async with self._pool.acquire() as conn:
