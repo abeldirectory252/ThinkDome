@@ -63,7 +63,9 @@ async function fetchSandboxesData() {
             const fetchedSbx = {};
             data.filter(sb => canViewSandbox(sb)).forEach(sb => {
                 const ramVal = sb.memory_mb >= 1024 ? `${(sb.memory_mb/1024).toFixed(0)} GB` : `${sb.memory_mb} MB`;
-                const displayStatus = (sb.status === 'active' || sb.status === 'running') ? 'running' : 'stopped';
+                const displayStatus = sb.expired || String(sb.status).toLowerCase() === 'expired'
+                    ? 'expired'
+                    : ((sb.status === 'active' || sb.status === 'running') ? 'running' : 'stopped');
                 fetchedSbx[sb.name] = {
                     id: sb.sandbox_id,
                     name: sb.name,
@@ -76,6 +78,8 @@ async function fetchSandboxesData() {
                     rate: sb.cost_per_hour || 0.08,
                     ramUsage: displayStatus === 'running' ? 45 : 0,
                     status: displayStatus,
+                    expired: Boolean(sb.expired),
+                    expirationMessage: sb.expiration_message || '',
                     executions: '0',
                     subtotal: 0
                 };
@@ -122,6 +126,9 @@ function renderSandboxNodesTableHTMLOnly() {
         else if (sb.status === 'hibernating') statClass = 'warn';
 
         const statTag = `<span class="status-tag ${statClass}">${sb.status.toUpperCase()}</span>`;
+        const expirationNotice = sb.expired
+            ? `<div class="alert alert-error" style="margin:10px 0 0;padding:8px 10px;font-size:11.5px;">${sb.expirationMessage || 'This sandbox lease has expired and is no longer available.'}</div>`
+            : '';
         return `
           <tr>
             <td style="text-align: center;">
@@ -207,6 +214,7 @@ function renderSandboxCardsHTMLOnly() {
                 <span class="mono" id="ram-text-${key}">${sb.ramUsage}%</span>
               </div>
               <div class="bar"><i style="width:${sb.ramUsage}%" id="ram-bar-${key}"></i></div>
+              ${expirationNotice}
               <div class="foot">
                 <span class="faint" id="footer-${key}">Up ${uptimeText} · $${sb.rate.toFixed(2)}/hr</span>
                 <div style="display:flex;gap:8px;">
