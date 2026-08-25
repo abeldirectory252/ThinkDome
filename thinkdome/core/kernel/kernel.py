@@ -69,7 +69,22 @@ class Kernel:
         self._init_database()
         self._load_apps()
         self.initialized = True
+        self._run_auto_migrations()
         logger.info(f"✓ Kernel successfully booted for site: {self.site_name}")
+
+    def _run_auto_migrations(self) -> None:
+        """Apply unapplied app migrations after models and the ORM are ready."""
+        enabled = os.environ.get("THINKDOME_AUTO_MIGRATE", "true").strip().lower()
+        if enabled in {"0", "false", "no", "off"}:
+            return
+        try:
+            from thinkdome.core.kernel.migrations import MigrationRunner
+            MigrationRunner(kernel=self).migrate()
+        except Exception:
+            self.initialized = False
+            if self.db:
+                self.db.rollback()
+            raise
 
     def _load_config(self) -> None:
         """Load site_config.json from site directory."""

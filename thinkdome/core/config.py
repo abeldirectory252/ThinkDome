@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DEPLOYMENT_ENV: str = "development"  # development | test | staging | production
+    AUTO_MIGRATE: bool = True
     NODE_ID: str = ""
     NODE_REGION: str = "default"
     NODE_AGENT_HOST: str = "127.0.0.1"
