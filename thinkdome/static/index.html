@@ -2803,21 +2803,22 @@
                 </select>
                 <input id="sbxCustomTtlSeconds" class="form-input" type="number" min="1" max="259200" step="1" placeholder="Custom TTL in seconds" hidden style="margin-top:8px;" />
                 <small style="display:block;margin-top:5px;color:var(--fg-subtle);">The sandbox expires automatically when this lease ends.</small>
-                <div id="sbxPythonDependenciesContainer" class="field" style="margin-top:12px;">
-                  <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Python dependencies (optional)</label>
-                  <div id="sbxPythonDependencyAddRow" style="display:flex;gap:8px;margin-bottom:8px;">
-                    <input type="text" id="sbxPythonDependencyInput" class="form-input" placeholder="e.g. numpy==2.1.0" style="flex:1;" maxlength="128" onkeydown="if(event.key==='Enter'){event.preventDefault();addPythonDependencyChip();}" />
-                    <button id="sbxPythonDependencyAddBtn" type="button" class="btn btn-secondary" onclick="addPythonDependencyChip()" style="padding:6px 12px;font-size:12px;font-weight:600;">+ Add dependency</button>
-                  </div>
-                  <div id="sbxPythonDependencyError" class="alert alert-error" hidden style="margin-bottom:6px;padding:6px 10px;font-size:11.5px;"></div>
-                  <div id="sbxPythonDependenciesList" style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;padding:6px;background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);"></div>
-                  <small style="display:block;margin-top:5px;color:var(--fg-subtle);">Add package requirements individually. They are installed only inside this sandbox.</small>
-                </div>
               </div>
               <div class="field">
                 <label for="sbxRateInput" style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Hourly Rate Cap ($/hr) *</label>
                 <input type="number" id="sbxRateInput" class="form-input" step="0.01" min="0.01" max="5.00" value="0.08" required />
               </div>
+            </div>
+
+            <div id="sbxPythonDependenciesContainer" class="field" style="margin-top:12px;width:100%;">
+              <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Python dependencies (optional)</label>
+              <div id="sbxPythonDependencyAddRow" style="display:flex;gap:8px;margin-bottom:8px;width:100%;">
+                <input type="text" id="sbxPythonDependencyInput" class="form-input" placeholder="e.g. numpy==2.1.0" style="flex:1;min-width:0;" maxlength="128" onkeydown="if(event.key==='Enter'){event.preventDefault();addPythonDependencyChip();}" />
+                <button id="sbxPythonDependencyAddBtn" type="button" class="btn btn-secondary" onclick="addPythonDependencyChip()" style="padding:8px 14px;font-size:12px;font-weight:600;white-space:nowrap;">+ Add dependency</button>
+              </div>
+              <div id="sbxPythonDependencyError" class="alert alert-error" hidden style="margin-bottom:6px;padding:6px 10px;font-size:11.5px;"></div>
+              <div id="sbxPythonDependenciesList" style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;padding:6px;background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);"></div>
+              <small style="display:block;margin-top:5px;color:var(--fg-subtle);">Add package requirements individually. They are installed only inside this sandbox.</small>
             </div>
 
             <div class="modal-grid-fields" style="margin-top:12px;">
