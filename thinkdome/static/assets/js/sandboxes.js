@@ -57,8 +57,8 @@ function validateSandboxMemorySelection() {
     if (submit) submit.disabled = exceeds;
     if (hint && sandboxHostAdmissibleMb !== null) {
         hint.textContent = exceeds
-            ? `Selected RAM exceeds current host capacity (${Math.floor(sandboxHostAdmissibleMb / 1024)} GB admissible). Choose a smaller value.`
-            : `Host capacity: approximately ${Math.floor(sandboxHostAdmissibleMb / 1024)} GB is currently admissible.`;
+            ? `You can't select this. Available for user is ${sandboxHostAdmissibleMb} MB.`
+            : `Available for user is ${sandboxHostAdmissibleMb} MB.`;
         hint.style.color = exceeds ? 'var(--danger)' : 'var(--fg-subtle)';
     }
     return !exceeds;
@@ -672,6 +672,8 @@ function registerNewSandboxNode() {
         // submission wait on Redis/network latency. The API remains the
         // authoritative admission gate.
         if (provisionSubmit) provisionSubmit.disabled = false;
+        const hint = document.getElementById('sbxHostMemoryHint');
+        if (hint) hint.textContent = 'Checking available host capacity…';
         const cachedCapacity = sessionStorage.getItem('thinkdome_host_capacity');
         if (cachedCapacity) {
             try {
@@ -693,7 +695,7 @@ function registerNewSandboxNode() {
                         updated_at: Date.now(),
                     }));
                     const available = Math.max(0, Math.floor(sandboxHostAdmissibleMb / 1024));
-                    hint.textContent = `Host capacity: approximately ${available} GB is currently admissible; larger requests will be rejected.`;
+                    hint.textContent = `Available for user is ${sandboxHostAdmissibleMb} MB.`;
                     validateSandboxMemorySelection();
                 }
             }).catch(() => {
@@ -899,6 +901,14 @@ async function submitRegisterModal(e) {
         }
     } catch (err) {
         const message = err?.message || 'Sandbox creation could not be completed.';
+        if (message.startsWith('Insufficient host memory')) {
+            const hint = document.getElementById('sbxHostMemoryHint');
+            if (hint) {
+                hint.textContent = message;
+                hint.style.color = 'var(--danger)';
+            }
+            return;
+        }
         if (alertEl) {
             alertEl.textContent = message;
             alertEl.hidden = false;
