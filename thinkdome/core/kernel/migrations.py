@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import importlib
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,10 @@ def ensure_migrations_table(kernel: Kernel) -> None:
             ")"
         )
     kernel.db.execute(text(stmt))
+    kernel.db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_schema_migrations_app_name "
+        "ON schema_migrations (app_name, migration_name)"
+    ))
     kernel.db.commit()
 
 
@@ -79,6 +84,11 @@ class MigrationRunner:
         self.kernel.initialize()
 
     def migrate(self, target_app: Optional[str] = None) -> None:
+        """Run pending migrations under a process-wide startup lock."""
+        with self._process_lock:
+            self._migrate_locked(target_app)
+
+    def _migrate_locked(self, target_app: Optional[str] = None) -> None:
         """Run all pending migrations for active apps, logging them to the database."""
         ensure_migrations_table(self.kernel)
         
@@ -191,3 +201,4 @@ class MigrationRunner:
                     "status": "Applied" if script in applied else "Pending",
                 })
         return status_report
+    _process_lock = threading.RLock()
