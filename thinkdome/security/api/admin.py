@@ -70,7 +70,9 @@ async def _cache_sandboxes(owner: Optional[str], rows: list[dict]) -> None:
     if not client:
         return
     try:
-        await client.setex(_sandbox_cache_key(owner), 5, json.dumps(rows, default=str))
+        # Keep the coherence window deliberately short. All supported writes
+        # invalidate this namespace after the ORM transaction commits.
+        await client.setex(_sandbox_cache_key(owner), 1, json.dumps(rows, default=str))
     except Exception as exc:
         logger.debug("Sandbox cache write failed: %s", exc)
 
