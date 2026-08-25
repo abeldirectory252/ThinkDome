@@ -699,6 +699,11 @@ function renderApiKeysHTMLOnly() {
 }
 
 async function renderApiKeys() {
+    const role = localStorage.getItem('thinkdome_user_role');
+    const authorized = typeof isAdminRole === 'function'
+        ? isAdminRole(role)
+        : ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN'].includes(String(role || '').toUpperCase());
+    if (!authorized) return;
     const tbody = document.getElementById('apiKeysTableBody');
     if (tbody) tbody.innerHTML = getTableSkeletonHTML(5, 3);
 
