@@ -10,6 +10,8 @@ import os
 import importlib
 import logging
 import threading
+import shutil
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -83,14 +85,46 @@ class MigrationRunner:
         self.kernel = Kernel.get_instance(site_name)
         self.kernel.initialize()
 
-    def migrate(self, target_app: Optional[str] = None) -> None:
+    def migrate(self, target_app: Optional[str] = None) -> Optional[Path]:
         """Run pending migrations under a process-wide startup lock."""
         with self._process_lock:
-            self._migrate_locked(target_app)
+            return self._migrate_locked(target_app)
 
-    def _migrate_locked(self, target_app: Optional[str] = None) -> None:
+    def backup_database(self) -> Optional[Path]:
+        """Create a durable SQLite backup before applying migrations."""
+        url = str(self.kernel.db_engine.url)
+        if not url.startswith("sqlite:///"):
+            return None
+        source = Path(url[10:])
+        if not source.exists():
+            return None
+        backup_dir = self.kernel.site_dir / "private" / "backups" / "migrations"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        target = backup_dir / f"{source.stem}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.db"
+        self.kernel.db.execute(text("PRAGMA wal_checkpoint(FULL)"))
+        self.kernel.db.commit()
+        shutil.copy2(source, target)
+        return target
+
+    def make_migration(self, app_name: str, name: str) -> Path:
+        """Create an explicit, reviewable migration skeleton for an app."""
+        if not re.fullmatch(r"[A-Za-z0-9_]+", app_name) or not re.fullmatch(r"[A-Za-z0-9_]+", name):
+            raise ValueError("app and migration names may contain only letters, numbers, and underscores")
+        migration_dir = APPS_DIR / app_name / "migrations"
+        if not migration_dir.is_dir():
+            raise FileNotFoundError(f"Migration directory not found: {migration_dir}")
+        numbers = [int(path.name.split("_", 1)[0]) for path in migration_dir.glob("[0-9][0-9][0-9][0-9]_*.py") if path.name[:4].isdigit()]
+        number = max(numbers, default=0) + 1
+        path = migration_dir / f"{number:04d}_{name}.py"
+        path.write_text('''"""Generated migration; implement the schema transition before running migrate."""\n\n\ndef up(db) -> None:\n    """Apply this migration."""\n    pass\n\n\ndef down(db) -> None:\n    """Rollback this migration when safely supported."""\n    pass\n''', encoding="utf-8")
+        return path
+
+    def _migrate_locked(self, target_app: Optional[str] = None) -> Optional[Path]:
         """Run all pending migrations for active apps, logging them to the database."""
         ensure_migrations_table(self.kernel)
+        backup = self.backup_database()
+        if backup:
+            logger.info("Migration backup created at %s", backup)
         
         apps_to_migrate = [target_app] if target_app else self.kernel.get_installed_apps()
         
@@ -137,6 +171,7 @@ class MigrationRunner:
                     self.kernel.db.rollback()
                     logger.error(f"Migration {migration_name} failed: {e}")
                     raise RuntimeError(f"Migration error: {e}")
+        return backup
 
     def rollback(self, target_app: Optional[str] = None) -> None:
         """Revert the last applied migration script for the target app (or globally)."""

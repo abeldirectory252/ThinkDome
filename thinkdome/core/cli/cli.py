@@ -75,6 +75,10 @@ def main() -> None:
     search_app_p.add_argument("query", help="Search query string")
 
     # ── Database Migration System ─────────────────────────────────────────────
+    makemigrations_p = subparsers.add_parser("makemigrations", help="Create an application migration skeleton")
+    makemigrations_p.add_argument("target_app", help="Application whose migration directory should be updated")
+    makemigrations_p.add_argument("--name", required=True, help="Migration name, for example add_storage_quota")
+
     migrate_p = subparsers.add_parser("migrate", help="Run database migrations and schema sync")
     migrate_p.add_argument("target_app", nargs="?", help="Optional specific app to migrate")
     migrate_p.add_argument("--rollback", action="store_true", help="Rollback the last migration step")
@@ -168,6 +172,8 @@ def main() -> None:
             handle_update_app(args.site, args.app_name)
         elif args.command == "search-app":
             handle_search_app(args.query)
+        elif args.command == "makemigrations":
+            handle_makemigrations(args.site, args.target_app, args.name)
         elif args.command == "migrate":
             handle_migrate(args.site, args.target_app, args.rollback)
         elif args.command == "migration-status":
@@ -450,10 +456,28 @@ def handle_migrate(site_name: str, target_app: Optional[str] = None, rollback: b
     from thinkdome.core.kernel.migrations import MigrationRunner
     
     runner = MigrationRunner(site_name)
-    if rollback:
-        runner.rollback(target_app)
-    else:
-        runner.migrate(target_app)
+    try:
+        if rollback:
+            runner.rollback(target_app)
+            print(f"Migration rollback completed for {target_app or 'latest migration'}.")
+        else:
+            backup = runner.migrate(target_app)
+            print(f"Migration completed successfully for {target_app or 'all applications' }.")
+            if backup:
+                print(f"Database backup: {backup}")
+    except Exception as exc:
+        print(f"Migration failed safely; database transaction was rolled back where supported: {exc}", file=sys.stderr)
+        raise
+
+
+def handle_makemigrations(site_name: str, target_app: str, name: str) -> None:
+    """Generate a migration skeleton without changing the database."""
+    from thinkdome.core.kernel.migrations import MigrationRunner
+
+    runner = MigrationRunner(site_name)
+    path = runner.make_migration(target_app, name)
+    print(f"Created migration: {path}")
+    print("Review and implement up()/down() before running 'think migrate'.")
 
 
 def handle_migration_status(site_name: str) -> None:
