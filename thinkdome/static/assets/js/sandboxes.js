@@ -800,6 +800,7 @@ async function submitRegisterModal(e) {
                 python_dependencies: pythonDependencies,
                 network_enabled: networkMode !== 'lockdown'
             }, token);
+            if (error) throw new Error(error);
 
             if (data && data.id) {
                 newSandboxObj.id = data.id;
@@ -826,12 +827,12 @@ async function submitRegisterModal(e) {
             await fetchSandboxesData();
         }
     } catch (err) {
-        if (typeof addLogLine === 'function') {
-            addLogLine('SYS', `Local provisioned sandbox node '${name}' [${executionType.toUpperCase()}, ${ramStr} RAM]`);
-        }
-        closeRegisterModal();
-        if (typeof renderSandboxesView === 'function') {
-            renderSandboxesView();
+        const message = err?.message || 'Sandbox creation could not be completed.';
+        if (alertEl) {
+            alertEl.textContent = message;
+            alertEl.hidden = false;
+        } else if (window.API?.showValidationErrorPopup) {
+            window.API.showValidationErrorPopup(message);
         }
     }
 }
