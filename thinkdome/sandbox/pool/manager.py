@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Dict, Deque
 
+from thinkdome.sandbox.executors.docker.container_policy import DockerContainerPolicy
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class ContainerState(str, Enum):
     WARM = "warm"           # Idle, ready for use
     ACQUIRED = "acquired"   # In-use by a request
     COOLING = "cooling"     # Marked for lazy eviction, still usable
+    RESETTING = "resetting" # Cleanup in progress; never acquire or release
     DEAD = "dead"           # Removed or failed
 
 
@@ -43,6 +46,7 @@ class PooledContainer:
     last_used_at: float = field(default_factory=time.monotonic)
     cooling_deadline: Optional[float] = None  # When to actually destroy (lazy eviction)
     use_count: int = 0                        # How many times this container has been reused
+    lease_token: str = ""                    # Per-acquisition capability token
 
 
 class PoolManager:
@@ -89,6 +93,10 @@ class PoolManager:
         # Background maintenance task
         self._maintenance_task: Optional[asyncio.Task] = None
         self._running = False
+        # Serializes cold container creation.  Without a gate, concurrent
+        # misses can all observe the same pool size and overshoot the hard
+        # POOL_MAX_SIZE resource bound while awaiting Docker.
+        self._create_lock = asyncio.Lock()
 
         # Metrics
         self._total_acquisitions: int = 0
@@ -112,7 +120,10 @@ class PoolManager:
         warm_count = 0
         for _ in range(self._min_warm):
             try:
-                await self._create_warm_container()
+                async with self._create_lock:
+                    if len(self._containers) >= self._max_size:
+                        break
+                    await self._create_warm_container()
                 warm_count += 1
             except Exception as e:
                 logger.error(f"Failed to pre-warm container: {e}")
@@ -164,6 +175,7 @@ class PoolManager:
         for pool_id, container in self._containers.items():
             if container.state in (ContainerState.WARM, ContainerState.COOLING):
                 container.state = ContainerState.ACQUIRED
+                container.lease_token = uuid.uuid4().hex
                 container.last_used_at = now
                 container.use_count += 1
                 container.cooling_deadline = None  # Cancel any pending eviction
@@ -179,16 +191,37 @@ class PoolManager:
         self._cold_starts += 1
         logger.info(f"❄️ Pool MISS: no warm containers available, cold-starting for role={role}")
 
-        try:
-            container = await self._create_warm_container()
-            container.state = ContainerState.ACQUIRED
-            container.use_count = 1
-            return container
-        except Exception as e:
-            logger.error(f"Failed to create container on cold start: {e}")
-            return None
+        async with self._create_lock:
+            # Another waiter may have created a container while this request
+            # was queued. Reuse it before allocating another Docker resource.
+            for container in self._containers.values():
+                if container.state in (ContainerState.WARM, ContainerState.COOLING):
+                    container.state = ContainerState.ACQUIRED
+                    container.lease_token = uuid.uuid4().hex
+                    container.last_used_at = time.monotonic()
+                    container.use_count += 1
+                    container.cooling_deadline = None
+                    self._cache_hits += 1
+                    return container
+            if len(self._containers) >= self._max_size:
+                logger.warning("Pool at hard capacity (%s); refusing cold start", self._max_size)
+                return None
+            try:
+                container = await self._create_warm_container()
+                container.state = ContainerState.ACQUIRED
+                container.use_count = 1
+                container.lease_token = uuid.uuid4().hex
+                return container
+            except Exception as e:
+                logger.error(f"Failed to create container on cold start: {e}")
+                return None
 
-    async def release(self, pool_id: str, reset: bool = True) -> None:
+    async def release(
+        self,
+        pool_id: str,
+        reset: bool = True,
+        lease_token: str | None = None,
+    ) -> None:
         """Release a container back to the pool after use.
 
         If reset=True, the container's /workspace is wiped before returning
@@ -197,6 +230,10 @@ class PoolManager:
         container = self._containers.get(pool_id)
         if not container:
             logger.warning(f"Attempted to release unknown container {pool_id}")
+            return
+
+        if lease_token is not None and lease_token != container.lease_token:
+            logger.warning("Rejected stale lease release for container %s", pool_id)
             return
 
         if container.state != ContainerState.ACQUIRED:
@@ -211,6 +248,10 @@ class PoolManager:
             # filesystem state. It must never be returned as a warm container.
             await self._destroy_container(pool_id)
             return
+
+        # Reserve the container before awaiting Docker cleanup. A duplicate
+        # release must not reset or requeue the same container concurrently.
+        container.state = ContainerState.RESETTING
 
         # Check pool capacity
         warm_count = sum(1 for c in self._containers.values() if c.state == ContainerState.WARM)
@@ -279,8 +320,11 @@ class PoolManager:
 
     def _create_container_sync(self):
         """Synchronous Docker container creation with security hardening."""
-        import json, os
+        import os
 
+        self.settings.validate_production_runtime()
+        from thinkdome.sandbox.security.runtime_guard import validate_secure_runtime_on_startup
+        validate_secure_runtime_on_startup(self.settings, docker_client=self.docker_client)
         # Load seccomp profile
         security_opt = ["no-new-privileges:true"]
         from thinkdome.core.config import get_workspace_root
@@ -299,27 +343,8 @@ class PoolManager:
                 _docker.types.DeviceRequest(count=gpu_count, capabilities=[["gpu"]])
             )
 
-        return self.docker_client.containers.create(
-            image=self.image,
-            entrypoint="",
-            command=["sleep", "infinity"],
-            detach=True,
-            user="1000:1000",
-            read_only=True,
-            tmpfs={
-                "/tmp": "size=67108864,noexec,nosuid,nodev",
-                "/workspace": "size=67108864,nosuid,nodev",
-            },
-            cap_drop=["ALL"],
-            security_opt=security_opt,
-            network_mode="none",
-            nano_cpus=int(0.5 * 1e9),
-            mem_limit="256m",
-            memswap_limit="256m",
-            pids_limit=20,
-            init=True,
-            device_requests=device_requests or None,
-        )
+        config = DockerContainerPolicy.pool_config(self.settings, self.image, security_opt, device_requests)
+        return self.docker_client.containers.create(**config)
 
     async def _reset_container(self, container: PooledContainer) -> None:
         """Reset a container's workspace to clean state (snapshot/restore pattern)."""
@@ -331,16 +356,31 @@ class PoolManager:
         def _reset_sync():
             try:
                 docker_container = self.docker_client.containers.get(container.container_id)
+                # Warm containers are shared across requests. Reap every
+                # sandbox-owned process before returning one to the pool;
+                # deleting files alone does not stop background descendants.
+                reap = docker_container.exec_run(
+                    ["python3", "-c", (
+                        "import os,signal; me=os.getpid(); "
+                        "[(os.kill(int(n), signal.SIGKILL)) for n in os.listdir('/proc') "
+                        "if n.isdigit() and int(n) > 1 and int(n) != me]"
+                    )],
+                    user="1000:1000",
+                )
+                if getattr(reap, "exit_code", 0) not in (0, None):
+                    raise RuntimeError("sandbox process reap failed")
                 # Clear /workspace by removing and recreating tmpfs content
-                docker_container.exec_run(
+                workspace = docker_container.exec_run(
                     ["sh", "-c", "rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true"],
                     user="1000:1000",
                 )
                 # Clear /tmp
-                docker_container.exec_run(
+                tmp = docker_container.exec_run(
                     ["sh", "-c", "rm -rf /tmp/* /tmp/.[!.]* 2>/dev/null || true"],
                     user="1000:1000",
                 )
+                if getattr(workspace, "exit_code", 0) not in (0, None) or getattr(tmp, "exit_code", 0) not in (0, None):
+                    raise RuntimeError("sandbox workspace reset failed")
             except Exception as e:
                 raise RuntimeError(f"Container reset failed: {e}")
 
@@ -427,7 +467,10 @@ class PoolManager:
             to_create = min(target - warm_count, 3)
             for _ in range(to_create):
                 try:
-                    await self._create_warm_container()
+                    async with self._create_lock:
+                        if len(self._containers) >= self._max_size:
+                            break
+                        await self._create_warm_container()
                 except Exception as e:
                     logger.error(f"Scale-up failed: {e}")
                     break

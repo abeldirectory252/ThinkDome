@@ -17,17 +17,21 @@ import json
 import logging
 import tarfile
 import time
+import threading
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Optional, AsyncGenerator
 
 import docker
 import docker.errors
+import requests
 
 from thinkdome.sandbox.executors.base import BaseExecutor, ExecRequest, ExecResult
 from thinkdome.core.config import Settings
 from thinkdome.core.error_codes import SandboxErrorCodes
 from thinkdome.sandbox.executors.host.bubblewrap import _is_env_var_sensitive, _BLOCKED_INTERPRETER_ENV_KEYS
+from thinkdome.sandbox.executors.docker.container_policy import DockerContainerPolicy, DockerExecutionPolicy
+from thinkdome.sandbox.network.docker_policy import DockerSandboxPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -91,12 +95,6 @@ from thinkdome.core.config import get_workspace_root
 # Seccomp profile path (relative to project root)
 SECCOMP_PROFILE_PATH = get_workspace_root() / "security" / "seccomp.json"
 
-# Egress proxy network name (created in docker-compose or manually)
-PROXY_NETWORK_NAME = "thinkbox-egress"
-PROXY_HOST = "thinkbox-proxy"
-PROXY_PORT = 3128
-
-
 def _is_netns_mount_error(error: BaseException) -> bool:
     """Return whether Docker failed before the container could start.
 
@@ -128,6 +126,17 @@ def _docker_error_code(error: BaseException) -> str:
     return SandboxErrorCodes.EXECUTION_FAILED
 
 
+def _is_wait_timeout(error: BaseException) -> bool:
+    """Return whether Docker's wait failure represents the requested timeout.
+
+    Docker SDK timeout failures are transport-specific (typically
+    ``ReadTimeout``), while API errors indicate a daemon/runtime failure and
+    must propagate to the normal Docker error path instead of being reported
+    as a user-code timeout.
+    """
+    return isinstance(error, (TimeoutError, requests.exceptions.Timeout))
+
+
 class PythonDockerExecutor(BaseExecutor):
     """Execute Python code in isolated Docker containers with 6-layer security."""
 
@@ -135,6 +144,8 @@ class PythonDockerExecutor(BaseExecutor):
         self.settings = settings
         self.image = settings.EXECUTOR_IMAGE
         self.client: Optional[docker.DockerClient] = None
+        self._network_policy: Optional[DockerSandboxPolicy] = None
+        self._execution_slots = asyncio.Semaphore(settings.DOCKER_MAX_CONCURRENT_EXECUTIONS)
         self._seccomp_profile: Optional[str] = None
         self.pool_manager = None
 
@@ -197,32 +208,88 @@ class PythonDockerExecutor(BaseExecutor):
         else:
             logger.warning(f"⚠️  Seccomp profile not found at {SECCOMP_PROFILE_PATH} — using Docker default")
 
-    def _has_network(self, network_name: str) -> bool:
-        """Check if a specific Docker network exists on the daemon."""
+    NETWORK_AUTHORIZED_ROLES = DockerExecutionPolicy.NETWORK_AUTHORIZED_ROLES
+    RESOURCE_CUSTOMIZATION_ROLES = DockerExecutionPolicy.RESOURCE_CUSTOMIZATION_ROLES
+
+    def _validate_request(self, request: ExecRequest, role: str) -> None:
+        """Validate dataclass input before it can influence Docker config."""
+        if not isinstance(request.code, str):
+            raise ValueError("Execution code must be a string")
+        max_code = int(getattr(self.settings, "MAX_EXECUTION_CODE_BYTES", 1_048_576))
+        if len(request.code.encode("utf-8")) > max_code:
+            raise ValueError(f"Execution code exceeds the {max_code}-byte limit")
+        if type(request.timeout_ms) is not int or request.timeout_ms < 1:
+            raise ValueError("Execution timeout must be a positive integer in milliseconds")
+        if type(request.max_output_bytes) is not int or request.max_output_bytes < 0:
+            raise ValueError("Maximum output size must be a non-negative integer")
+        if role not in self.RESOURCE_CUSTOMIZATION_ROLES:
+            return
+        if request.cpu_cores is not None and (
+            isinstance(request.cpu_cores, bool)
+            or not isinstance(request.cpu_cores, (int, float))
+            or not 0.1 <= float(request.cpu_cores) <= 64
+        ):
+            raise ValueError("CPU allocation must be between 0.1 and 64 cores")
+        if request.memory_limit_mb is not None and (
+            type(request.memory_limit_mb) is not int
+            or not 16 <= request.memory_limit_mb <= 65_536
+        ):
+            raise ValueError("Memory allocation must be between 16 and 65536 MiB")
+
+    def _network_config(
+        self,
+        request: ExecRequest,
+        role: str,
+        environment: dict[str, str],
+    ) -> tuple[str, dict[str, str]]:
+        """Resolve network mode and environment through the egress policy."""
+        if not request.allow_network:
+            logger.info("🔒 Network disabled (profile=%s)", role)
+            return "none", environment
+        if role not in self.NETWORK_AUTHORIZED_ROLES:
+            logger.warning("Network request denied for restricted role '%s'", role)
+            return "none", environment
+        policy = self._get_network_policy()
+        attachment = policy.attachment(True)
+        logger.info("🌐 Network access granted for %s token via egress proxy network", role)
+        return attachment.mode, policy.enforce_environment(environment, attachment.mode)
+
+    def _get_network_policy(self) -> DockerSandboxPolicy:
+        """Return the policy bound to the current Docker client."""
         if not self.client:
-            return False
-        try:
-            networks = self.client.networks.list(names=[network_name])
-            return len(networks) > 0
-        except Exception:
-            return False
+            raise RuntimeError("Docker client is required to validate network isolation")
+        if self._network_policy is None or self._network_policy.client is not self.client:
+            self._network_policy = DockerSandboxPolicy(self.client)
+        return self._network_policy
+
+    def _resource_limits(self, request: ExecRequest, profile: dict, role: str) -> dict[str, object]:
+        """Resolve bounded cgroup settings for the caller role."""
+        customizable = role in self.RESOURCE_CUSTOMIZATION_ROLES
+        custom_memory = customizable and request.memory_limit_mb is not None
+        memory = f"{request.memory_limit_mb}m" if custom_memory else profile["memory"]
+        cpu = request.cpu_cores if customizable and request.cpu_cores is not None else profile["cpu_quota"]
+        return {
+            "nano_cpus": int(cpu * 1e9),
+            "mem_limit": memory,
+            "memswap_limit": memory if custom_memory else profile["memory_swap"],
+            "pids_limit": profile["pids_limit"],
+        }
+
+    @staticmethod
+    def _execution_command(request: ExecRequest) -> list[str]:
+        """Resolve the interpreter without embedding shell policy in assembly."""
+        lang = (request.language or "python").lower()
+        is_shell = lang in {"bash", "sh", "shell"} or request.code.strip().startswith("#!")
+        return ["/bin/bash", "-c", request.code] if is_shell else ["python3", "-u", "-c", request.code]
 
     def _build_container_config(self, request: ExecRequest) -> dict:
         """Build the full container creation config with all 6 security layers."""
         role = (request.caller_role or "LLM").upper()
         profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
-        can_customize_resources = role in {"ADMIN", "ORCH", "IDE"}
+        self._validate_request(request, role)
 
         # ── Layer 4: Resource Limits (cgroups v2) ──────────────────────────────────
-        cpu_quota = request.cpu_cores if can_customize_resources and request.cpu_cores is not None else profile["cpu_quota"]
-        nano_cpus = int(cpu_quota * 1e9)
-        if can_customize_resources and request.memory_limit_mb is not None:
-            mem_limit = f"{request.memory_limit_mb}m"
-            mem_swap = f"{request.memory_limit_mb}m"
-        else:
-            mem_limit = profile["memory"]
-            mem_swap = profile["memory_swap"]
-        pids_limit = profile["pids_limit"]
+        resource_limits = self._resource_limits(request, profile, role)
 
         # Enforce timeout ceiling per role
         timeout_max = profile["timeout_max_ms"]
@@ -232,40 +299,16 @@ class PythonDockerExecutor(BaseExecutor):
             )
 
         # ── Layer 6: Network Egress Control ──────────────────────────────────────
-        network_mode = "none"
-        environment = {
-            key: value for key, value in (request.env_vars or {}).items()
-            if key.upper() not in _BLOCKED_INTERPRETER_ENV_KEYS
-            and not _is_env_var_sensitive(key)
-        }
+        environment = DockerExecutionPolicy.sanitize_environment(request.env_vars)
 
-        if request.allow_network and role in ("ADMIN", "ORCH", "IDE", "WEB", "SDK", "CURL"):
-            # Network access allowed for authenticated roles — route through egress proxy network
-            network_mode = PROXY_NETWORK_NAME
-            environment["HTTP_PROXY"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
-            environment["HTTPS_PROXY"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
-            environment["NO_PROXY"] = "localhost,127.0.0.1"
-            logger.info(f"🌐 Network access granted for {role} token via egress proxy network")
-        elif request.allow_network and role == "LLM":
-            # Restricted untrusted LLM tokens are NEVER allowed network access regardless of request
-            logger.warning(
-                "Network request denied: caller role '%s' is restricted to "
-                "isolated execution (network_mode=none). Use an authorized "
-                "ORCH, IDE, WEB, SDK, CURL, or ADMIN role for proxied egress.",
-                role,
-            )
-            network_mode = "none"
-        else:
-            logger.info(f"🔒 Network disabled (profile={role}, allow_network={request.allow_network})")
+        network_mode, environment = self._network_config(request, role, environment)
 
         
         # ── Layer 5: Capability Dropping ──────────────────────────────────────────
+        # Egress access does not require privileged port binding. Keep the
+        # capability set empty for every network mode.
         cap_drop = ["ALL"]
         cap_add = []
-
-        # Only add NET_BIND_SERVICE if network is actually enabled
-        if network_mode != "none":
-            cap_add.append("NET_BIND_SERVICE")
 
         # ── Layer 3: Seccomp Profile ──────────────────────────────────────────────
         security_opt = ["no-new-privileges:true"]
@@ -274,25 +317,23 @@ class PythonDockerExecutor(BaseExecutor):
 
         # ── Layer 2: Filesystem Isolation ──────────────────────────────────────────
         # Read-only rootfs + tmpfs for /tmp (64MB, noexec)
+        tmpfs_size = DockerContainerPolicy._bounded_size(
+            self.settings, "SANDBOX_TMPFS_SIZE_MB", 64, 4096
+        )
         tmpfs_config = {
-            "/tmp":       "size=67108864,noexec,nosuid,nodev,mode=1777",    # 64MB
+            "/tmp": f"size={tmpfs_size}m,noexec,nosuid,nodev,mode=1777",
         }
         # A caller identity must never select a host bind mount.  In
         # particular, a writable per-user directory on the Docker host would
         # give untrusted code a durable host filesystem capability.  Durable
         # workspaces belong to the volume service and will be attached by the
         # node orchestrator, not by this local Docker compatibility backend.
-        tmpfs_config["/workspace"] = "size=67108864,noexec,nosuid,nodev,mode=1777"
-        volumes = None
-        if "PATH" not in environment:
-            environment["PATH"] = "/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+        tmpfs_config["/workspace"] = f"size={tmpfs_size}m,noexec,nosuid,nodev,mode=1777"
+        # Never allow request input to alter executable resolution.
+        environment["PATH"] = DockerExecutionPolicy.SAFE_PATH
 
         # ── Language Command Resolution ────────────────────────────────────────────
-        lang = (request.language or "python").lower()
-        if lang in ("bash", "sh", "shell") or request.code.strip().startswith("#!"):
-            exec_command = ["/bin/bash", "-c", request.code]
-        else:
-            exec_command = ["python3", "-u", "-c", request.code]
+        exec_command = self._execution_command(request)
 
         # ── Layer 1: OS-Level Virtualization ──────────────────────────────────────
         config = {
@@ -304,17 +345,18 @@ class PythonDockerExecutor(BaseExecutor):
             # Layer 1: Ephemeral, non-root user
             "user":         "1000:1000",
             "detach":       True,
+            "privileged":   False,
+            "init":         True,
+            "ipc_mode":     "private",
+            "shm_size":     DockerContainerPolicy.shm_size(self.settings),
+            "ulimits":      DockerContainerPolicy.nofile_ulimit(self.settings),
 
             # Layer 2: Filesystem isolation
             "read_only":    True,
             "tmpfs":        tmpfs_config,
-            "volumes":      volumes,
 
             # Layer 4: Resource limits
-            "nano_cpus":    nano_cpus,
-            "mem_limit":    mem_limit,
-            "memswap_limit": mem_swap,
-            "pids_limit":   pids_limit,
+            **resource_limits,
 
             # Layer 5: Capability dropping
             "cap_drop":     cap_drop,
@@ -332,15 +374,9 @@ class PythonDockerExecutor(BaseExecutor):
         }
 
         # Secure OCI runtime (e.g., 'runsc' for gVisor, 'kata-runtime' for Kata)
-        if getattr(self.settings, "SECURE_RUNTIME_TYPE", ""):
-            secure_type = str(self.settings.SECURE_RUNTIME_TYPE).lower()
-            expected_runtime = {"gvisor": "runsc", "kata": "kata-runtime"}.get(secure_type)
-            configured_runtime = getattr(self.settings, "DOCKER_RUNTIME", "runsc")
-            if expected_runtime is None or configured_runtime != expected_runtime:
-                raise RuntimeError(
-                    f"Secure runtime configuration mismatch: {secure_type} requires {expected_runtime}"
-                )
-            config["runtime"] = configured_runtime
+        runtime = DockerContainerPolicy.runtime(self.settings)
+        if runtime:
+            config["runtime"] = runtime
 
         # Remove None values to avoid Docker API errors
         config = {k: v for k, v in config.items() if v is not None}
@@ -351,11 +387,19 @@ class PythonDockerExecutor(BaseExecutor):
 
     async def execute(self, request: ExecRequest) -> ExecResult:
         """Run code in an ephemeral Docker container with 6-layer security, using pool if enabled."""
-        if self.pool_manager and self.settings.POOL_ENABLED:
+        # Warm containers are permanently attached to network_mode=none. Never
+        # reuse one for a network-enabled request: injecting proxy variables
+        # cannot add a network namespace and would produce a misleading partial
+        # execution path. Cold-start the correctly attached container instead.
+        if self.pool_manager and self.settings.POOL_ENABLED and not request.allow_network:
             return await self._execute_pooled(request)
-        
+        return await self._execute_cold(request)
+
+    async def _execute_cold(self, request: ExecRequest) -> ExecResult:
+        """Run a cold container under the global execution admission limit."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._execute_sync, request)
+        async with self._execution_slots:
+            return await loop.run_in_executor(None, self._execute_sync, request)
 
     async def _execute_pooled(self, request: ExecRequest) -> ExecResult:
         """Run code in a pre-warmed pooled container."""
@@ -365,10 +409,10 @@ class PythonDockerExecutor(BaseExecutor):
         pooled = await self.pool_manager.acquire(role=role)
         if not pooled:
             # Fallback to cold start if pool acquisition failed
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self._execute_sync, request)
+            return await self._execute_cold(request)
             
         container_id = pooled.container_id
+        container = None
         
         try:
             loop = asyncio.get_event_loop()
@@ -380,19 +424,10 @@ class PythonDockerExecutor(BaseExecutor):
                 await loop.run_in_executor(None, lambda: container.put_archive("/workspace", tar_stream))
                 
             # Run code via exec_run / exec_create + exec_start
-            cmd = ["python3", "-u", "-c", request.code]
-            exec_env = {
-                key: value for key, value in (request.env_vars or {}).items()
-                if key.upper() not in _BLOCKED_INTERPRETER_ENV_KEYS
-                and not _is_env_var_sensitive(key)
-            }
+            cmd = self._execution_command(request)
+            exec_env = DockerExecutionPolicy.sanitize_environment(request.env_vars)
+            exec_env["PATH"] = DockerExecutionPolicy.SAFE_PATH
             profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
-            
-            # Proxy config for network allowance
-            if request.allow_network and role in ("ADMIN", "ORCH", "IDE"):
-                exec_env["HTTP_PROXY"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
-                exec_env["HTTPS_PROXY"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
-                exec_env["NO_PROXY"] = "localhost,127.0.0.1"
 
             def _run_exec_sync():
                 exec_id = self.client.api.exec_create(
@@ -421,7 +456,7 @@ class PythonDockerExecutor(BaseExecutor):
                     await loop.run_in_executor(None, container.kill)
                 except Exception:
                     pass
-                await self.pool_manager.release(pooled.pool_id, reset=False)
+                await self.pool_manager.release(pooled.pool_id, reset=False, lease_token=pooled.lease_token)
                 return ExecResult(
                     stderr="Process timed out.",
                     exit_code=-1,
@@ -438,7 +473,7 @@ class PythonDockerExecutor(BaseExecutor):
             duration_ms = (time.monotonic() - start) * 1000
             
             # Release back to pool with reset
-            await self.pool_manager.release(pooled.pool_id, reset=True)
+            await self.pool_manager.release(pooled.pool_id, reset=True, lease_token=pooled.lease_token)
             
             return ExecResult(
                 stdout=stdout,
@@ -448,14 +483,31 @@ class PythonDockerExecutor(BaseExecutor):
                 duration_ms=round(duration_ms, 2),
                 output_files=output_files,
             )
+        except asyncio.CancelledError:
+            # Client disconnect/cancellation must not leave a privileged exec
+            # running in a pooled container that can later be handed to a
+            # different sandbox request.
+            try:
+                if container is not None:
+                    await loop.run_in_executor(None, container.kill)
+                    await self.pool_manager.release(pooled.pool_id, reset=False, lease_token=pooled.lease_token)
+            except Exception:
+                logger.exception("Failed to clean up cancelled pooled execution")
+            raise
         except Exception as e:
-            logger.error(f"Pooled execution failed, falling back to cold container: {e}")
+            logger.error("Pooled execution failed; refusing automatic rerun: %s", type(e).__name__)
             # Release and destroy container since it might be in corrupted state
-            await self.pool_manager.release(pooled.pool_id, reset=False)
-            
-            # Fallback to cold start
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self._execute_sync, request)
+            try:
+                await self.pool_manager.release(pooled.pool_id, reset=False, lease_token=pooled.lease_token)
+            except Exception:
+                logger.exception("Failed to destroy contaminated pooled container")
+            return ExecResult(
+                stderr="Sandbox execution failed safely; the execution was not retried.",
+                exit_code=-1,
+                timed_out=False,
+                duration_ms=round((time.monotonic() - start) * 1000, 2),
+                error_code=SandboxErrorCodes.EXECUTION_FAILED,
+            )
 
     def _execute_sync(self, request: ExecRequest) -> ExecResult:
         assert self.client is not None
@@ -516,8 +568,12 @@ class PythonDockerExecutor(BaseExecutor):
                             duration_ms=round(duration_ms, 2),
                         )
 
-            except Exception:
-                # Timeout
+            except Exception as wait_error:
+                if not _is_wait_timeout(wait_error):
+                    raise
+                # Actual wait timeout: terminate the container before
+                # collecting output so code cannot continue after the API
+                # reports a timeout.
                 try:
                     container.kill()
                 except Exception:
@@ -526,11 +582,8 @@ class PythonDockerExecutor(BaseExecutor):
                 timed_out = True
 
             # Collect output
-            stdout_raw = container.logs(stdout=True, stderr=False)
-            stderr_raw = container.logs(stdout=False, stderr=True)
-
-            stdout = stdout_raw.decode("utf-8", errors="replace")[: request.max_output_bytes]
-            stderr = stderr_raw.decode("utf-8", errors="replace")[: request.max_output_bytes]
+            stdout = self._read_container_logs(container, stdout=True, limit=request.max_output_bytes)
+            stderr = self._read_container_logs(container, stderr=True, limit=request.max_output_bytes)
 
             # /workspace is always an isolated tmpfs. Extract generated files
             # through Docker's archive API rather than exposing a host bind.
@@ -589,6 +642,20 @@ class PythonDockerExecutor(BaseExecutor):
                     pass
 
     # â”€â”€ File Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    @staticmethod
+    def _read_container_logs(container, *, stdout: bool = False, stderr: bool = False, limit: int) -> str:
+        """Read container logs with a strict memory bound."""
+        remaining = max(0, int(limit))
+        chunks: list[bytes] = []
+        for chunk in container.logs(stdout=stdout, stderr=stderr, stream=True, follow=False):
+            if remaining <= 0:
+                break
+            data = chunk.encode() if isinstance(chunk, str) else bytes(chunk)
+            data = data[:remaining]
+            chunks.append(data)
+            remaining -= len(data)
+        return b"".join(chunks).decode("utf-8", errors="replace")
 
     def _get_user_workspace(self, username: str | None) -> Optional[Path]:
         """Return the persistent workspace directory for a specific user."""
@@ -688,19 +755,20 @@ class PythonDockerExecutor(BaseExecutor):
         start = time.monotonic()
 
         container = None
+        slot_acquired = False
         bg_task = None
         try:
+            await self._execution_slots.acquire()
+            slot_acquired = True
             config = self._build_container_config(request)
             
             loop = asyncio.get_running_loop()
 
-            def _create_and_start():
-                """Create and start a container without weakening its network policy."""
-                c = self.client.containers.create(**config)
-                c.start()
-                return c
+            def _create_container():
+                """Create a stopped container without weakening its policy."""
+                return self.client.containers.create(**config)
 
-            container = await loop.run_in_executor(None, _create_and_start)
+            container = await loop.run_in_executor(None, _create_container)
 
             if request.files:
                 tar_stream = self._create_tar(request.files)
@@ -708,6 +776,11 @@ class PythonDockerExecutor(BaseExecutor):
                     None,
                     lambda: container.put_archive("/workspace", tar_stream)
                 )
+
+            # Uploads must be complete before user code can run. Starting
+            # first creates a TOCTOU race where code observes partial or
+            # missing inputs and may finish before the archive is installed.
+            await loop.run_in_executor(None, container.start)
 
             if request.stdin:
                 def send_stdin():
@@ -717,19 +790,37 @@ class PythonDockerExecutor(BaseExecutor):
                 await loop.run_in_executor(None, send_stdin)
 
             queue = asyncio.Queue()
+            output_limit = max(0, int(request.max_output_bytes))
+            output_bytes = 0
+            output_lock = threading.Lock()
             _DONE = object()
 
             def collect_logs():
+                nonlocal output_bytes
                 try:
                     log_generator = container.logs(
                         stdout=True,
                         stderr=True,
                         stream=True,
-                        follow=True
+                        follow=True,
+                        demux=True,
                     )
                     for chunk in log_generator:
-                        text = chunk.decode("utf-8", errors="replace")
-                        loop.call_soon_threadsafe(queue.put_nowait, ("stdout", text))
+                        # Docker returns (stdout, stderr) when demux=True.
+                        # Keep channels distinct so stderr cannot be mistaken
+                        # for successful program output.
+                        records = chunk if isinstance(chunk, tuple) else (chunk, None)
+                        for channel, payload in zip(("stdout", "stderr"), records):
+                            if not payload:
+                                continue
+                            with output_lock:
+                                remaining = output_limit - output_bytes
+                                if remaining <= 0:
+                                    continue
+                                payload = payload[:remaining]
+                                output_bytes += len(payload)
+                            text = payload.decode("utf-8", errors="replace")
+                            loop.call_soon_threadsafe(queue.put_nowait, (channel, text))
                 except Exception as e:
                     logger.debug(f"Logs streaming ended/interrupted: {e}")
 
@@ -741,7 +832,9 @@ class PythonDockerExecutor(BaseExecutor):
             async def _run_all():
                 try:
                     await wait_container()
-                except Exception:
+                except Exception as wait_error:
+                    if not _is_wait_timeout(wait_error):
+                        raise
                     try:
                         await loop.run_in_executor(None, container.kill)
                     except Exception:
@@ -775,6 +868,8 @@ class PythonDockerExecutor(BaseExecutor):
             logger.error(f"Streaming execution error: {e}", exc_info=True)
             yield "stderr", "Sandbox Execution Error: Unable to launch execution environment."
         finally:
+            if slot_acquired:
+                self._execution_slots.release()
             if bg_task:
                 bg_task.cancel()
             if container:

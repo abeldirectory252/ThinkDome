@@ -91,8 +91,14 @@ class DockerSandboxPolicy:
         """Validate untrusted exec parameters and return the bounded timeout."""
         if user != "1000:1000":
             raise PermissionError("Sandbox execution user is fixed to the unprivileged sandbox identity")
-        if not isinstance(command, list) or not command or any(not isinstance(part, str) for part in command):
-            raise ValueError("Sandbox command must be a non-empty list of strings")
+        if (
+            not isinstance(command, list)
+            or not command
+            or len(command) > 128
+            or any(not isinstance(part, str) or not part or len(part.encode("utf-8")) > 16_384 for part in command)
+            or sum(len(part.encode("utf-8")) for part in command) > 65_536
+        ):
+            raise ValueError("Sandbox command must contain 1-128 non-empty strings within the size limit")
         if not isinstance(timeout_ms, int) or timeout_ms < 1:
             raise ValueError("Sandbox timeout must be a positive integer in milliseconds")
         if max_timeout_ms < 1:

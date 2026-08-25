@@ -163,6 +163,11 @@ class Settings(BaseSettings):
     MAX_EXEC_TIMEOUT_MS: int = 10000
     CPU_TIME_LIMIT_SEC: int = 5
     MEMORY_LIMIT_MB: int = 128
+    SHM_SIZE_MB: int = Field(default=64, ge=16, le=1024)
+    SANDBOX_TMPFS_SIZE_MB: int = Field(default=64, ge=16, le=4096)
+    DOCKER_MAX_CONCURRENT_EXECUTIONS: int = Field(default=64, ge=1, le=4096)
+    SANDBOX_NOFILE_LIMIT: int = Field(default=1024, ge=64, le=65536)
+    MAX_EXECUTION_CODE_BYTES: int = Field(default=1_048_576, ge=1024, le=16_777_216)
     MAX_OUTPUT_BYTES: int = 1_048_576  # 1 MB
     MCP_MAX_MESSAGE_BYTES: int = Field(default=1_048_576, ge=16_384, le=16_777_216)
     REQUEST_LOG_MAX_PAYLOAD_BYTES: int = Field(default=262_144, ge=16_384, le=16_777_216)
