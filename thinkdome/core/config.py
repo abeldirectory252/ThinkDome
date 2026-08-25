@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEPLOYMENT_ENV: str = "development"  # development | test | staging | production
     AUTO_MIGRATE: bool = True
+    MIGRATION_BACKUP_RETENTION: int = Field(default=10, ge=1, le=100)
     NODE_ID: str = ""
     NODE_REGION: str = "default"
     NODE_AGENT_HOST: str = "127.0.0.1"

@@ -104,6 +104,14 @@ class MigrationRunner:
         self.kernel.db.execute(text("PRAGMA wal_checkpoint(FULL)"))
         self.kernel.db.commit()
         shutil.copy2(source, target)
+        try:
+            retention = int(os.environ.get("THINKDOME_MIGRATION_BACKUP_RETENTION", "10"))
+        except ValueError:
+            retention = 10
+        retention = max(1, min(retention, 100))
+        backups = sorted(backup_dir.glob(f"{source.stem}_*.db"), key=lambda item: item.stat().st_mtime, reverse=True)
+        for expired in backups[retention:]:
+            expired.unlink()
         return target
 
     def make_migration(self, app_name: str, name: str) -> Path:
