@@ -7,6 +7,35 @@
 const API_BASE = "";
 let refreshRequest = null;
 
+function showServerErrorPopup() {
+    const id = "thinkdome-server-error-popup";
+    let popup = document.getElementById(id);
+    if (!popup) {
+        popup = document.createElement("div");
+        popup.id = id;
+        popup.setAttribute("role", "alertdialog");
+        popup.setAttribute("aria-modal", "true");
+        popup.setAttribute("aria-labelledby", `${id}-title`);
+        popup.setAttribute("aria-describedby", `${id}-message`);
+        popup.innerHTML = `
+            <div style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(8,12,20,.62);padding:20px">
+              <div style="max-width:420px;width:100%;border:1px solid #ef4444;border-radius:12px;background:var(--surface,#111827);color:var(--fg,#f9fafb);padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center">
+                <h2 id="${id}-title" style="margin:0 0 10px;font-size:18px">Server error</h2>
+                <p id="${id}-message" style="margin:0 0 20px;line-height:1.5;color:var(--fg-muted,#cbd5e1)">The server could not complete your request. Please contact the administrator.</p>
+                <button type="button" data-close-server-error style="border:0;border-radius:8px;padding:9px 18px;background:#ef4444;color:white;cursor:pointer">Close</button>
+              </div>
+            </div>`;
+        popup.addEventListener("click", (event) => {
+            const target = event.target;
+            if (target === popup || (target instanceof Element && target.closest("[data-close-server-error]"))) {
+                popup.remove();
+            }
+        });
+        document.body.appendChild(popup);
+        popup.querySelector("[data-close-server-error]")?.focus();
+    }
+}
+
 async function refreshAccessToken() {
     // Keep the refresh token in its HTTP-only cookie; this avoids persisting
     // long-lived credentials in localStorage. Share a pending refresh so a
@@ -73,9 +102,14 @@ async function apiFetch(endpoint, options = {}, token = "", sandboxId = "", retr
             return { data: null, error: "UNAUTHORIZED" };
         }
 
-        const data = await response.json();
+        let data = {};
+        try { data = await response.json(); } catch (_) { data = {}; }
 
         if (!response.ok) {
+            if (response.status >= 500) {
+                showServerErrorPopup();
+                return { data: null, error: "SERVER_ERROR" };
+            }
             let errorMsg = "Request failed.";
             if (typeof data.detail === "string") {
                 errorMsg = data.detail;
@@ -95,6 +129,7 @@ async function apiFetch(endpoint, options = {}, token = "", sandboxId = "", retr
 
         return { data, error: null };
     } catch (err) {
+        showServerErrorPopup();
         return { data: null, error: err.message || "Network error" };
     }
 }
