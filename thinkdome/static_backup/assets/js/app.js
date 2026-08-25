@@ -279,7 +279,7 @@ async function checkInfrastructureHealth() {
 
 function syncOrmSchema() {
     const engine = document.getElementById('settingsDbEngine')?.value || "sqlite";
-    const dbUrl = document.getElementById('settingsDbUrl')?.value || "sqlite:///sites/think.local/db.sqlite";
+    const dbUrl = document.getElementById('settingsDbUrl')?.value || "sqlite:///sites/think.local/storage/thinkbox.db";
     const message = `[ORM SCHEMA SYNC SUCCESSFUL]\n• Engine: ${engine.toUpperCase()}\n• Connection URL: ${dbUrl}\n• Mapped Models: 10 (Sandbox, Organization, Project, ExecutionNode, Snapshot, SystemSetting, User, Role, Permission, FileBox)\n• Base.metadata table structures verified.`;
     
     if (typeof showCustomAlert === 'function') {
@@ -744,4 +744,3 @@ function setChartRange(btn, range) {
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(initLiveDashboardChart, 300);
 });
-

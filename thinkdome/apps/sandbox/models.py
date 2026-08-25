@@ -116,7 +116,7 @@ class SystemSetting(Model):
     value = StringField(default="")
     category = StringField(default="general")
     db_engine = StringField(default="sqlite")
-    db_connection_url = StringField(default="sqlite:///sites/think.local/db.sqlite")
+    db_connection_url = StringField(default="sqlite:///sites/think.local/storage/thinkbox.db")
     db_max_connections = IntegerField(default=20)
     db_pool_size = IntegerField(default=5)
     db_echo_sql = BooleanField(default=False)

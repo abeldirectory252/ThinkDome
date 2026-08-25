@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from thinkdome.core.config import get_workspace_root
+from thinkdome.core.config import get_workspace_root, get_site_database_url
 from thinkdome.core.kernel.kernel import Kernel
 from thinkdome.core.orm.orm import Model
 from thinkdome.security.rbac.models import User, Role, UserRole, UserProfile
@@ -44,7 +44,10 @@ def _site_dir(site_name: str) -> Path:
 
 
 def _db_path(site_name: str) -> Path:
-    return _site_dir(site_name) / "db.sqlite"
+    database_url = get_site_database_url(site_name)
+    if not database_url.startswith("sqlite:///"):
+        raise RuntimeError("Site backup currently requires a SQLite database URL")
+    return Path(database_url[10:])
 
 
 def _now_iso() -> str:
