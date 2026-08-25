@@ -501,6 +501,7 @@ def handle_migration_status(site_name: str) -> None:
 def handle_run(code: Optional[str], file: Optional[str], timeout: int, backend: str) -> None:
     """Execute code in a sandbox."""
     from thinkdome import Sandbox
+    from thinkdome.core.error_codes import present_sandbox_error
 
     if file:
         with open(file, "r", encoding="utf-8") as f:
@@ -514,38 +515,14 @@ def handle_run(code: Optional[str], file: Optional[str], timeout: int, backend: 
         with Sandbox(timeout=timeout, backend=backend) as dome:
             result = dome.run(code)
     except Exception as exc:
-        print(_friendly_sandbox_error(exc), file=sys.stderr)
+        print(present_sandbox_error(exc), file=sys.stderr)
         sys.exit(1)
 
     if result.output:
         print(result.output, end="")
     if result.error:
-        print(_friendly_sandbox_error(result.error), file=sys.stderr)
+        print(present_sandbox_error(result.error, result.error_code), file=sys.stderr)
     sys.exit(result.exit_code)
-
-
-def _friendly_sandbox_error(error: object) -> str:
-    """Convert runtime diagnostics into actionable CLI output without noise."""
-    message = str(error).strip()
-    lowered = message.lower()
-    if "setpgid failed" in lowered or "operation not permitted" in lowered:
-        return (
-            "Sandbox startup failed: Docker denied the container process-group setup. "
-            "Check the Docker runtime permissions and security profile, then retry."
-        )
-    if "permission denied" in lowered and "docker" in lowered:
-        return (
-            "Sandbox startup failed: the current user cannot access Docker. "
-            "Verify Docker is running and that this user has Docker access."
-        )
-    if "no such image" in lowered or "image not found" in lowered:
-        return (
-            "Sandbox startup failed: the configured Docker image is unavailable. "
-            "Build or pull the image and retry."
-        )
-    if not message:
-        return "Sandbox execution failed. Please check the runtime configuration and retry."
-    return f"Sandbox execution failed: {message}"
 
 
 def handle_serve(host: str, port: int, reload: bool) -> None:

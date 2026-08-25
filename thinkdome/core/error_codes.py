@@ -37,6 +37,8 @@ class SandboxErrorCodes:
     EXECUTION_FAILED = "EXECUTION::FAILED"
     INVALID_LANGUAGE = "EXECUTION::INVALID_LANGUAGE"
     DOCKER_NETNS_SETUP_FAILED = "EXECUTION::DOCKER_NETNS_SETUP_FAILED"
+    DOCKER_RUNTIME_PERMISSION = "EXECUTION::DOCKER_RUNTIME_PERMISSION"
+    DOCKER_IMAGE_UNAVAILABLE = "EXECUTION::DOCKER_IMAGE_UNAVAILABLE"
 
     # Metadata
     INVALID_METADATA_LABEL = "METADATA::INVALID_LABEL"
@@ -92,3 +94,42 @@ def normalize_error_detail(detail) -> dict:
         return {"code": code, "message": message}
     message = str(detail) if detail else DEFAULT_ERROR_MESSAGE
     return {"code": DEFAULT_ERROR_CODE, "message": message}
+
+
+_CLI_ERROR_MESSAGES = {
+    SandboxErrorCodes.DOCKER_NETNS_SETUP_FAILED: (
+        "Sandbox startup failed: Docker could not configure the isolated network. "
+        "Check the Docker network runtime and retry."
+    ),
+    SandboxErrorCodes.DOCKER_RUNTIME_PERMISSION: (
+        "Sandbox startup failed: Docker denied the container process-group setup. "
+        "Check the Docker runtime permissions and security profile, then retry."
+    ),
+    SandboxErrorCodes.DOCKER_IMAGE_UNAVAILABLE: (
+        "Sandbox startup failed: the configured Docker image is unavailable. "
+        "Build or pull the image and retry."
+    ),
+}
+
+
+def present_sandbox_error(error: object, error_code: str | None = None) -> str:
+    """Return stable, actionable user-facing text for sandbox diagnostics.
+
+    Runtime details remain available to logs; CLI/API surfaces receive a
+    predictable message that does not expose noisy engine internals.
+    """
+    detail = str(error or "").strip()
+    lowered = detail.lower()
+    code = error_code
+    if not code:
+        if "setpgid failed" in lowered or "operation not permitted" in lowered:
+            code = SandboxErrorCodes.DOCKER_RUNTIME_PERMISSION
+        elif "no such image" in lowered or "image not found" in lowered:
+            code = SandboxErrorCodes.DOCKER_IMAGE_UNAVAILABLE
+        elif "network" in lowered and ("docker" in lowered or "netns" in lowered):
+            code = SandboxErrorCodes.DOCKER_NETNS_SETUP_FAILED
+    if code in _CLI_ERROR_MESSAGES:
+        return _CLI_ERROR_MESSAGES[code]
+    if not detail:
+        return "Sandbox execution failed. Please check the runtime configuration and retry."
+    return f"Sandbox execution failed: {detail}"
