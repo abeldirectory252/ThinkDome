@@ -6,6 +6,19 @@
 
 const API_BASE = "";
 let refreshRequest = null;
+let sessionInvalidated = false;
+
+function invalidateClientSession() {
+    if (sessionInvalidated) return;
+    sessionInvalidated = true;
+    localStorage.removeItem("thinkdome_token");
+    localStorage.removeItem("thinkdome_logged_in");
+    localStorage.removeItem("thinkdome_username");
+    localStorage.removeItem("thinkdome_user_role");
+    if (typeof window !== "undefined" && !window.location.pathname.endsWith("login.html")) {
+        window.location.assign("/login.html?reason=session-expired");
+    }
+}
 
 function showServerErrorPopup() {
     const id = "thinkdome-server-error-popup";
@@ -140,6 +153,9 @@ async function refreshAccessToken() {
  * @returns {Promise<{ data: any, error: string|null }>}
  */
 async function apiFetch(endpoint, options = {}, token = "", sandboxId = "", retryAfterRefresh = true) {
+    if (sessionInvalidated && !endpoint.startsWith("/v1/auth/")) {
+        return { data: null, error: "Your session has expired. Please sign in again." };
+    }
     const headers = {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -168,6 +184,7 @@ async function apiFetch(endpoint, options = {}, token = "", sandboxId = "", retr
                     return apiFetch(endpoint, options, refreshedToken, sandboxId, false);
                 }
             }
+            if (!isAuthenticationEndpoint) invalidateClientSession();
             const error = isAuthenticationEndpoint && endpoint.endsWith("/login")
                 ? "The username or password is incorrect. Please check your credentials and try again."
                 : "Your session has expired or you are not authorized for this action. Please sign in again.";
