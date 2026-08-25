@@ -141,7 +141,7 @@ async function fetchDashboardData() {
         // Process Sandboxes
         if (sandboxesRes.data) {
             const fetchedSbx = {};
-            sandboxesRes.data.forEach(sb => {
+            sandboxesRes.data.filter(sb => canViewSandbox(sb)).forEach(sb => {
                 const ramVal = sb.memory_mb >= 1024 ? `${(sb.memory_mb/1024).toFixed(0)} GB` : `${sb.memory_mb} MB`;
                 fetchedSbx[sb.name] = {
                     id: sb.sandbox_id,

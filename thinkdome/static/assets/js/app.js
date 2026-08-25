@@ -24,6 +24,15 @@ function updateSidebarSandboxCount() {
 }
 window.updateSidebarSandboxCount = updateSidebarSandboxCount;
 
+function canViewSandbox(sandbox) {
+    const role = (localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD').toUpperCase();
+    if (role.includes('ADMIN')) return true;
+    const username = (localStorage.getItem('thinkdome_username') || '').trim().toLowerCase();
+    const owner = String(sandbox?.owner || '').trim().toLowerCase();
+    return Boolean(username && owner && owner === username);
+}
+window.canViewSandbox = canViewSandbox;
+
 function navTo(pageId) {
     const stateRole = localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD';
     const allowedPages = allowedPagesForRole(stateRole);

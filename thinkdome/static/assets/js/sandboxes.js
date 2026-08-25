@@ -61,7 +61,7 @@ async function fetchSandboxesData() {
 
         if (data) {
             const fetchedSbx = {};
-            data.forEach(sb => {
+            data.filter(sb => canViewSandbox(sb)).forEach(sb => {
                 const ramVal = sb.memory_mb >= 1024 ? `${(sb.memory_mb/1024).toFixed(0)} GB` : `${sb.memory_mb} MB`;
                 const displayStatus = (sb.status === 'active' || sb.status === 'running') ? 'running' : 'stopped';
                 fetchedSbx[sb.name] = {
