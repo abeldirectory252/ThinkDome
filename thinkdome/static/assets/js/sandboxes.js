@@ -53,6 +53,8 @@ function validateSandboxMemorySelection() {
     const hint = document.getElementById('sbxHostMemoryHint');
     const selected = selectedSandboxMemoryMb();
     const exceeds = Number.isFinite(selected) && sandboxHostAdmissibleMb !== null && selected > sandboxHostAdmissibleMb;
+    const submit = document.getElementById('sbxProvisionSubmit');
+    if (submit) submit.disabled = exceeds;
     if (hint && sandboxHostAdmissibleMb !== null) {
         hint.textContent = exceeds
             ? `Selected RAM exceeds current host capacity (${Math.floor(sandboxHostAdmissibleMb / 1024)} GB admissible). Choose a smaller value.`
@@ -664,6 +666,9 @@ function registerNewSandboxNode() {
     if (alertEl) { alertEl.hidden = true; alertEl.textContent = ''; }
     
     if (modal) {
+        sandboxHostAdmissibleMb = null;
+        const provisionSubmit = document.getElementById('sbxProvisionSubmit');
+        if (provisionSubmit) provisionSubmit.disabled = true;
         const token = localStorage.getItem('thinkdome_token');
         if (window.API?.getSandboxCapacity && token) {
             window.API.getSandboxCapacity(token).then(({data}) => {
@@ -674,7 +679,13 @@ function registerNewSandboxNode() {
                     hint.textContent = `Host capacity: approximately ${available} GB is currently admissible; larger requests will be rejected.`;
                     validateSandboxMemorySelection();
                 }
-            }).catch(() => {});
+            }).catch(() => {
+                // Capacity is advisory; the server still performs the final
+                // admission check when Redis/telemetry is temporarily down.
+                if (provisionSubmit) provisionSubmit.disabled = false;
+            });
+        } else if (provisionSubmit) {
+            provisionSubmit.disabled = false;
         }
         const randomId = Math.floor(10 + Math.random() * 90);
         if (document.getElementById('sbxNameInput')) document.getElementById('sbxNameInput').value = `custom-node-${randomId}`;
