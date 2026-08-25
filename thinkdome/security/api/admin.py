@@ -427,6 +427,35 @@ def _validate_host_memory_for_sandbox(memory_mb: int) -> None:
             ),
         )
 
+
+def _serialize_sandbox(row: dict) -> dict:
+    """Expose the stable sandbox API schema from the ORM field names.
+
+    The ORM stores resource limits as ``*_limit`` fields, while the public API
+    has historically used ``memory_mb`` and ``cpu_cores``.  Keeping this
+    translation in one boundary prevents the UI and API clients from seeing
+    implementation-specific column names.
+    """
+    result = dict(row)
+    result["sandbox_id"] = result.get("sandbox_id") or result.get("id")
+    result["memory_mb"] = result.get("memory_mb", result.get("memory_limit", 256))
+    result["cpu_cores"] = result.get("cpu_cores", result.get("cpu_limit", 1.0))
+    result["gpu_count"] = result.get("gpu_count", result.get("gpu_limit", 0))
+    result["storage_quota_mb"] = result.get(
+        "storage_quota_mb", result.get("storage_limit", 10240)
+    )
+    status = str(result.get("status", "Created"))
+    result["status"] = {
+        "created": "active",
+        "provisioning": "active",
+        "running": "active",
+        "active": "active",
+        "paused": "stopped",
+        "stopped": "stopped",
+        "destroyed": "stopped",
+    }.get(status.lower(), status.lower())
+    return result
+
 @router.get(
     "/sandboxes",
     deprecated=True,
@@ -445,6 +474,7 @@ async def list_sandboxes(
         return cached
     rows = auth_svc.db_service.list_sandboxes(owner=owner)
     now = time.time()
+    rows = [_serialize_sandbox(row) for row in rows]
     for row in rows:
         expires_at = float(row.get("expires_at") or 0)
         expired = bool(expires_at and now >= expires_at)
@@ -527,7 +557,7 @@ async def create_sandbox(
     )
     sandbox.save()
     await _invalidate_sandbox_cache()
-    res = sandbox.to_dict()
+    res = _serialize_sandbox(sandbox.to_dict())
     res["sandbox_id"] = sandbox_id
     res["timeout_sec"] = req.timeout_sec
     res["ttl_seconds"] = req.ttl_seconds
@@ -570,7 +600,11 @@ async def toggle_sandbox(
     if user.get("role") != "ADMIN" and sb["owner"] != _principal(user):
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this sandbox.")
         
-    new_status = "stopped" if sb["status"] == "active" else "active"
+    # ORM rows may contain the internal lifecycle values (Created/Running),
+    # while older clients use the public active/stopped vocabulary.
+    running_states = {"active", "created", "provisioning", "running"}
+    current_status = str(sb.get("status", "")).lower()
+    new_status = "stopped" if current_status in running_states else "active"
     auth_svc.db_service.update_sandbox_status(sandbox_id, new_status)
     await _invalidate_sandbox_cache()
     
