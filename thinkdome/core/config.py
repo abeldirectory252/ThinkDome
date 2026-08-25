@@ -1,6 +1,7 @@
 """Application configuration via environment variables."""
 
 import os
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Dict
@@ -22,6 +23,27 @@ def get_workspace_root() -> Path:
             return parent
 
     return Path.cwd().resolve()
+
+
+def get_site_config(site_name: str | None = None) -> dict:
+    """Load one site's authoritative configuration from the framework root."""
+    selected = site_name or os.environ.get("THINKDOME_SITE", "think.local")
+    path = get_workspace_root() / "sites" / selected / "site_config.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"Site configuration not found: {path}")
+    with path.open("r", encoding="utf-8") as config_file:
+        config = json.load(config_file)
+    if not isinstance(config, dict):
+        raise ValueError(f"Site configuration must be an object: {path}")
+    return config
+
+
+def get_site_database_url(site_name: str | None = None) -> str:
+    """Return the database URL selected by the active site's configuration."""
+    database_url = get_site_config(site_name).get("db_url")
+    if not isinstance(database_url, str) or not database_url.strip():
+        raise ValueError("site_config.json must define a non-empty db_url")
+    return database_url.strip()
 
 
 # Load .env values into the environment before Pydantic reads settings.

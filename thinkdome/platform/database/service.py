@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import asyncpg
-from thinkdome.core.config import Settings
+from thinkdome.core.config import Settings, get_site_database_url
 
 logger = logging.getLogger(__name__)
 
@@ -260,14 +260,8 @@ class DatabaseService:
                 db_url = kernel.config.get("db_url", "")
                 if db_url:
                     dsn = db_url
-            elif kernel and kernel.config_path.exists():
-                # Resolve the active site's configured database even before
-                # Kernel initialization; never silently create a second
-                # project-level SQLite database.
-                with kernel.config_path.open("r", encoding="utf-8") as config_file:
-                    configured = json.load(config_file).get("db_url", "")
-                if configured:
-                    dsn = configured
+            elif kernel:
+                dsn = get_site_database_url(kernel.site_name)
         except Exception:
             pass
 
@@ -346,9 +340,8 @@ class DatabaseService:
                 db_url = kernel.config.get("db_url", "")
                 if db_url and db_url.startswith("sqlite:///"):
                     return Path(db_url[10:])
-            if kernel and kernel.config_path.exists():
-                with kernel.config_path.open("r", encoding="utf-8") as config_file:
-                    db_url = json.load(config_file).get("db_url", "")
+            if kernel:
+                db_url = get_site_database_url(kernel.site_name)
                 if db_url.startswith("sqlite:///"):
                     return Path(db_url[10:])
         except Exception:

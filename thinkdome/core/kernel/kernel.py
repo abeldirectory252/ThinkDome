@@ -18,7 +18,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 logger = logging.getLogger(__name__)
 
-from thinkdome.core.config import get_workspace_root
+from thinkdome.core.config import get_workspace_root, get_site_config
 
 WORKSPACE_ROOT = get_workspace_root()
 SITES_DIR = WORKSPACE_ROOT / "sites"
@@ -73,12 +73,7 @@ class Kernel:
 
     def _load_config(self) -> None:
         """Load site_config.json from site directory."""
-        if not self.config_path.exists():
-            raise FileNotFoundError(
-                f"Configuration file not found for site '{self.site_name}' at {self.config_path}"
-            )
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            self.config = json.load(f)
+        self.config = get_site_config(self.site_name)
 
     def _init_database(self) -> None:
         """Build SQLAlchemy connection pool for current site database context."""
