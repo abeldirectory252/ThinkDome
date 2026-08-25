@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import shutil
+import warnings
 from pathlib import Path
 from typing import List, Optional
 
@@ -20,6 +21,16 @@ from thinkdome.core.config import get_workspace_root
 WORKSPACE_ROOT = get_workspace_root()
 SITES_DIR = WORKSPACE_ROOT / "sites"
 APPS_DIR = WORKSPACE_ROOT / "thinkdome" / "apps"
+
+# Paramiko 2.x emits this warning while importing against modern
+# cryptography. The project requires Paramiko 3.4+, but keep the CLI clean
+# when a host-provided legacy Paramiko is discovered before dependencies are
+# reinstalled. This narrowly targets the known deprecated TripleDES message.
+warnings.filterwarnings(
+    "ignore",
+    message=r"TripleDES has been moved to cryptography\.hazmat\.decrepit.*",
+    module=r"paramiko\..*",
+)
 
 
 def main() -> None:

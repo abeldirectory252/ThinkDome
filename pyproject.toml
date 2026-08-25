@@ -40,6 +40,9 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "asyncpg>=0.29.0",
     "cryptography>=42.0.0",
+    # Paramiko <3.4 references cryptography's removed TripleDES namespace.
+    # Keep the SSH dependency compatible with supported cryptography releases.
+    "paramiko>=3.4.0",
 ]
 
 [project.optional-dependencies]
