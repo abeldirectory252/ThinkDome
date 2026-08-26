@@ -13,7 +13,7 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap"
     rel="stylesheet">
 
-  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="stylesheet" href="assets/css/styles.css?v=12">
   <!-- RequireJS for loading Monaco Editor from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
 </head>
@@ -123,6 +123,7 @@
           <span>Think<span class="dome">Dome</span></span>
         </div>
         <span class="sandbox-active" id="activeSbxBanner">prod-runner-01 live</span>
+        <div class="topbar-module-search" id="topbarModuleSearch"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg><input id="moduleSearchInput" type="search" placeholder="Search modules…" autocomplete="off" aria-label="Search modules" /><kbd>⌘ K</kbd><div id="moduleSearchResults" class="module-search-results"></div></div>
       </div>
       <div class="topbar-right">
         <span class="pill" id="activeRolePill">
@@ -260,7 +261,7 @@
 
           <div class="nav-section">
             <div class="nav-group-label">Access Control</div>
-            <button class="nav-item" data-page="users" onclick="navTo('users')">
+            <button class="nav-item" data-page="access-control" onclick="navTo('access-control')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
               </svg>
@@ -273,6 +274,9 @@
               <span>Roles &amp; RBAC</span>
               <span class="badge" style="margin-left:auto;font-size:10px;padding:1px 6px;background:var(--accent-subtle);color:var(--accent);border-radius:10px;">6 Roles</span>
             </button>
+            <button class="nav-item" data-page="role-profiles" onclick="navTo('role-profiles')">
+              <span>Role Profiles</span>
+            </button>
             <button class="nav-item" data-page="members" onclick="navTo('members')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
@@ -280,6 +284,7 @@
               <span>Team Members</span>
             </button>
           </div>
+
 
           <div class="nav-section">
             <div class="nav-group-label">System</div>
@@ -548,30 +553,23 @@
 
         <!-- 3. BILLING & USAGE VIEW -->
         <section class="page hidden" id="page-workspaces">
-          <div class="page-header">
-            <div>
-              <div class="page-eyebrow">Desk</div>
-              <h1>Workspace menu</h1>
-              <p>Choose a workspace and define the grouped navigation it contributes to the sidebar.</p>
-            </div>
-          </div>
-          <div class="card" style="max-width:960px;padding:22px;">
-            <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:18px;">
-              <label style="display:grid;gap:6px;min-width:260px;">Active workspace
+          <div class="workspace-hero"><div><span class="access-eyebrow">DESK BUILDER</span><h1>Workspace studio</h1><p>Shape a focused workspace for each team. Pages and navigation are delivered according to the roles you configure.</p></div><span class="workspace-hero-mark">▦</span></div>
+          <div class="workspace-shell">
+            <div class="workspace-toolbar"><div><span class="workspace-label">Current workspace</span><strong>Choose a workspace to configure</strong></div><div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+              <label class="workspace-select-field">Active workspace
                 <select id="workspaceMenuSelect" onchange="setActiveWorkspaceMenu(this.value);loadWorkspaceMenuEditor()"></select>
               </label>
-              <button class="btn btn-primary" onclick="createWorkspaceForMenu()">New workspace</button>
-            </div>
-            <p style="color:var(--fg-muted);font-size:13px;margin:0 0 14px;">Administrators define pages, their allowed roles, and the sidebar menu. The server supplies each user only the pages they may see.</p>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px;"><h3 style="margin:0;">Pages</h3><button class="btn btn-ghost" onclick="addWorkspacePage()">Add page</button></div>
-            <textarea id="workspacePagesJson" rows="14" spellcheck="false" style="width:100%;box-sizing:border-box;background:var(--surface-raised);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;font-family:var(--font-mono);font-size:12px;"></textarea>
-            <div style="display:flex;justify-content:flex-end;margin-top:10px;"><button class="btn btn-primary" onclick="saveWorkspacePages()">Save pages</button></div>
-            <h3 style="margin:24px 0 8px;">Sidebar menu</h3>
-            <textarea id="workspaceMenuJson" rows="16" spellcheck="false" style="width:100%;box-sizing:border-box;background:var(--surface-raised);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;font-family:var(--font-mono);font-size:12px;"></textarea>
-            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
-              <button class="btn btn-ghost" onclick="loadWorkspaceMenuEditor()">Discard changes</button>
-              <button class="btn btn-primary" onclick="saveWorkspaceMenu()">Save menu</button>
-            </div>
+              <button class="btn btn-primary" onclick="openWorkspaceCreateModal()">New workspace</button>
+            </div></div>
+            <div class="workspace-editor-grid"><section class="workspace-editor-panel"><div class="workspace-panel-head"><div><span class="workspace-panel-icon">P</span><div><h3>Pages</h3><p>Create the destinations your team can access.</p></div></div><button class="btn btn-primary btn-sm" onclick="addWorkspacePage()">+ Add page</button></div>
+              <div id="workspacePagesVisual" class="workspace-page-list"></div>
+              <div id="workspacePagesEmpty" class="workspace-empty"><span class="workspace-empty-icon">✦</span><strong>No pages yet</strong><span>Start with a page for your team.</span><button class="btn btn-ghost btn-sm" onclick="addWorkspacePage()">Create your first page</button></div>
+              <div class="workspace-save-row"><span id="workspacePagesStatus" class="workspace-save-status"></span><button class="btn btn-primary" onclick="saveWorkspacePages()">Save pages</button></div>
+            </section><section class="workspace-editor-panel"><div class="workspace-panel-head"><div><span class="workspace-panel-icon">N</span><div><h3>Navigation</h3><p>Arrange the links shown in the workspace sidebar.</p></div></div><button class="btn btn-primary btn-sm" onclick="addWorkspaceSection()">+ Add section</button></div>
+              <div id="workspaceMenuVisual" class="workspace-menu-list"></div>
+              <div id="workspaceMenuEmpty" class="workspace-empty"><span class="workspace-empty-icon">☷</span><strong>Build your navigation</strong><span>Add a section, then choose which pages belong in it.</span><button class="btn btn-ghost btn-sm" onclick="addWorkspaceSection()">Add your first section</button></div>
+              <div class="workspace-save-row"><span id="workspaceMenuStatus" class="workspace-save-status"></span><button class="btn btn-primary" onclick="saveWorkspaceMenu()">Save navigation</button></div>
+            </section></div>
           </div>
         </section>
 
@@ -948,6 +946,11 @@
         </section>
 
         <!-- ROLES & RBAC MANAGEMENT VIEW -->
+        <section class="page hidden" id="page-role-profiles">
+          <div class="page-head"><div><h2>Role Profiles</h2><p class="subtitle">Reusable bundles of roles for user access.</p></div><button class="btn btn-ghost access-back-btn" onclick="navTo('access-control')"><span>←</span> Back</button></div>
+          <div class="table-card"><table><thead><tr><th>Name</th><th>Description</th><th>Roles</th></tr></thead><tbody id="roleProfilesTableBody"><tr><td colspan="3">Loading role profiles…</td></tr></tbody></table></div>
+        </section>
+
         <section class="page hidden" id="page-roles">
           <div class="page-head">
             <div class="page-title">
@@ -961,7 +964,8 @@
                 <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Manage role hierarchies, fine-grained dynamic permissions, separation-of-duties (SOD) rules, and live user access assignments.</p>
               </div>
             </div>
-            <div style="display:flex;gap:10px;">
+            <div style="display:flex;gap:10px;align-items:center;">
+              <button class="btn btn-ghost access-back-btn" onclick="navTo('access-control')"><span>←</span> Back</button>
               <button class="btn btn-ghost" onclick="openRoleModal()">+ Create Custom Role</button>
               <button class="btn btn-primary" onclick="refreshRbacCache()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
@@ -2564,6 +2568,25 @@
           </div>
         </section>
 
+        <!-- ACCESS CONTROL OVERVIEW -->
+        <section class="page hidden" id="page-access-control">
+          <div class="access-hero">
+            <div class="access-hero-copy"><span class="access-eyebrow">ADMINISTRATION</span><h2>Access control</h2><p>One place to manage who can access your workspace and what they can do.</p></div>
+            <span class="access-hero-orbit" aria-hidden="true">⌘</span>
+          </div>
+          <div class="access-section-label"><span>Directory</span><small>Core identity settings</small></div>
+          <div class="access-hub-grid">
+            <button class="access-hub-card" onclick="navTo('users')"><span class="access-hub-mark access-mark-users">U</span><span class="access-hub-copy"><strong>Users</strong><small>Accounts and assignments</small></span><span class="access-hub-arrow">↗</span></button>
+            <button class="access-hub-card" onclick="navTo('roles')"><span class="access-hub-mark access-mark-roles">R</span><span class="access-hub-copy"><strong>Roles</strong><small>Permissions and hierarchy</small></span><span class="access-hub-arrow">↗</span></button>
+            <button class="access-hub-card" onclick="navTo('role-profiles')"><span class="access-hub-mark access-mark-profiles">P</span><span class="access-hub-copy"><strong>Role Profiles</strong><small>Reusable role bundles</small></span><span class="access-hub-arrow">↗</span></button>
+          </div>
+          <div class="access-section-label"><span>Security activity</span><small>Review and fine-tune access</small></div>
+          <div class="access-hub-columns">
+            <div class="access-hub-group"><div class="access-control-heading">Logs</div><p class="access-group-note">Track changes and sign-in activity.</p><button onclick="navTo('audit')">Activity Log <span>↗</span></button><button onclick="openAccessControlNotice('Access Log')">Access Log <span>↗</span></button></div>
+            <div class="access-hub-group"><div class="access-control-heading">Permissions</div><p class="access-group-note">Define rules for pages, reports, and users.</p><button onclick="navTo('roles')">Role Permission Manager <span>↗</span></button><button onclick="openAccessControlNotice('User Permission')">User Permission <span>↗</span></button><button onclick="openAccessControlNotice('Role Permission for Page and Report')">Page and Report Rules <span>↗</span></button></div>
+          </div>
+        </section>
+
         <!-- USERS PAGE (RBAC Identity Management) -->
         <section class="page hidden" id="page-users">
           <div class="page-head">
@@ -2579,7 +2602,40 @@
                 <p class="subtitle" style="font-size:13.5px;color:var(--fg-muted);margin-top:2px;">Manage user accounts, authentication credentials, and RBAC role assignments across the tenant.</p>
               </div>
             </div>
-            <button class="btn btn-primary" onclick="createUserAccount()">+ Create User Account</button>
+            <div style="display:flex;gap:10px;align-items:center;"><button class="btn btn-ghost access-back-btn" onclick="navTo('access-control')"><span>←</span> Back</button><button class="btn btn-primary" onclick="createUserAccount()">+ Create User Account</button></div>
+          </div>
+          <div class="access-control-section">
+            <div class="access-control-heading">Shortcuts</div>
+            <div class="access-control-grid">
+              <button class="access-control-link" onclick="navTo('users')"><span class="access-control-icon">♙</span><span>User</span></button>
+              <button class="access-control-link" onclick="navTo('roles')"><span class="access-control-icon">◈</span><span>Role</span></button>
+              <button class="access-control-link" onclick="openAccessControlNotice('Permission Manager')"><span class="access-control-icon">⌘</span><span>Permission Manager</span></button>
+              <button class="access-control-link" onclick="openAccessControlNotice('User Profile')"><span class="access-control-icon">◎</span><span>User Profile</span></button>
+              <button class="access-control-link" onclick="openAccessControlNotice('User Type')"><span class="access-control-icon">◇</span><span>User Type</span></button>
+            </div>
+          </div>
+          <div class="access-control-section">
+            <div class="access-control-heading">Master</div>
+            <div class="access-control-grid access-control-grid-compact">
+              <button class="access-control-link" onclick="navTo('users')"><span class="access-control-icon">♙</span><span>User</span></button>
+              <button class="access-control-link" onclick="navTo('roles')"><span class="access-control-icon">◈</span><span>Role</span></button>
+              <button class="access-control-link" onclick="navTo('role-profiles')"><span class="access-control-icon">▦</span><span>Role Profile</span></button>
+            </div>
+          </div>
+          <div class="access-control-section">
+            <div class="access-control-heading">Log</div>
+            <div class="access-control-grid access-control-grid-compact">
+              <button class="access-control-link" onclick="navTo('audit')"><span class="access-control-icon">≡</span><span>Activity Log</span></button>
+              <button class="access-control-link" onclick="openAccessControlNotice('Access Log')"><span class="access-control-icon">⌁</span><span>Access Log</span></button>
+            </div>
+          </div>
+          <div class="access-control-section">
+            <div class="access-control-heading">Permission</div>
+            <div class="access-control-grid access-control-grid-compact">
+              <button class="access-control-link" onclick="navTo('roles')"><span class="access-control-icon">◈</span><span>Role Permission Manager</span></button>
+              <button class="access-control-link" onclick="openAccessControlNotice('User Permission')"><span class="access-control-icon">⌑</span><span>User Permission</span></button>
+              <button class="access-control-link" onclick="openAccessControlNotice('Role Permission for Page and Report')"><span class="access-control-icon">▤</span><span>Role Permission for Page and Report</span></button>
+            </div>
           </div>
           <div class="table-card">
             <table>
@@ -2593,36 +2649,7 @@
                 </tr>
               </thead>
               <tbody id="usersTableBody">
-                <tr>
-                  <td style="font-weight:600;">administrator</td>
-                  <td>admin@enterprise.com</td>
-                  <td><span class="badge" style="background:var(--accent);color:var(--accent-fg);">SUPER_ADMIN</span></td>
-                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">10d ago</td>
-                  <td style="display:flex;gap:6px;">
-                    <button class="btn btn-ghost" style="font-size:12px;" onclick="editUserAccount(this)">Edit</button>
-                    <button class="btn btn-ghost" style="font-size:12px;color:var(--danger);" onclick="deleteUserAccount(this)">Delete</button>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="font-weight:600;">agent_runner</td>
-                  <td>agent@enterprise.com</td>
-                  <td><span class="badge" style="background:var(--success);color:#fff;">AGENT_STANDARD</span></td>
-                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">5d ago</td>
-                  <td style="display:flex;gap:6px;">
-                    <button class="btn btn-ghost" style="font-size:12px;" onclick="editUserAccount(this)">Edit</button>
-                    <button class="btn btn-ghost" style="font-size:12px;color:var(--danger);" onclick="deleteUserAccount(this)">Delete</button>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="font-weight:600;">finance_auditor</td>
-                  <td>auditor@enterprise.com</td>
-                  <td><span class="badge" style="background:var(--warn);color:#fff;">AUDITOR</span></td>
-                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">2d ago</td>
-                  <td style="display:flex;gap:6px;">
-                    <button class="btn btn-ghost" style="font-size:12px;" onclick="editUserAccount(this)">Edit</button>
-                    <button class="btn btn-ghost" style="font-size:12px;color:var(--danger);" onclick="deleteUserAccount(this)">Delete</button>
-                  </td>
-                </tr>
+                <tr><td colspan="5" style="text-align:center;color:var(--fg-muted);padding:24px;">Loading users…</td></tr>
               </tbody>
             </table>
           </div>
@@ -2947,6 +2974,20 @@
     </div>
   </div>
 
+  <div id="workspacePageModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspacePageModal()"><div class="modal-card" style="max-width:620px;width:92%;"><div class="modal-header"><div><h3 id="workspacePageModalTitle">Create workspace page</h3><small>Design the content your team sees when they open this page.</small></div><button class="close-modal-btn" onclick="closeWorkspacePageModal()">&times;</button></div><form onsubmit="submitWorkspacePage(event)"><div class="modal-body" style="display:grid;gap:14px;padding:20px;max-height:72vh;overflow:auto;"><div id="workspacePageError" style="display:none;padding:10px;border:1px solid var(--danger);border-radius:8px;color:var(--danger);background:var(--danger-subtle);font-size:12px;"></div><div class="workspace-form-grid"><label class="field-label">Page title<input class="form-input" id="workspacePageTitle" required placeholder="e.g. Finance overview" /></label><label class="field-label">Page ID<input class="form-input" id="workspacePageId" required pattern="[a-z][a-z0-9-]{0,63}" placeholder="finance-overview" /></label></div><div class="field-label">Who can access this page <small>Select one or more roles</small><div id="workspacePageRoles" class="role-picker"></div></div><div class="workspace-block-builder"><div class="workspace-block-head"><div><strong>Page content</strong><small>Stack simple blocks to create a useful team workspace.</small></div><button type="button" class="btn btn-ghost btn-sm" onclick="addWorkspaceBlock()">+ Add block</button></div><div id="workspacePageBlocks" class="workspace-block-list"></div></div><textarea id="workspacePageBody" hidden></textarea></div><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeWorkspacePageModal()">Cancel</button><button class="btn btn-primary" type="submit" id="workspacePageSubmit">Create page</button></div></form></div></div>
+  <div id="workspaceMenuModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspaceMenuModal()"><div class="modal-card" style="max-width:520px;width:92%;"><div class="modal-header"><h3 id="workspaceMenuModalTitle">Add menu item</h3><button class="close-modal-btn" onclick="closeWorkspaceMenuModal()">&times;</button></div><form onsubmit="submitWorkspaceMenuItem(event)"><div class="modal-body" style="display:grid;gap:14px;padding:20px;"><div id="workspaceMenuError" class="workspace-form-error"></div><label class="field-label">Menu label<input class="form-input" id="workspaceMenuLabel" required maxlength="80" placeholder="e.g. Team overview" /></label><label class="field-label">Destination<select class="form-select" id="workspaceMenuTarget" required></select></label><label class="field-label">Icon <select class="form-select" id="workspaceMenuIcon"><option value="grid">Grid</option><option value="box">Box</option><option value="terminal">Terminal</option><option value="chart">Chart</option><option value="settings">Settings</option><option value="book">Book</option></select></label></div><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeWorkspaceMenuModal()">Cancel</button><button class="btn btn-primary" type="submit" id="workspaceMenuSubmit">Add menu item</button></div></form></div></div>
+  <div id="workspaceSectionModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspaceSectionModal()"><div class="modal-card" style="max-width:440px;width:92%;"><div class="modal-header"><h3>Add navigation section</h3><button class="close-modal-btn" onclick="closeWorkspaceSectionModal()">&times;</button></div><form onsubmit="submitWorkspaceSection(event)"><div class="modal-body" style="display:grid;gap:14px;padding:20px;"><label class="field-label">Section name<input class="form-input" id="workspaceSectionLabel" required maxlength="80" placeholder="e.g. Team tools" /></label></div><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeWorkspaceSectionModal()">Cancel</button><button class="btn btn-primary" type="submit">Add section</button></div></form></div></div>
+  <div id="workspaceCreateModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspaceCreateModal()">
+    <div class="modal-card" style="max-width:520px;width:92%;">
+      <div class="modal-header"><h3>Create workspace</h3><button class="close-modal-btn" onclick="closeWorkspaceCreateModal()">&times;</button></div>
+      <form onsubmit="submitWorkspaceCreate(event)"><div class="modal-body" style="display:grid;gap:14px;padding:20px;">
+        <div id="workspaceCreateError" style="display:none;padding:10px;border:1px solid var(--danger);border-radius:8px;color:var(--danger);background:var(--danger-subtle);font-size:12px;"></div>
+        <label class="field-label">Workspace name<input class="form-input" id="workspaceCreateName" required maxlength="128" placeholder="e.g. Finance Operations" /></label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><label class="field-label">Session limit (minutes)<input class="form-input" id="workspaceCreateTtl" type="number" min="1" value="60" /></label><label class="field-label">Storage quota (MB)<input class="form-input" id="workspaceCreateQuota" type="number" min="1" value="100" /></label></div>
+        <p style="margin:0;color:var(--fg-muted);font-size:12px;">After creation, define pages and assign their allowed roles in the workspace editor.</p>
+      </div><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeWorkspaceCreateModal()">Cancel</button><button class="btn btn-primary" type="submit">Create workspace</button></div></form>
+    </div>
+  </div>
 
   <!-- ============ USER ACCOUNT EDIT / CREATE MODAL ============ -->
   <div id="userAccountModal" class="modal-overlay" onclick="if(event.target===this)closeUserModal()">
@@ -2960,6 +3001,7 @@
       </div>
       <form onsubmit="saveUserAccountFromModal(event)">
         <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;padding:20px;">
+          <div id="userModalError" role="alert" style="display:none;padding:10px 12px;border:1px solid var(--danger);border-radius:8px;background:var(--danger-subtle);color:var(--danger);font-size:12px;"></div>
           <input type="hidden" id="userModalEditRowIndex" value="" />
           <div>
             <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Username</label>
@@ -2990,9 +3032,11 @@
             </div>
           </div>
           <div>
-            <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Password (Optional Reset)</label>
-            <input class="form-input" id="userModalPassword" type="password" style="width:100%;" placeholder="Leave empty to keep current password" />
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><label style="font-size:12px;font-weight:600;color:var(--fg-muted);">Password</label><button type="button" class="btn btn-ghost" style="padding:3px 7px;font-size:11px;color:var(--accent);" onclick="preparePasswordReset()">Forgot password?</button></div>
+            <input class="form-input" id="userModalPassword" type="password" style="width:100%;" placeholder="Leave unchanged" autocomplete="new-password" />
+            <small id="userModalPasswordHint" style="display:block;margin-top:6px;color:var(--fg-subtle);">Passwords are never displayed. Use “Forgot password?” to set a new one.</small>
           </div>
+          <div id="userModalMeta" style="display:none;grid-template-columns:1fr 1fr;gap:8px;padding:11px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-raised);font-size:11px;color:var(--fg-muted);"></div>
         </div>
         <div class="modal-footer" style="padding:16px 20px;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);">
           <button type="button" class="btn btn-ghost" onclick="closeUserModal()">Cancel</button>
@@ -3002,18 +3046,18 @@
     </div>
   </div>
 
-  <!-- FRAPPE-STYLE ROLE PERMISSION MANAGER MODAL -->
+  <!-- ROLE PERMISSION MANAGER MODAL -->
   <div id="roleCreateModal" class="modal-overlay" onclick="if(event.target===this)closeRoleModal()">
     <div class="modal-card" style="max-width:720px;width:95%;padding:0;overflow:hidden;">
       <div class="modal-header" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface-raised);">
         <div style="display:flex;align-items:center;gap:10px;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          <h3 style="font-size:16px;font-weight:700;margin:0;">Frappe Role Permission Manager — Create Role</h3>
+          <h3 style="font-size:16px;font-weight:700;margin:0;">Role Permission Manager — Create Role</h3>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="closeRoleModal()" style="font-size:18px;line-height:1;padding:4px 8px;">&times;</button>
       </div>
 
-      <form onsubmit="saveFrappeRoleFromModal(event)">
+      <form onsubmit="saveRoleFromModal(event)">
         <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:16px;max-height:75vh;overflow-y:auto;">
           
           <!-- Basic Role Definition -->
@@ -3049,9 +3093,9 @@
             </div>
           </div>
 
-          <!-- Frappe Checkbox Module Matrix -->
+          <!-- Checkbox Module Matrix -->
           <div>
-            <label style="font-size:12.5px;font-weight:700;color:var(--fg);display:block;margin-bottom:8px;">Frappe Module Capability Matrix (Granular Rights)</label>
+          <label style="font-size:12.5px;font-weight:700;color:var(--fg);display:block;margin-bottom:8px;">Module Capability Matrix (Granular Rights)</label>
             <div class="table-card" style="padding:0;overflow-x:auto;">
               <table style="width:100%;font-size:12.5px;">
                 <thead>
@@ -3139,7 +3183,7 @@
   <script src="assets/js/sandboxes.js?v=21"></script>
   <script src="assets/js/editor.js?v=21"></script>
   <script src="assets/js/terminal.js?v=29"></script>
-  <script src="assets/js/app.js?v=26"></script>
+  <script src="assets/js/app.js?v=47"></script>
 </body>
 
 </html>

@@ -8,6 +8,43 @@ function updateSidebarSandboxCount() {
     const active = sandboxes.filter(sandbox => ['active', 'running'].includes(String(sandbox.status).toLowerCase())).length;
     badge.textContent = `${active} Active`;
 }
+
+// The page dialog also doubles as a small, safe content builder.
+const workspacePageCreateAction = addWorkspacePage;
+window.addWorkspacePage = function () { workspacePageCreateAction(); renderWorkspaceBlocks(); };
+window.openWorkspacePageModal = window.addWorkspacePage;
+window.submitWorkspacePage = async function (event) { event.preventDefault(); const error = document.getElementById('workspacePageError'); try { const state = window.workspaceBuilderState || {pages:[],sections:[]}; const pageId = document.getElementById('workspacePageId').value.trim().toLowerCase(); const editing = document.getElementById('workspacePageModal').dataset.editing; if (!editing && state.pages.some(page => page.page_id === pageId)) throw new Error('A page with this ID already exists.'); const page = { page_id: pageId, title: document.getElementById('workspacePageTitle').value.trim(), allowed_roles: [...document.querySelectorAll('#workspacePageRoles input:checked')].map(input => input.value), blocks: collectWorkspaceBlocks() }; const index = state.pages.findIndex(item => item.page_id === editing); if (index >= 0) state.pages[index] = page; else state.pages.push(page); window.workspaceBuilderState = state; closeWorkspacePageModal(); renderWorkspaceBuilder(); await saveWorkspacePages(); } catch (e) { error.textContent = e.message; error.style.display = 'block'; } };
+
+// Add item-level drag and drop after the visual builder paints its rows.
+document.addEventListener('dragstart', event => {
+    const row = event.target.closest?.('.workspace-menu-item');
+    if (!row) return;
+    const menu = document.getElementById('workspaceMenuVisual');
+    const group = row.closest('.workspace-section-card');
+    const sectionIndex = [...menu.children].indexOf(group);
+    const itemIndex = [...group.querySelectorAll('.workspace-menu-item')].indexOf(row);
+    event.dataTransfer.setData('text/workspace-item', `${sectionIndex}:${itemIndex}`);
+});
+document.addEventListener('dragover', event => { if (event.target.closest?.('.workspace-menu-item')) event.preventDefault(); });
+document.addEventListener('mousedown', event => { const row = event.target.closest?.('.workspace-menu-item'); if (row) row.draggable = true; });
+document.addEventListener('drop', event => {
+    const row = event.target.closest?.('.workspace-menu-item');
+    if (!row) return;
+    const raw = event.dataTransfer.getData('text/workspace-item');
+    if (!raw) return;
+    event.preventDefault();
+    const menu = document.getElementById('workspaceMenuVisual');
+    const group = row.closest('.workspace-section-card');
+    const sectionIndex = [...menu.children].indexOf(group);
+    const itemIndex = [...group.querySelectorAll('.workspace-menu-item')].indexOf(row);
+    const [fromSection, fromItem] = raw.split(':').map(Number);
+    const state = window.workspaceBuilderState;
+    if (state && fromSection === sectionIndex && fromItem !== itemIndex) {
+        const moved = state.sections[sectionIndex].items.splice(fromItem, 1)[0];
+        state.sections[sectionIndex].items.splice(itemIndex, 0, moved);
+        renderWorkspaceBuilder();
+    }
+});
 window.updateSidebarSandboxCount = updateSidebarSandboxCount;
 
 function canViewSandbox(sandbox) {
@@ -30,6 +67,7 @@ function navTo(pageId) {
     });
     const pageEl = document.getElementById('page-' + pageId);
     if (pageEl) pageEl.classList.remove('hidden');
+    ensurePageRefreshButton(pageEl, pageId);
 
     // Custom redraws per page if required
     if (pageId === 'console') {
@@ -56,6 +94,86 @@ function navTo(pageId) {
         loadAccountSettings();
     } else if (pageId === 'workspaces') {
         loadWorkspaceMenuEditor();
+    } else if (pageId === 'users') {
+        loadUsersFromServer();
+    } else if (pageId === 'role-profiles') {
+        loadRoleProfiles();
+    }
+}
+
+function moduleSearchItems() {
+    const items = [...document.querySelectorAll('.nav-item[data-page]')].map(item => ({ page: item.dataset.page, label: item.querySelector('span')?.textContent?.trim() || item.textContent.trim(), group: item.closest('.nav-section')?.querySelector('.nav-group-label')?.textContent?.trim() || 'Module' }));
+    document.querySelectorAll('.page[id] h1,.page[id] h2').forEach(heading => { const page = heading.closest('.page'); if (page && !items.some(x => x.page === page.id.replace(/^page-/, ''))) items.push({ page: page.id.replace(/^page-/, ''), label: heading.textContent.trim(), group: 'Page' }); });
+    return items.filter((item, index, all) => all.findIndex(x => x.page === item.page) === index);
+}
+function setupModuleSearch() {
+    const input = document.getElementById('moduleSearchInput'), results = document.getElementById('moduleSearchResults'); if (!input || !results || input.dataset.ready) return; input.dataset.ready = 'true';
+    let matches = [], active = -1;
+    const score = (text, query) => { let pos = -1, points = 0; for (const char of query) { pos = text.indexOf(char, pos + 1); if (pos < 0) return -1; points += 3; } if (text.startsWith(query)) points += 12; if (text.includes(query)) points += 6; return points - text.length / 100; };
+    const choose = index => { if (!matches[index]) return; navTo(matches[index].page); input.value = ''; results.classList.remove('active'); active = -1; };
+    const render = () => { const q = input.value.trim().toLowerCase(); results.replaceChildren(); active = -1; if (!q) { results.classList.remove('active'); return; } matches = moduleSearchItems().map(x => ({ ...x, rank: score(`${x.label} ${x.group}`.toLowerCase(), q) })).filter(x => x.rank >= 0).sort((a,b) => b.rank - a.rank).slice(0, 12); matches.forEach((item, i) => { const b = document.createElement('button'); b.className = 'module-search-result'; b.dataset.index = i; b.innerHTML = `<span><b>${item.label}</b><small>${item.group}</small></span><kbd>↵</kbd>`; b.onclick = () => choose(i); results.appendChild(b); }); if (!matches.length) { const empty = document.createElement('div'); empty.className = 'module-search-empty'; empty.textContent = 'No matching modules'; results.appendChild(empty); } results.classList.add('active'); };
+    input.addEventListener('input', render); input.addEventListener('keydown', e => { if (e.key === 'Escape') { input.value = ''; results.classList.remove('active'); } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!matches.length) return; active = (active + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length; results.querySelectorAll('.module-search-result').forEach((b,i) => b.classList.toggle('active', i === active)); } else if (e.key === 'Enter') { e.preventDefault(); choose(active < 0 ? 0 : active); } }); document.addEventListener('click', e => { if (!e.target.closest('#topbarModuleSearch')) results.classList.remove('active'); });
+    document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); input.focus(); input.select(); } });
+}
+window.setupModuleSearch = setupModuleSearch;
+document.addEventListener('DOMContentLoaded', setupModuleSearch);
+
+function ensurePageRefreshButton(pageEl, pageId) {
+    const header = pageEl?.querySelector('.page-head, .page-header, .access-hero');
+    if (!header || header.querySelector('.page-refresh-btn')) return;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'btn btn-ghost page-refresh-btn'; button.title = 'Refresh page data';
+    button.innerHTML = '<span aria-hidden="true">↻</span><span>Refresh</span>';
+    button.addEventListener('click', () => refreshCurrentPage(pageId, button));
+    header.appendChild(button);
+}
+
+async function refreshCurrentPage(pageId, button) {
+    if (button) button.classList.add('is-refreshing');
+    try {
+        const loaders = { users: loadUsersFromServer, 'role-profiles': loadRoleProfiles, workspaces: window.loadWorkspaceMenuEditor, account: window.loadAccountSettings, limits: window.loadNetworkAudit, mcp: window.loadMcpTools };
+        if (typeof loaders[pageId] === 'function') await loaders[pageId]();
+        else window.location.reload();
+        if (typeof showToast === 'function' && typeof loaders[pageId] === 'function') showToast('Page refreshed.', 'success');
+    } finally { if (button) button.classList.remove('is-refreshing'); }
+}
+window.refreshCurrentPage = refreshCurrentPage;
+
+async function loadRoleProfiles() {
+    const tbody = document.getElementById('roleProfilesTableBody'); if (!tbody) return;
+    try {
+        const profiles = await workspaceApi('/v1/role-profiles'); tbody.replaceChildren();
+        profiles.forEach(profile => { const row = document.createElement('tr'); row.innerHTML = '<td></td><td></td><td></td>'; row.children[0].textContent = profile.name; row.children[1].textContent = profile.description || ''; row.children[2].textContent = (profile.roles || []).join(', ') || '—'; tbody.appendChild(row); });
+        if (!profiles.length) tbody.innerHTML = '<tr><td colspan="3">No role profiles configured.</td></tr>';
+    } catch (error) { tbody.innerHTML = `<tr><td colspan="3">Unable to load role profiles: ${error.message}</td></tr>`; }
+}
+window.loadRoleProfiles = loadRoleProfiles;
+
+async function loadUsersFromServer() {
+    const tbody = document.getElementById('usersTableBody');
+    if (!tbody) return;
+    try {
+        const response = await workspaceApi('/v1/users');
+        const users = Array.isArray(response) ? response : (response.users || []);
+        tbody.replaceChildren();
+        users.forEach(user => {
+            const row = document.createElement('tr');
+            row.dataset.userId = user.id || '';
+            const roles = (user.roles || []).join(', ') || '—';
+            row.innerHTML = `<td style="font-weight:600"></td><td></td><td><span class="badge"></span></td><td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted)"></td><td></td>`;
+            row.children[0].textContent = user.username || '';
+            row.children[1].textContent = user.email || '';
+            row.children[2].firstChild.textContent = roles;
+            row.children[3].textContent = user.created_at ? new Date(user.created_at).toLocaleDateString() : '—';
+            row.children[4].innerHTML = '<button class="btn btn-ghost user-action-edit" type="button">Edit</button><button class="btn btn-ghost user-action-delete" type="button">Delete</button>';
+            row.children[4].querySelector('.user-action-edit').onclick = () => editUserAccount(row);
+            row.children[4].querySelector('.user-action-delete').onclick = () => deleteUserAccount(row);
+            tbody.appendChild(row);
+        });
+        if (!users.length) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--fg-muted);padding:24px">No users found.</td></tr>';
+    } catch (error) {
+        const message = error?.message || 'The server rejected the request.';
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger);padding:24px">Unable to load users: ${message}</td></tr>`;
     }
 }
 
@@ -140,10 +258,11 @@ async function loadWorkspaceMenuEditor() {
     const select = document.getElementById('workspaceMenuSelect');
     try {
         const list = await workspaceApi('/v1/workspaces');
-        const workspaces = list.workspaces || [];
+        const workspaces = Array.isArray(list) ? list : (list.workspaces || []);
         if (select) {
             const current = workspaceMenuSelectId();
-            select.replaceChildren(...workspaces.map(ws => new Option(ws.name, ws.workspace_id, false, ws.workspace_id === current)));
+            if (!workspaces.length) { const empty = new Option('No workspaces yet — create one', ''); empty.disabled = true; select.replaceChildren(empty); }
+            else select.replaceChildren(...workspaces.map(ws => new Option(ws.name, ws.workspace_id, false, ws.workspace_id === current)));
             const id = select.value || current || workspaces[0]?.workspace_id || '';
             if (id) { setActiveWorkspaceMenu(id); select.value = id; }
         }
@@ -151,66 +270,67 @@ async function loadWorkspaceMenuEditor() {
         if (!id) return;
         const menu = await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`);
         const pages = await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`);
-        const editor = document.getElementById('workspaceMenuJson');
-        if (editor) editor.value = JSON.stringify({ sections: menu.config || [] }, null, 2);
-        const pagesEditor = document.getElementById('workspacePagesJson');
-        if (pagesEditor) pagesEditor.value = JSON.stringify({ pages: pages.pages || [] }, null, 2);
+        window.workspaceBuilderState = { pages: pages.pages || [], sections: menu.config || [] };
+        renderWorkspaceBuilder();
         await refreshWorkspaceMenu();
     } catch (error) { if (typeof showToast === 'function') showToast(error.message, 'error'); }
 }
 
-async function createWorkspaceForMenu() {
-    const name = window.prompt('Workspace name'); if (!name) return;
-    try {
-        const ws = await workspaceApi('/v1/workspaces', { method: 'POST', body: JSON.stringify({ name }) });
-        setActiveWorkspaceMenu(ws.workspace_id);
-        await loadWorkspaceMenuEditor();
-    } catch (error) { if (typeof showToast === 'function') showToast(error.message, 'error'); }
-}
+function openWorkspaceCreateModal() { const m = document.getElementById('workspaceCreateModal'); if (m) { const body = m.querySelector('.modal-body'); if (body && !document.getElementById('workspaceStarterTemplate')) { const label = document.createElement('label'); label.className = 'field-label'; label.innerHTML = 'Starter setup<select class="form-select" id="workspaceStarterTemplate"><option value="role-aware">Role-aware workspace</option><option value="blank">Empty workspace</option></select>'; body.insertBefore(label, body.children[1]); } document.getElementById('workspaceCreateName').value = ''; document.getElementById('workspaceCreateError').style.display = 'none'; m.classList.add('active'); } }
+function closeWorkspaceCreateModal() { const m = document.getElementById('workspaceCreateModal'); if (m) m.classList.remove('active'); }
+async function submitWorkspaceCreate(event) { event.preventDefault(); const error = document.getElementById('workspaceCreateError'); try { const ws = await workspaceApi('/v1/workspaces', { method: 'POST', body: JSON.stringify({ name: document.getElementById('workspaceCreateName').value.trim(), ttl_seconds: Number(document.getElementById('workspaceCreateTtl').value) * 60, quota_mb: Number(document.getElementById('workspaceCreateQuota').value) }) }); if (document.getElementById('workspaceStarterTemplate')?.value === 'role-aware') { const pages = [{page_id:'dashboard',title:'Dashboard',allowed_roles:['AGENT_STANDARD','SUPER_ADMIN'],blocks:[{type:'heading',title:'Dashboard'}]},{page_id:'sandboxes',title:'Sandboxes',allowed_roles:['AGENT_STANDARD','SUPER_ADMIN'],blocks:[]},{page_id:'console',title:'Console & IDE',allowed_roles:['AGENT_STANDARD','SUPER_ADMIN'],blocks:[]},{page_id:'admin',title:'Administration',allowed_roles:['SUPER_ADMIN'],blocks:[{type:'heading',title:'Administration'}]}]; const sections = [{label:'User menu',items:[{label:'Dashboard',target_type:'page',target:'dashboard',icon:'grid'},{label:'Sandboxes',target_type:'page',target:'sandboxes',icon:'box'},{label:'Console & IDE',target_type:'page',target:'console',icon:'terminal'}]},{label:'Admin',items:[{label:'Administration',target_type:'page',target:'admin',icon:'settings'}]}]; await workspaceApi(`/v1/workspaces/${encodeURIComponent(ws.workspace_id)}/pages`, {method:'PUT',body:JSON.stringify({pages})}); await workspaceApi(`/v1/workspaces/${encodeURIComponent(ws.workspace_id)}/menu`, {method:'PUT',body:JSON.stringify({sections})}); } setActiveWorkspaceMenu(ws.workspace_id); closeWorkspaceCreateModal(); await loadWorkspaceMenuEditor(); } catch (e) { if (error) { error.textContent = e.message; error.style.display = 'block'; } } }
+window.openWorkspaceCreateModal = openWorkspaceCreateModal;
 
 async function saveWorkspacePages() {
-    const id = workspaceMenuSelectId(); const editor = document.getElementById('workspacePagesJson');
-    if (!id || !editor) return;
+    const id = workspaceMenuSelectId(); const state = window.workspaceBuilderState;
+    if (!id || !state) return;
     try {
-        const pages = JSON.parse(editor.value);
-        if (!Array.isArray(pages.pages)) throw new Error('Pages JSON needs a pages array.');
-        await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`, { method: 'PUT', body: JSON.stringify({ pages: pages.pages }) });
+        await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`, { method: 'PUT', body: JSON.stringify({ pages: state.pages }) });
+        const status = document.getElementById('workspacePagesStatus'); if (status) { status.textContent = 'Saved just now'; setTimeout(() => status.textContent = '', 2500); }
         await refreshWorkspaceMenu();
         if (typeof showToast === 'function') showToast('Workspace pages saved.', 'success');
     } catch (error) { if (typeof showToast === 'function') showToast(error.message || 'Invalid pages JSON.', 'error'); }
 }
 
 function addWorkspacePage() {
-    const title = window.prompt('Page title'); if (!title) return;
-    const roles = window.prompt('Allowed roles (comma-separated; leave blank for everyone)', '') || '';
-    const editor = document.getElementById('workspacePagesJson'); if (!editor) return;
-    try {
-        const config = JSON.parse(editor.value || '{"pages":[]}');
-        const pageId = title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        if (!pageId) throw new Error('Choose a title containing letters or numbers.');
-        if ((config.pages || []).some(page => page.page_id === pageId)) throw new Error('A page with that title already exists.');
-        config.pages = config.pages || [];
-        config.pages.push({ page_id: pageId, title, allowed_roles: roles.split(',').map(role => role.trim()).filter(Boolean), blocks: [{ type: 'heading', title }] });
-        editor.value = JSON.stringify(config, null, 2);
-    } catch (error) { if (typeof showToast === 'function') showToast(error.message, 'error'); }
+    const body = document.querySelector('#workspacePageModal .modal-body'); if (body && !document.getElementById('workspacePageTemplate')) { const label = document.createElement('label'); label.className = 'field-label'; label.innerHTML = 'Starter template<select class="form-select" id="workspacePageTemplate"><option value="blank">Blank page</option><option value="operations">Operations overview</option><option value="finance">Finance dashboard</option><option value="developer">Developer workspace</option></select>'; label.querySelector('select').onchange = e => applyWorkspacePageTemplate(e.target.value); body.insertBefore(label, body.children[1]); }
+    const modal = document.getElementById('workspacePageModal'); if (modal) { const title = document.getElementById('workspacePageTitle'), id = document.getElementById('workspacePageId'); title.value = ''; id.value = ''; id.disabled = false; id.dataset.manual = 'false'; title.oninput = () => { if (id.dataset.manual !== 'true') id.value = title.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64); }; id.oninput = () => { id.dataset.manual = 'true'; }; renderRolePicker([]); document.getElementById('workspacePageBody').value = ''; document.getElementById('workspacePageError').style.display = 'none'; document.getElementById('workspacePageModalTitle').textContent = 'Create workspace page'; document.getElementById('workspacePageSubmit').textContent = 'Create page'; modal.dataset.editing = ''; modal.classList.add('active'); loadWorkspaceRoles(); }
 }
+function applyWorkspacePageTemplate(template) { const data = { operations: ['Operations overview','operations-overview','', 'Monitor day-to-day activity and team workload.'], finance: ['Finance dashboard','finance-dashboard',['FINANCE_MANAGER'],'Review budgets, approvals, and financial performance.'], developer: ['Developer workspace','developer-workspace',['AGENT_STANDARD'],'Build, test, and monitor engineering work.'], blank: ['','','',''] }[template] || ['', '', [], '']; document.getElementById('workspacePageTitle').value = data[0]; document.getElementById('workspacePageId').value = data[1]; document.getElementById('workspacePageId').dataset.manual = 'false'; renderRolePicker(Array.isArray(data[2]) ? data[2] : (data[2] ? [data[2]] : [])); document.getElementById('workspacePageBody').value = data[3]; }
+window.applyWorkspacePageTemplate = applyWorkspacePageTemplate;
+function renderWorkspaceBlocks(blocks = []) { const list = document.getElementById('workspacePageBlocks'); if (!list) return; list.replaceChildren(); (blocks.length ? blocks : [{type:'heading',title:document.getElementById('workspacePageTitle')?.value || 'Page overview',body:'',value:''}]).forEach(block => { const row = document.createElement('div'); row.className = 'workspace-block-row'; row.innerHTML = `<select class="form-select block-type"><option value="heading">Heading</option><option value="text">Text</option><option value="metric">Metric</option></select><input class="form-input block-title" placeholder="Title"/><input class="form-input block-body" placeholder="Description or value"/><button type="button" class="icon-btn danger" title="Remove block">⌫</button>`; row.querySelector('.block-type').value = block.type || 'text'; row.querySelector('.block-title').value = block.title || ''; row.querySelector('.block-body').value = block.type === 'metric' ? (block.value || '') : (block.body || ''); row.querySelector('.danger').onclick = () => { row.remove(); }; row.querySelector('.block-type').onchange = () => { row.querySelector('.block-body').placeholder = row.querySelector('.block-type').value === 'metric' ? 'Metric value, e.g. 24' : 'Description or value'; }; list.appendChild(row); }); }
+function addWorkspaceBlock() { const list = document.getElementById('workspacePageBlocks'); if (!list) return; const before = [...list.children].map(row => ({type: row.querySelector('.block-type').value, title: row.querySelector('.block-title').value, body: row.querySelector('.block-body').value})); before.push({type:'text',title:'',body:'',value:''}); renderWorkspaceBlocks(before); list.lastElementChild?.querySelector('.block-title')?.focus(); }
+function collectWorkspaceBlocks() { return [...document.querySelectorAll('#workspacePageBlocks .workspace-block-row')].map(row => { const type = row.querySelector('.block-type').value, title = row.querySelector('.block-title').value.trim(), value = row.querySelector('.block-body').value.trim(); return type === 'metric' ? {type,title,value,body:''} : {type,title,body:value,value:''}; }).filter(block => block.title || block.body || block.value); }
+function closeWorkspacePageModal() { document.getElementById('workspacePageModal')?.classList.remove('active'); }
+async function submitWorkspacePage(event) { event.preventDefault(); const error = document.getElementById('workspacePageError'); try { const state = window.workspaceBuilderState || {pages:[],sections:[]}; const pageId = document.getElementById('workspacePageId').value.trim().toLowerCase(); const editing = document.getElementById('workspacePageModal').dataset.editing; if (!editing && state.pages.some(page => page.page_id === pageId)) throw new Error('A page with this ID already exists.'); const page = { page_id: pageId, title: document.getElementById('workspacePageTitle').value.trim(), allowed_roles: [...document.querySelectorAll('#workspacePageRoles input:checked')].map(input => input.value), blocks: [{ type: 'heading', title: document.getElementById('workspacePageTitle').value.trim() }, { type: 'text', body: document.getElementById('workspacePageBody').value.trim() }] }; const index = state.pages.findIndex(item => item.page_id === editing); if (index >= 0) state.pages[index] = page; else state.pages.push(page); window.workspaceBuilderState = state; closeWorkspacePageModal(); renderWorkspaceBuilder(); await saveWorkspacePages(); } catch (e) { error.textContent = e.message; error.style.display = 'block'; } }
+window.openWorkspacePageModal = window.addWorkspacePage;
 
 async function saveWorkspaceMenu() {
-    const id = workspaceMenuSelectId(); const editor = document.getElementById('workspaceMenuJson');
-    if (!id || !editor) return;
+    const id = workspaceMenuSelectId(); const state = window.workspaceBuilderState;
+    if (!id || !state) return;
     try {
-        const menu = JSON.parse(editor.value);
-        if (!Array.isArray(menu.sections)) throw new Error('Menu JSON needs a sections array.');
-        await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`, { method: 'PUT', body: JSON.stringify({ sections: menu.sections }) });
+        await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`, { method: 'PUT', body: JSON.stringify({ sections: state.sections }) });
+        const status = document.getElementById('workspaceMenuStatus'); if (status) { status.textContent = 'Saved just now'; setTimeout(() => status.textContent = '', 2500); }
         await refreshWorkspaceMenu();
         if (typeof showToast === 'function') showToast('Workspace menu saved.', 'success');
     } catch (error) { if (typeof showToast === 'function') showToast(error.message || 'Invalid menu JSON.', 'error'); }
 }
+function renderRolePicker(selected) { const box = document.getElementById('workspacePageRoles'); if (!box) return; box.replaceChildren(); (window.workspaceRoles || []).forEach(role => { const label = document.createElement('label'); label.className = 'role-option'; label.innerHTML = `<input type="checkbox" value="${role}"><span>${role}</span>`; label.querySelector('input').checked = selected.includes(role); box.appendChild(label); }); }
+async function loadWorkspaceRoles(selected = []) { try { const result = await workspaceApi('/v1/roles'); window.workspaceRoles = (Array.isArray(result) ? result : result.roles || []).map(role => role.name || role).sort(); renderRolePicker(selected); } catch (_) { renderRolePicker(selected); } }
+function renderWorkspaceBuilder() { const state = window.workspaceBuilderState || {pages:[],sections:[]}; const pages = document.getElementById('workspacePagesVisual'), menu = document.getElementById('workspaceMenuVisual'); if (!pages || !menu) return; pages.replaceChildren(); menu.replaceChildren(); document.getElementById('workspacePagesEmpty').hidden = state.pages.length > 0; document.getElementById('workspaceMenuEmpty').hidden = state.sections.length > 0; state.pages.forEach(page => { const card = document.createElement('div'); card.className = 'workspace-page-card'; card.innerHTML = `<span class="workspace-page-dot">P</span><div class="workspace-card-copy"><strong></strong><span class="mono-muted"></span><div class="workspace-role-tags"></div></div><div class="workspace-card-actions"><button class="icon-btn" title="Edit page">✎</button><button class="icon-btn danger" title="Delete page">⌫</button></div>`; card.querySelector('strong').textContent = page.title; card.querySelector('.mono-muted').textContent = `/${page.page_id}`; const tags = card.querySelector('.workspace-role-tags'); (page.allowed_roles.length ? page.allowed_roles : ['Everyone']).forEach(role => { const tag = document.createElement('span'); tag.textContent = role; tags.appendChild(tag); }); card.querySelector('button').onclick = () => editWorkspacePage(page); card.querySelector('.danger').onclick = () => deleteWorkspacePage(page.page_id); pages.appendChild(card); }); state.sections.forEach((section, sectionIndex) => { const group = document.createElement('div'); group.className = 'workspace-section-card'; group.draggable = true; group.dataset.index = sectionIndex; group.innerHTML = `<div class="workspace-section-head"><span class="drag-handle">⠿</span><strong></strong><span class="item-count"></span><button class="icon-btn danger" title="Delete section">⌫</button></div><div class="workspace-item-list"></div><button class="add-item-link">+ Add menu item</button>`; group.querySelector('strong').textContent = section.label; group.querySelector('.item-count').textContent = `${section.items.length} item${section.items.length === 1 ? '' : 's'}`; group.querySelector('.danger').onclick = () => { state.sections.splice(sectionIndex, 1); renderWorkspaceBuilder(); }; const list = group.querySelector('.workspace-item-list'); section.items.forEach((item, itemIndex) => { const row = document.createElement('div'); row.className = 'workspace-menu-item'; row.innerHTML = `<span class="drag-handle">⠿</span><span class="workspace-item-icon">✦</span><strong></strong><span class="workspace-item-target"></span><button class="icon-btn" title="Edit item">✎</button><button class="icon-btn danger" title="Delete item">⌫</button>`; row.querySelector('strong').textContent = item.label; row.querySelector('.workspace-item-target').textContent = item.target; row.querySelector('button').onclick = () => editWorkspaceMenuItem(sectionIndex, itemIndex); row.querySelector('.danger').onclick = () => { section.items.splice(itemIndex, 1); renderWorkspaceBuilder(); }; list.appendChild(row); }); group.querySelector('.add-item-link').onclick = () => openWorkspaceMenuModal(sectionIndex); group.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', sectionIndex); }); group.addEventListener('dragover', e => e.preventDefault()); group.addEventListener('drop', e => { const from = Number(e.dataTransfer.getData('text/plain')); if (from !== sectionIndex) { const moved = state.sections.splice(from, 1)[0]; state.sections.splice(sectionIndex, 0, moved); renderWorkspaceBuilder(); } }); menu.appendChild(group); }); }
+function editWorkspacePage(page) { addWorkspacePage(); const modal = document.getElementById('workspacePageModal'); modal.dataset.editing = page.page_id; document.getElementById('workspacePageModalTitle').textContent = 'Edit workspace page'; document.getElementById('workspacePageSubmit').textContent = 'Save page'; document.getElementById('workspacePageTitle').value = page.title; document.getElementById('workspacePageId').value = page.page_id; document.getElementById('workspacePageId').disabled = true; document.getElementById('workspacePageId').dataset.manual = 'true'; document.getElementById('workspacePageBody').value = page.blocks?.find(block => block.type === 'text')?.body || ''; loadWorkspaceRoles(page.allowed_roles || []); }
+function deleteWorkspacePage(pageId) { const state = window.workspaceBuilderState; if (!confirm('Delete this page? Menu items linked to it should also be removed.')) return; state.pages = state.pages.filter(page => page.page_id !== pageId); state.sections.forEach(section => section.items = section.items.filter(item => !(item.target_type === 'page' && item.target === pageId))); renderWorkspaceBuilder(); }
+function addWorkspaceSection() { const modal = document.getElementById('workspaceSectionModal'); if (!modal) return; document.getElementById('workspaceSectionLabel').value = ''; modal.classList.add('active'); setTimeout(() => document.getElementById('workspaceSectionLabel').focus(), 50); }
+function closeWorkspaceSectionModal() { document.getElementById('workspaceSectionModal')?.classList.remove('active'); }
+function submitWorkspaceSection(event) { event.preventDefault(); const state = window.workspaceBuilderState || {pages:[],sections:[]}; const label = document.getElementById('workspaceSectionLabel').value.trim(); if (!label) return; state.sections.push({label, items: []}); window.workspaceBuilderState = state; closeWorkspaceSectionModal(); renderWorkspaceBuilder(); }
+function openWorkspaceMenuModal(sectionIndex, itemIndex = null) { const modal = document.getElementById('workspaceMenuModal'); modal.dataset.section = sectionIndex; modal.dataset.item = itemIndex === null ? '' : itemIndex; document.getElementById('workspaceMenuLabel').value = itemIndex === null ? '' : window.workspaceBuilderState.sections[sectionIndex].items[itemIndex].label; const select = document.getElementById('workspaceMenuTarget'); select.replaceChildren(...window.workspaceBuilderState.pages.map(page => new Option(page.title, page.page_id))); if (itemIndex !== null) { const item = window.workspaceBuilderState.sections[sectionIndex].items[itemIndex]; select.value = item.target; document.getElementById('workspaceMenuIcon').value = item.icon || 'grid'; } document.getElementById('workspaceMenuModalTitle').textContent = itemIndex === null ? 'Add menu item' : 'Edit menu item'; document.getElementById('workspaceMenuSubmit').textContent = itemIndex === null ? 'Add menu item' : 'Save item'; document.getElementById('workspaceMenuError').textContent = ''; modal.classList.add('active'); }
+function closeWorkspaceMenuModal() { document.getElementById('workspaceMenuModal')?.classList.remove('active'); }
+function editWorkspaceMenuItem(sectionIndex, itemIndex) { openWorkspaceMenuModal(sectionIndex, itemIndex); }
+function submitWorkspaceMenuItem(event) { event.preventDefault(); const modal = document.getElementById('workspaceMenuModal'), state = window.workspaceBuilderState, section = state.sections[Number(modal.dataset.section)]; const item = {label: document.getElementById('workspaceMenuLabel').value.trim(), target_type: 'page', target: document.getElementById('workspaceMenuTarget').value, icon: document.getElementById('workspaceMenuIcon').value}; if (!item.target) { document.getElementById('workspaceMenuError').textContent = 'Create a page before adding a menu item.'; return; } const index = modal.dataset.item === '' ? -1 : Number(modal.dataset.item); if (index >= 0) section.items[index] = item; else section.items.push(item); closeWorkspaceMenuModal(); renderWorkspaceBuilder(); }
 window.loadWorkspaceMenuEditor = loadWorkspaceMenuEditor;
 window.createWorkspaceForMenu = createWorkspaceForMenu;
 window.saveWorkspaceMenu = saveWorkspaceMenu;
 window.saveWorkspacePages = saveWorkspacePages;
-window.addWorkspacePage = addWorkspacePage;
 window.setActiveWorkspaceMenu = setActiveWorkspaceMenu;
 
 async function loadAccountSettings() {
@@ -541,13 +661,22 @@ function createUserAccount() {
     document.getElementById('userModalRole').value = 'AGENT_STANDARD';
     document.getElementById('userModalStatus').value = 'ACTIVE';
     document.getElementById('userModalPassword').value = '';
+    document.getElementById('userModalPassword').required = false;
+    document.getElementById('userModalPassword').dataset.reset = 'false';
+    clearUserModalMessage();
+    const meta = document.getElementById('userModalMeta'); if (meta) { meta.style.display = 'none'; meta.replaceChildren(); }
     
     const modal = document.getElementById('userAccountModal');
     if (modal) modal.classList.add('active');
 }
 
-function editUserAccount(btn) {
-    const row = btn.closest('tr');
+function openAccessControlNotice(label) {
+    if (typeof showToast === 'function') showToast(`${label} is available through the administrator access-control configuration.`, 'info');
+}
+window.openAccessControlNotice = openAccessControlNotice;
+
+async function editUserAccount(btn) {
+    const row = btn.closest ? btn.closest('tr') : btn;
     if (!row) return;
     const cells = row.querySelectorAll('td');
     const username = cells[0]?.textContent?.trim() || '';
@@ -561,6 +690,17 @@ function editUserAccount(btn) {
     document.getElementById('userModalRole').value = roleBadge;
     document.getElementById('userModalStatus').value = 'ACTIVE';
     document.getElementById('userModalPassword').value = '';
+    clearUserModalMessage();
+    const meta = document.getElementById('userModalMeta');
+    if (meta) { meta.style.display = 'grid'; meta.textContent = 'Loading account details…'; }
+    if (row.dataset.userId) {
+        try {
+            const detail = await workspaceApi(`/v1/users/${encodeURIComponent(row.dataset.userId)}`);
+            const user = detail.user || {};
+            document.getElementById('userModalStatus').value = user.status === 'active' ? 'ACTIVE' : 'SUSPENDED';
+            if (meta) { meta.innerHTML = ''; [['Account ID', user.id], ['Created', user.created_at ? new Date(user.created_at).toLocaleString() : '—'], ['Last login', user.last_login || 'Never'], ['State', user.status || 'active']].forEach(([label, value]) => { const item = document.createElement('div'); item.innerHTML = `<strong style="display:block;color:var(--fg);font-size:10px;text-transform:uppercase;letter-spacing:.06em;">${label}</strong><span>${value || '—'}</span>`; meta.appendChild(item); }); }
+        } catch (_) { if (meta) meta.textContent = 'Account details unavailable.'; }
+    }
     
     const modal = document.getElementById('userAccountModal');
     if (modal) modal.classList.add('active');
@@ -569,7 +709,19 @@ function editUserAccount(btn) {
 function closeUserModal() {
     const modal = document.getElementById('userAccountModal');
     if (modal) modal.classList.remove('active');
+    loadUsersFromServer();
 }
+
+function clearUserModalMessage() { const box = document.getElementById('userModalError'); if (box) { box.textContent = ''; box.style.display = 'none'; } }
+function showUserModalMessage(message, kind = 'error') { const box = document.getElementById('userModalError'); if (box) { box.textContent = message; box.style.display = 'block'; box.style.borderColor = kind === 'success' ? 'var(--success)' : 'var(--danger)'; box.style.background = kind === 'success' ? 'var(--success-subtle)' : 'var(--danger-subtle)'; box.style.color = kind === 'success' ? 'var(--success)' : 'var(--danger)'; } }
+
+function preparePasswordReset() {
+    const input = document.getElementById('userModalPassword');
+    const hint = document.getElementById('userModalPasswordHint');
+    if (input) { input.value = ''; input.required = false; input.dataset.reset = 'true'; input.placeholder = 'Enter new password (8+ characters)'; input.focus(); }
+    if (hint) hint.textContent = 'Enter a new password, then choose Save User Account. The server stores only a hash.';
+}
+window.preparePasswordReset = preparePasswordReset;
 
 function saveUserAccountFromModal(event) {
     if (event) event.preventDefault();
@@ -579,52 +731,28 @@ function saveUserAccountFromModal(event) {
     const email = document.getElementById('userModalEmail').value.trim();
     const role = document.getElementById('userModalRole').value;
     const status = document.getElementById('userModalStatus').value;
+    const password = document.getElementById('userModalPassword').value;
+    const passwordReset = document.getElementById('userModalPassword').dataset.reset === 'true';
     
     const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
     
-    let roleBg = 'var(--accent)';
-    let roleFg = 'var(--accent-fg)';
-    if (role === 'AGENT_STANDARD') { roleBg = 'var(--success)'; roleFg = '#fff'; }
-    else if (role === 'AUDITOR') { roleBg = 'var(--warn)'; roleFg = '#fff'; }
-    else if (role === 'SUPER_ADMIN') { roleBg = 'var(--accent)'; roleFg = 'var(--accent-fg)'; }
-    
-    if (rowIndex !== '') {
-        // Edit existing row
-        const row = tbody.children[parseInt(rowIndex)];
-        if (row) {
-            row.children[0].textContent = username;
-            row.children[1].textContent = email;
-            row.children[2].innerHTML = `<span class="badge" style="background:${roleBg};color:${roleFg};">${role}</span>`;
-        }
-    } else {
-        // Create new row
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td style="font-weight:600;">${username}</td>
-            <td>${email}</td>
-            <td><span class="badge" style="background:${roleBg};color:${roleFg};">${role}</span></td>
-            <td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);">Just now</td>
-            <td style="display:flex;gap:6px;">
-                <button class="btn btn-ghost" style="font-size:12px;" onclick="editUserAccount(this)">Edit</button>
-                <button class="btn btn-ghost" style="font-size:12px;color:var(--danger);" onclick="deleteUserAccount(this)">Delete</button>
-            </td>`;
-        tbody.insertBefore(row, tbody.firstChild);
-    }
-    
-    closeUserModal();
-    if (typeof showCustomAlert === 'function') {
-        showCustomAlert("User Account Saved", `Successfully updated user account '${username}' (${email}) with role ${role}.`);
-    } else {
-        alert(`Successfully updated user account '${username}' (${email}) with role ${role}.`);
-    }
+    const row = rowIndex !== '' ? tbody.children[parseInt(rowIndex)] : null;
+    const userId = row?.dataset.userId;
+    if (!row && !password) { showUserModalMessage('A password is required for a new user.'); return; }
+    if (passwordReset && password.length < 8) { showUserModalMessage('Enter a new password with at least 8 characters.'); return; }
+    workspaceApi(row ? `/v1/users/${encodeURIComponent(userId)}` : '/v1/users', { method: row ? 'PUT' : 'POST', body: JSON.stringify({ username, email, password, status: status.toLowerCase(), role_name: role }) })
+      .then(() => { loadUsersFromServer(); showUserModalMessage(row ? 'User updated successfully.' : 'User created successfully.', 'success'); })
+      .catch(error => { showUserModalMessage(`Unable to save user: ${error.message}`); });
 }
 
 function deleteUserAccount(btn) {
-    const row = btn.closest('tr');
+    const row = btn.closest ? btn.closest('tr') : btn;
     const username = row?.children[0]?.textContent?.trim() || 'User';
     if (confirm(`Are you sure you want to delete user account '${username}'?`)) {
-        row.remove();
+        const userId = row?.dataset.userId;
+        if (!userId) { row.remove(); return; }
+        workspaceApi(`/v1/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }).then(() => { row.remove(); if (typeof showToast === 'function') showToast('User deactivated.', 'success'); }).catch(error => { if (typeof showToast === 'function') showToast(error.message, 'error'); });
     }
 }
 
@@ -643,7 +771,7 @@ function closeRoleModal() {
     if (modal) modal.classList.remove('active');
 }
 
-function saveFrappeRoleFromModal(event) {
+function saveRoleFromModal(event) {
     if (event) event.preventDefault();
     
     const name = document.getElementById('roleModalName').value.trim();
@@ -665,7 +793,7 @@ function saveFrappeRoleFromModal(event) {
                 <span style="font-size:11px;color:var(--fg-muted);font-weight:600;">${category}</span>
             </div>
             <h4 style="font-size:15px;font-weight:700;margin-bottom:6px;">${name}</h4>
-            <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Custom Frappe-style role definition with granular module capabilities.</p>
+            <p style="font-size:13px;color:var(--fg-muted);margin-bottom:14px;line-height:1.4;">Custom role definition with granular module capabilities.</p>
             <div style="font-size:11.5px;font-family:var(--font-mono);color:var(--accent);background:var(--surface-raised);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">Scope: ${scope}</div>`;
         container.insertBefore(card, container.firstChild);
     }
@@ -684,7 +812,7 @@ function saveFrappeRoleFromModal(event) {
     closeRoleModal();
 
     if (typeof showCustomAlert === 'function') {
-        showCustomAlert("Frappe Role Registered", `Role '${name}' (${roleCode}) successfully saved, permission matrix linked, and RBAC policy cache refreshed.`);
+        showCustomAlert("Role Registered", `Role '${name}' (${roleCode}) successfully saved, permission matrix linked, and RBAC policy cache refreshed.`);
     } else {
         alert(`Role '${name}' (${roleCode}) successfully saved, permission matrix linked, and RBAC policy cache refreshed.`);
     }
