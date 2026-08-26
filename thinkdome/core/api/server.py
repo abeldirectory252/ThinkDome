@@ -39,6 +39,8 @@ from thinkdome.security.api.admin import router as admin_router
 from thinkdome.api.routes.sandboxes import router as sandboxes_router
 from thinkdome.platform.observability.api.observability import router as observability_router
 from thinkdome.security.api.auth import router as auth_router
+from thinkdome.security.api.role_profiles import router as role_profiles_router
+from thinkdome.security.api.users import router as users_router
 from thinkdome.platform.orchestration.api import router as orchestrator_router
 from thinkdome.platform.observability.api.monitor import router as monitor_router
 from thinkdome.api.routes.control_plane import router as control_plane_router
@@ -78,6 +80,8 @@ app.add_middleware(
 # ── Mount Original REST APIs (/v1 prefix) ─────────────────────────────────────
 app.include_router(health_router)
 app.include_router(auth_router, prefix="/v1")
+app.include_router(role_profiles_router)
+app.include_router(users_router)
 app.include_router(orchestrator_router, prefix="/v1")
 app.include_router(execute_router, prefix="/v1")
 app.include_router(files_router, prefix="/v1")
@@ -273,6 +277,13 @@ async def startup_event() -> None:
     await app.state.db_service.initialize()
     from thinkdome.platform.storage.workspaces.schema import initialize_workspace_schema
     initialize_workspace_schema()
+
+    # Control-plane dependencies are also used by the shared route set. Keep
+    # their ORM-backed state initialized in this lightweight server entrypoint.
+    from thinkdome.control_plane.lifecycle import ControlPlaneLifecycle
+    from thinkdome.control_plane.repository import ControlPlaneRepository
+    app.state.control_plane_repository = ControlPlaneRepository()
+    app.state.control_plane_lifecycle = ControlPlaneLifecycle(app.state.control_plane_repository)
 
     # 4. Initialize TaskBroker for RabbitMQ tasks
     from thinkdome.platform.tasks.rabbitmq import TaskBroker

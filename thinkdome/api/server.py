@@ -282,6 +282,7 @@ def create_app() -> FastAPI:
 
     from thinkdome.security.api.auth_rbac import router as rbac_auth_router
     from thinkdome.security.api.users import router as rbac_users_router
+    from thinkdome.security.api.role_profiles import router as role_profiles_router
     from thinkdome.security.api.roles import router as rbac_roles_router
     from thinkdome.security.api.permissions import router as rbac_permissions_router
     from thinkdome.security.api.audit import router as rbac_audit_router
@@ -303,6 +304,7 @@ def create_app() -> FastAPI:
     app.include_router(filebox_router)
     app.include_router(rbac_auth_router)
     app.include_router(rbac_users_router)
+    app.include_router(role_profiles_router)
     app.include_router(rbac_roles_router)
     app.include_router(rbac_permissions_router)
     app.include_router(rbac_audit_router)

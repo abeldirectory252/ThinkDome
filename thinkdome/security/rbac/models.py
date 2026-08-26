@@ -46,6 +46,16 @@ class Role(Model):
     is_system = BooleanField(default=False)
 
 
+class RoleProfile(Model):
+    """Reusable bundle of roles assigned to a user by administrators."""
+    __tablename__ = "rbac_role_profiles"
+
+    name = StringField(required=True, indexed=True, unique=True)
+    description = StringField(default="")
+    role_ids_json = StringField(default="[]")
+    is_active = BooleanField(default=True)
+
+
 class Permission(Model):
     """Granular Permission catalog item."""
     __tablename__ = "rbac_permissions"

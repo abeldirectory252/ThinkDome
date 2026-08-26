@@ -112,6 +112,49 @@ class UserService:
         )
         return user
 
+    def update_user(self, user_id: str, *, username: str, email: str, password: str = "", status: str = "active", actor: str = "system") -> User:
+        """Update account fields through the ORM and optionally rotate credentials."""
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError(f"User ID '{user_id}' not found.")
+        username, email = username.strip().lower(), email.strip().lower()
+        other = self.user_repo.get_by_username(username)
+        if other and other.id != user_id:
+            raise ValueError(f"Username '{username}' already exists.")
+        other = self.user_repo.get_by_email(email)
+        if other and other.id != user_id:
+            raise ValueError(f"Email '{email}' already registered.")
+        user._values.update({"username": username, "email": email, "status": status.lower()})
+        if password:
+            user._values["password_hash"] = hash_password(password)
+        user.save()
+        permission_cache.invalidate_user(user_id)
+        self.audit_repo.log_event(actor=actor, action="update_user", target_type="User", target_id=user_id, details={"username": username, "password_reset": bool(password), "status": status.lower()})
+        return user
+
+    def delete_user(self, user_id: str, actor: str = "system") -> bool:
+        """Soft-delete an account and invalidate its permission cache."""
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError(f"User ID '{user_id}' not found.")
+        user._values["status"] = "deactivated"
+        user.save()
+        permission_cache.invalidate_user(user_id)
+        self.audit_repo.log_event(actor=actor, action="delete_user", target_type="User", target_id=user_id, details={"username": user.username})
+        return True
+
+    def reset_password(self, user_id: str, password: str, actor: str = "system") -> User:
+        """Rotate a user's password without ever exposing the stored hash."""
+        if not password or len(password) < 8:
+            raise ValueError("Password must contain at least 8 characters.")
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError(f"User ID '{user_id}' not found.")
+        user._values["password_hash"] = hash_password(password)
+        user.save()
+        self.audit_repo.log_event(actor=actor, action="reset_user_password", target_type="User", target_id=user_id, details={"username": user.username})
+        return user
+
     def assign_role_to_user(self, user_id: str, role_id: str, actor: str = "system") -> bool:
         """Assign role to user and invalidate cache."""
         user = self.user_repo.get_by_id(user_id)

@@ -22,6 +22,11 @@ user_service = UserService()
 user_repo = UserRepository()
 role_repo = RoleRepository()
 
+def _public_user(user):
+    data = user.to_dict()
+    data.pop("password_hash", None)
+    return data
+
 
 class CreateUserRequest(BaseModel):
     username: str = Field(
@@ -34,10 +39,21 @@ class CreateUserRequest(BaseModel):
     password: str = Field(description="Initial password")
     first_name: str = Field(default="")
     last_name: str = Field(default="")
+    role_name: Optional[str] = None
 
 
 class UpdateUserStatusRequest(BaseModel):
     status: str = Field(description="Status: 'active', 'disabled', 'deactivated'")
+
+class UpdateUserRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=50)
+    email: str
+    password: str = ""
+    status: str = "active"
+    role_name: Optional[str] = None
+
+class ResetPasswordRequest(BaseModel):
+    password: str = Field(min_length=8)
 
 
 class AssignRoleRequest(BaseModel):
@@ -69,7 +85,11 @@ async def create_user(
             last_name=req.last_name,
             actor=actor
         )
-        return {"status": "success", "user": user.to_dict()}
+        if req.role_name:
+            role = role_repo.get_by_name(req.role_name)
+            if role:
+                user_service.assign_role_to_user(user.id, role.id, actor=actor)
+        return {"status": "success", "user": _public_user(user)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -82,7 +102,7 @@ async def list_users(
 ):
     """List users with pagination."""
     users = user_repo.find_all(limit=limit, offset=offset)
-    return [u.to_dict() for u in users]
+    return [{**_public_user(u), "roles": [role.name for role in role_repo.get_user_roles(u.id)]} for u in users]
 
 
 @router.get("/{user_id}")
@@ -96,10 +116,42 @@ async def get_user_detail(user_id: str, current_user: dict = Depends(get_current
     roles = role_repo.get_user_roles(user_id)
 
     return {
-        "user": user.to_dict(),
+        "user": _public_user(user),
         "profile": profile.to_dict() if profile else {},
         "roles": [r.to_dict() for r in roles]
     }
+
+@router.put("/{user_id}")
+async def update_user(user_id: str, req: UpdateUserRequest, current_user: dict = Depends(get_current_user)):
+    actor = current_user.get("username", "admin")
+    try:
+        user = user_service.update_user(user_id, username=req.username, email=req.email, password=req.password, status=req.status, actor=actor)
+        if req.role_name:
+            role = role_repo.get_by_name(req.role_name)
+            if role:
+                for assigned in role_repo.get_user_roles(user_id):
+                    if assigned.id != role.id:
+                        role_repo.remove_role_from_user(user_id, assigned.id)
+                user_service.assign_role_to_user(user_id, role.id, actor=actor)
+        return {"status": "success", "user": _public_user(user)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.delete("/{user_id}")
+async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    try:
+        user_service.delete_user(user_id, actor=current_user.get("username", "admin"))
+        return {"status": "success", "message": "User deactivated."}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+@router.post("/{user_id}/reset-password")
+async def reset_user_password(user_id: str, req: ResetPasswordRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        user_service.reset_password(user_id, req.password, actor=current_user.get("username", "admin"))
+        return {"status": "success", "message": "Password reset successfully."}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.patch("/{user_id}/status")
@@ -112,7 +164,7 @@ async def update_user_status(
     actor = current_user.get("username", "admin")
     try:
         user = user_service.update_user_status(user_id, req.status, actor=actor)
-        return {"status": "success", "user": user.to_dict()}
+        return {"status": "success", "user": _public_user(user)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
