@@ -20,7 +20,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import asyncpg
+try:
+    import asyncpg
+except ImportError:  # PostgreSQL support is optional for SQLite-only installs.
+    asyncpg = None
 from thinkdome.core.config import Settings, get_site_database_url
 
 logger = logging.getLogger(__name__)
@@ -121,6 +124,7 @@ CREATE TABLE IF NOT EXISTS admin_configs (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_by TEXT NOT NULL
 );
+
 """
 
 POSTGRES_SCHEMA_SQL = """
@@ -205,6 +209,7 @@ CREATE TABLE IF NOT EXISTS admin_configs (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     updated_by TEXT NOT NULL
 );
+
 """
 
 
@@ -248,6 +253,11 @@ class DatabaseService:
     async def initialize(self) -> None:
         """Initialize connection pool and declare schema (async startup)."""
         if self.is_postgres:
+            if asyncpg is None:
+                raise RuntimeError(
+                    "PostgreSQL DATABASE_URL requires the optional 'asyncpg' package. "
+                    "Install the production dependencies or use a SQLite site configuration."
+                )
             logger.info("🐘 DatabaseService: Initializing PostgreSQL backend")
             try:
                 # Start the background event loop thread

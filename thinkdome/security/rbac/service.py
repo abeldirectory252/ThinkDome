@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import json
 import logging
@@ -49,6 +50,8 @@ class UserService:
         actor: str = "system"
     ) -> User:
         """Create new User account and Profile."""
+        username = username.strip().lower()
+        email = email.strip().lower()
         if self.user_repo.get_by_username(username):
             raise ValueError(f"Username '{username}' already exists.")
         if self.user_repo.get_by_email(email):
@@ -77,6 +80,21 @@ class UserService:
             details={"username": username, "email": email}
         )
         return user
+
+    def authenticate(self, username: str, password: str) -> tuple[User, str] | None:
+        """Authenticate an active ORM user and resolve its persisted role."""
+        username = username.strip().lower()
+        user = self.user_repo.get_by_username(username)
+        if (
+            not user
+            or user.status != "active"
+            or not hmac.compare_digest(hash_password(password), user.password_hash)
+        ):
+            return None
+
+        from thinkdome.security.identity.core import select_effective_role
+        role = select_effective_role(self.role_repo.get_user_roles(user.id), username=user.username)
+        return user, role
 
     def update_user_status(self, user_id: str, status: str, actor: str = "system") -> User:
         """Enable or disable user account status."""

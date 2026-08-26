@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 from thinkdome.core.dependencies import get_auth_service, get_current_user
 from thinkdome.core.config import get_settings
 from thinkdome.security.auth.service import AuthService
+from thinkdome.security.rbac.service import UserService
 
 router = APIRouter(tags=["auth"])
+user_service = UserService()
 
 
 def _secure_cookie() -> bool:
@@ -74,39 +76,17 @@ async def login(
 ):
     """Authenticate credentials, issue short-lived JWT access token and rotating refresh token, set HTTP-only cookies."""
     username = credentials.username.strip().lower()
-    # Validate password using DB user record
-    user = auth_svc.db_service.fetch_one(
-        "SELECT username, hashed_password, salt FROM users WHERE username = ?", (username,)
-    )
-    if not user:
+    # Authentication is owned by the RBAC ORM.  Do not read the legacy
+    # ``users`` table here: CLI- and API-provisioned identities use the same
+    # model and are therefore authenticated identically.
+    authenticated = user_service.authenticate(username, credentials.password)
+    if not authenticated:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password."
         )
 
-    hashed = auth_svc._hash_password(credentials.password, user["salt"])
-    if hashed != user["hashed_password"]:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password."
-        )
-
-    # Resolve the effective role exclusively from the persisted RBAC assignment.
-    assigned_role = "AGENT_STANDARD"
-    try:
-        from thinkdome.security.repositories.user import UserRepository
-        from thinkdome.security.repositories.role import RoleRepository
-        from thinkdome.security.identity.core import select_effective_role
-        rbac_user = UserRepository().get_by_username(username)
-        assigned_role = select_effective_role(
-            RoleRepository().get_user_roles(rbac_user.id) if rbac_user else [],
-            username=username,
-        )
-    except Exception:
-        # Authentication remains valid if the optional RBAC read model is
-        # temporarily unavailable; authorization will use the persisted token
-        # role and never infer privilege from a username.
-        pass
+    rbac_user, assigned_role = authenticated
 
 
     tokens = auth_svc.create_auth_tokens(
@@ -136,7 +116,7 @@ async def login(
     )
 
     user_payload = {
-        "id": f"usr_{username}_01",
+        "id": rbac_user.id,
         "username": username,
         "role": assigned_role,
         "roles": [assigned_role]

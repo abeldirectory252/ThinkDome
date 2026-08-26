@@ -181,17 +181,16 @@ def restore_site(
     print(f"\n✓ Site '{site_name}' restored successfully.")
 
 
-# ─── Password Management via Custom ORM ─────────────────────────────────────
+# ─── Password Management ────────────────────────────────────────────────────
 
 
 def set_admin_password(site_name: str, new_password: str) -> None:
-    """Reset the Administrator password for a site using ThinkDome Custom ORM."""
+    """Reset the Administrator password for a site."""
     if len(new_password) < 6:
         raise ValueError("Password must be at least 6 characters long.")
 
     kernel = _init_kernel_for_site(site_name)
 
-    # 1. Update Custom ORM User (rbac_users)
     user = User.query().filter(username="administrator").first()
     if not user:
         user = User.query().filter(username="admin").first()
@@ -203,8 +202,7 @@ def set_admin_password(site_name: str, new_password: str) -> None:
     else:
         username = "administrator"
 
-    """Password persistence is handled by the custom ORM user model."""
-    print(f"  ✓ Administrator password updated for user '{username}' via Custom ORM")
+    print(f"  ✓ Administrator password updated for user '{username}'.")
 
 
 def set_user_password(site_name: str, identifier: str, new_password: str) -> None:
@@ -226,20 +224,23 @@ def set_user_password(site_name: str, identifier: str, new_password: str) -> Non
     user.password_hash = hashlib.sha256(new_password.encode("utf-8")).hexdigest()
     user.save()
 
-    print(f"  ✓ Password updated for user '{target_username}' via Custom ORM")
+    print(f"  ✓ Password updated for user '{target_username}'.")
 
 
-# ─── Superadmin (Administrator) Creation via Custom ORM ─────────────────────
+# ─── Superadmin (Administrator) Creation ────────────────────────────────────
 
 
 def create_superadmin(site_name: str, password: Optional[str] = None) -> None:
-    """Create the single Administrator superadmin account for a site using Custom ORM."""
+    """Create the single Administrator superadmin account for a site."""
     kernel = _init_kernel_for_site(site_name)
 
-    # Check if Administrator already exists in custom ORM
     existing_user = User.query().filter(username="administrator").first()
     if existing_user:
         if password:
+            supplied_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+            if secrets.compare_digest(existing_user.password_hash, supplied_hash):
+                print("  ✓ Administrator account already exists and is already configured with the supplied password.")
+                return
             set_admin_password(site_name, password)
             return
         print(f"  ✗ Site '{site_name}' already has an Administrator account.")
@@ -261,7 +262,6 @@ def create_superadmin(site_name: str, password: Optional[str] = None) -> None:
     email = f"administrator@{site_name}"
     hashed_pass = hashlib.sha256(password.encode("utf-8")).hexdigest()
 
-    # Create User model using custom ORM
     user = User(
         username=username,
         email=email,
@@ -270,7 +270,6 @@ def create_superadmin(site_name: str, password: Optional[str] = None) -> None:
     )
     user.save()
 
-    # Ensure SUPER_ADMIN role exists using custom ORM
     super_role = Role.query().filter(name="SUPER_ADMIN").first()
     if not super_role:
         super_role = Role(
@@ -281,13 +280,11 @@ def create_superadmin(site_name: str, password: Optional[str] = None) -> None:
         )
         super_role.save()
 
-    # Map user to superadmin role using custom ORM UserRole
     user_role = UserRole.query().filter(user_id=user.id, role_id=super_role.id).first()
     if not user_role:
         user_role = UserRole(user_id=user.id, role_id=super_role.id)
         user_role.save()
 
-    # Create UserProfile model using custom ORM
     profile = UserProfile(
         user_id=user.id,
         first_name="Site",
@@ -295,7 +292,7 @@ def create_superadmin(site_name: str, password: Optional[str] = None) -> None:
     )
     profile.save()
 
-    print(f"  ✓ Administrator superadmin created for site '{site_name}' via Custom ORM")
+    print(f"  ✓ Administrator account created for site '{site_name}'.")
     print(f"    Username : {username}")
     print(f"    Email    : {email}")
     print(f"    Role     : SUPER_ADMIN")

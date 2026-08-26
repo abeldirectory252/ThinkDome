@@ -94,7 +94,8 @@ class SandboxLifecycleService:
         role_upper = (role or "FREE").upper()
         default_ttl = 600  # 10 min default
         
-        if "ADMIN" in role_upper or role_upper in ("SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH"):
+        from thinkdome.security.identity.core import is_admin_role
+        if is_admin_role(role_upper):
             max_ttl = 86400  # 24h
         elif role_upper in ("AGENT", "AGENT_STANDARD", "LLM", "SDK"):
             max_ttl = 7200   # 2h max

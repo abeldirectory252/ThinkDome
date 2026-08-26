@@ -27,7 +27,7 @@ from thinkdome.platform.orchestration.tools import registry
 from thinkdome.security.identity.core import UserIdentity, select_effective_role
 from thinkdome.apps.sandbox.models import Sandbox
 
-_MCP_ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH", "ORCHESTRATOR", "IDE"}
+from thinkdome.security.identity.core import is_admin_role
 _MCP_SENSITIVE_KEYS = {
     "password", "passwd", "secret", "token", "api_key", "apikey", "authorization",
     "credential", "credentials", "private_key", "access_key", "refresh_token",
@@ -138,12 +138,12 @@ def get_mcp_server(
             user_sandboxes = [
                 sb for sb in all_dicts
                 if (sb.get("sandbox_id") == requested_sandbox_id or sb.get("id") == requested_sandbox_id)
-                and (sb.get("owner") == username or str(caller_role).upper() in _MCP_ADMIN_ROLES)
+                and (sb.get("owner") == username or is_admin_role(caller_role))
             ]
         else:
             user_sandboxes = [
                 sb for sb in all_dicts
-                if sb.get("owner") == username or str(caller_role).upper() in _MCP_ADMIN_ROLES
+                if sb.get("owner") == username or is_admin_role(caller_role)
             ]
 
         sandbox_id = None

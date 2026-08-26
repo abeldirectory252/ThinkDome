@@ -195,7 +195,17 @@
               <span>Sandboxes</span>
               <span id="sidebarSandboxCount" class="badge" style="margin-left:auto;font-size:10px;padding:1px 6px;background:var(--success-subtle);color:var(--success);border-radius:10px;">0 Active</span>
             </button>
+            <button class="nav-item" data-page="workspaces" onclick="navTo('workspaces')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>
+              </svg>
+              <span>Workspaces</span>
+            </button>
           </div>
+
+          <!-- Workspace-specific menus are rendered here from the selected
+               workspace's menu configuration. -->
+          <div id="workspaceMenuContainer"></div>
 
           <div class="nav-section">
             <div class="nav-group-label">Development</div>
@@ -537,6 +547,34 @@
         </section>
 
         <!-- 3. BILLING & USAGE VIEW -->
+        <section class="page hidden" id="page-workspaces">
+          <div class="page-header">
+            <div>
+              <div class="page-eyebrow">Desk</div>
+              <h1>Workspace menu</h1>
+              <p>Choose a workspace and define the grouped navigation it contributes to the sidebar.</p>
+            </div>
+          </div>
+          <div class="card" style="max-width:960px;padding:22px;">
+            <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:18px;">
+              <label style="display:grid;gap:6px;min-width:260px;">Active workspace
+                <select id="workspaceMenuSelect" onchange="setActiveWorkspaceMenu(this.value);loadWorkspaceMenuEditor()"></select>
+              </label>
+              <button class="btn btn-primary" onclick="createWorkspaceForMenu()">New workspace</button>
+            </div>
+            <p style="color:var(--fg-muted);font-size:13px;margin:0 0 14px;">Administrators define pages, their allowed roles, and the sidebar menu. The server supplies each user only the pages they may see.</p>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px;"><h3 style="margin:0;">Pages</h3><button class="btn btn-ghost" onclick="addWorkspacePage()">Add page</button></div>
+            <textarea id="workspacePagesJson" rows="14" spellcheck="false" style="width:100%;box-sizing:border-box;background:var(--surface-raised);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;font-family:var(--font-mono);font-size:12px;"></textarea>
+            <div style="display:flex;justify-content:flex-end;margin-top:10px;"><button class="btn btn-primary" onclick="saveWorkspacePages()">Save pages</button></div>
+            <h3 style="margin:24px 0 8px;">Sidebar menu</h3>
+            <textarea id="workspaceMenuJson" rows="16" spellcheck="false" style="width:100%;box-sizing:border-box;background:var(--surface-raised);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;font-family:var(--font-mono);font-size:12px;"></textarea>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
+              <button class="btn btn-ghost" onclick="loadWorkspaceMenuEditor()">Discard changes</button>
+              <button class="btn btn-primary" onclick="saveWorkspaceMenu()">Save menu</button>
+            </div>
+          </div>
+        </section>
+
         <section class="page hidden" id="page-billing">
           <div class="page-head">
             <div class="page-title">
@@ -3101,7 +3139,7 @@
   <script src="assets/js/sandboxes.js?v=21"></script>
   <script src="assets/js/editor.js?v=21"></script>
   <script src="assets/js/terminal.js?v=29"></script>
-  <script src="assets/js/app.js?v=20"></script>
+  <script src="assets/js/app.js?v=26"></script>
 </body>
 
 </html>

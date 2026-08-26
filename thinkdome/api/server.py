@@ -51,6 +51,8 @@ async def lifespan(app: FastAPI):
     # only after the application database service has been initialized.
     from thinkdome.security.rbac.schema import initialize_rbac_schema
     initialize_rbac_schema(app.state.db_service)
+    from thinkdome.platform.storage.workspaces.schema import initialize_workspace_schema
+    initialize_workspace_schema()
 
     # Control-plane state is persisted through the custom ORM.  This service is
     # deliberately independent from the local execution backend so public API

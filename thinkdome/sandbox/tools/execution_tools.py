@@ -7,6 +7,7 @@ from typing import Any, Optional
 from thinkdome.platform.orchestration.tools import BaseTool, register_tool, get_context
 from thinkdome.sandbox.core.models import ExecuteRequest
 from thinkdome.platform.orchestration.orchestrator_models import RunCodeInput, ShellExecInput
+from thinkdome.security.identity.core import is_admin_role
 
 
 def _owner(ctx) -> str:
@@ -49,7 +50,7 @@ class RunCodeTool(BaseTool):
             ctx.credential_vault
             and owner
             and ctx.sandbox_id
-            and str(ctx.caller_role or "").upper() in {"ADMIN", "ORCH", "IDE"}
+            and is_admin_role(ctx.caller_role)
         ):
             vault_secrets = ctx.credential_vault.inject_into_env(owner, ctx.sandbox_id)
             env_vars.update(vault_secrets)

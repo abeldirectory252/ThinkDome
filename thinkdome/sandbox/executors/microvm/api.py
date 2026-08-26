@@ -16,11 +16,11 @@ from thinkdome.sandbox.executors.microvm import MicroVMExecutor, VMStatus
 
 router = APIRouter(tags=["microvm"], dependencies=[Depends(get_current_user)])
 
-_MICROVM_ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN", "ORCH", "ORCHESTRATOR", "AGENT_ADMIN"}
+from thinkdome.security.identity.core import is_admin_role
 
 
 def _require_microvm_admin(user: dict) -> None:
-    if str(user.get("role", "")).upper() not in _MICROVM_ADMIN_ROLES:
+    if not is_admin_role(user.get("role")):
         raise HTTPException(status_code=403, detail="MicroVM management requires an administrator role")
 
 

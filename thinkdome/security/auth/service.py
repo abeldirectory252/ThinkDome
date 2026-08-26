@@ -396,7 +396,8 @@ class AuthService:
             except Exception:
                 # Fail closed during RBAC outages: preserve authentication for
                 # basic access, but never trust a cached privileged JWT claim.
-                if str(role).upper() in {"ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH", "ORCHESTRATOR", "IDE"}:
+                from thinkdome.security.identity.core import is_admin_role
+                if is_admin_role(role):
                     role = "AGENT_STANDARD"
             return {
                 "username": username,

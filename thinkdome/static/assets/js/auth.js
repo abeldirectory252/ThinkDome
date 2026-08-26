@@ -111,7 +111,9 @@ async function enterApp(e) {
             
             // Set logged in session flags in local storage
             localStorage.setItem('thinkdome_logged_in', 'true');
-            const assignedRole = (data && data.user && data.user.role) || (data && data.role) || (username.toLowerCase().includes('admin') ? 'SUPER_ADMIN' : 'AGENT_STANDARD');
+            // The effective role is issued by the server after RBAC lookup.
+            // Never derive a role from a client-side username convention.
+            const assignedRole = (data && data.user && data.user.role) || (data && data.role) || 'AGENT_STANDARD';
             localStorage.setItem('thinkdome_user_role', assignedRole);
 
             const sessionToken = data && (data.session_token || data.access_token);
@@ -136,6 +138,7 @@ async function enterApp(e) {
                 // Trigger initialization/rendering functions in app.js if they exist
                 if (typeof switchProject === 'function') switchProject('demo');
                 if (typeof renderAllViews === 'function') renderAllViews();
+                if (typeof refreshWorkspaceMenu === 'function') refreshWorkspaceMenu();
             } else {
                 // Multi-page page redirect to main dashboard
                 window.location.href = 'index.html';
@@ -195,6 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Trigger initialization/rendering in app.js if they are loaded
             if (typeof switchProject === 'function') switchProject('demo');
             if (typeof renderAllViews === 'function') renderAllViews();
+            if (typeof refreshWorkspaceMenu === 'function') refreshWorkspaceMenu();
         } else {
             // Logged in but viewing standalone login, redirect to dashboard
             window.location.href = 'index.html';

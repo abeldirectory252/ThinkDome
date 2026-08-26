@@ -54,7 +54,8 @@ def _public_meta(meta):
 
 @router.post("/provision")
 async def provision_filebox(req: FileBoxProvisionRequest, user: dict = Depends(get_current_user)):
-    if str(user.get("role", "")).upper() not in {"ADMIN", "ADMINISTRATOR", "SUPERADMIN"}:
+    from thinkdome.security.identity.core import is_admin_role
+    if not is_admin_role(user.get("role")):
         raise HTTPException(status_code=403, detail="Only administrators can provision another user's FileBox.")
     owner = req.username.strip().lower()
     service = _service()

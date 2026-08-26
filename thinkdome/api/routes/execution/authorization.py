@@ -3,7 +3,7 @@
 from fastapi import HTTPException, Request, status
 
 
-_ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN", "ORCHESTRATOR", "ORCH", "IDE", "AGENT_ADMIN"}
+from thinkdome.security.identity.core import is_admin_role
 
 
 def authorize_sandbox_access(request: Request, sandbox_id: str, user: dict):
@@ -13,7 +13,7 @@ def authorize_sandbox_access(request: Request, sandbox_id: str, user: dict):
     attacker-controlled object references and must be tenant-scoped here.
     """
     role = str(user.get("role", "")).upper()
-    if role in _ADMIN_ROLES:
+    if is_admin_role(role):
         return None
     if user.get("token_type") == "sandbox_access" and user.get("sandbox_id") != sandbox_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sandbox not found")

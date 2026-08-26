@@ -271,6 +271,8 @@ async def startup_event() -> None:
     # 3. Initialize original DatabaseService (bound dynamically to Kernel SQLite)
     app.state.db_service = DatabaseService(settings)
     await app.state.db_service.initialize()
+    from thinkdome.platform.storage.workspaces.schema import initialize_workspace_schema
+    initialize_workspace_schema()
 
     # 4. Initialize TaskBroker for RabbitMQ tasks
     from thinkdome.platform.tasks.rabbitmq import TaskBroker

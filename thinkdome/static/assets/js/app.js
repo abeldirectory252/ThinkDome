@@ -1,20 +1,6 @@
 // static/js/app.js
 
 /* =================== SIDEBAR & PAGES SWITCHING =================== */
-const ROLE_PAGE_ACCESS = Object.freeze({
-    SUPER_ADMIN: new Set(['dashboard', 'sandboxes', 'console', 'snapshots', 'mcp', 'webhooks', 'limits', 'apikeys', 'audit', 'users', 'roles', 'members', 'account', 'general', 'billing']),
-    ADMIN: new Set(['dashboard', 'sandboxes', 'console', 'snapshots', 'mcp', 'webhooks', 'limits', 'apikeys', 'audit', 'users', 'roles', 'members', 'account', 'general', 'billing']),
-    AUDITOR: new Set(['dashboard', 'snapshots', 'audit', 'account']),
-    FINANCE: new Set(['dashboard', 'billing', 'audit', 'account']),
-    AGENT_STANDARD: new Set(['dashboard', 'sandboxes', 'console', 'snapshots', 'mcp', 'account']),
-});
-
-function allowedPagesForRole(role) {
-    const normalized = (role || 'AGENT_STANDARD').toUpperCase();
-    if (normalized.includes('ADMIN')) return ROLE_PAGE_ACCESS.ADMIN;
-    return ROLE_PAGE_ACCESS[normalized] || ROLE_PAGE_ACCESS.AGENT_STANDARD;
-}
-
 function updateSidebarSandboxCount() {
     const badge = document.getElementById('sidebarSandboxCount');
     if (!badge) return;
@@ -25,20 +11,16 @@ function updateSidebarSandboxCount() {
 window.updateSidebarSandboxCount = updateSidebarSandboxCount;
 
 function canViewSandbox(sandbox) {
-    const role = (localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD').toUpperCase();
-    if (role.includes('ADMIN')) return true;
-    const username = (localStorage.getItem('thinkdome_username') || '').trim().toLowerCase();
-    const owner = String(sandbox?.owner || '').trim().toLowerCase();
-    return Boolean(username && owner && owner === username);
+    // Sandbox authorization is enforced and filtered by the server API.
+    // The browser must not make an additional role/owner access decision.
+    return true;
 }
 window.canViewSandbox = canViewSandbox;
 
 function navTo(pageId) {
-    const stateRole = localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD';
-    const allowedPages = allowedPagesForRole(stateRole);
-    if (!allowedPages.has(pageId)) {
-        pageId = 'dashboard';
-    }
+    // Visibility and authorization are resolved by the server navigation
+    // response.  The client only switches to a page it has already rendered.
+    if (!document.getElementById('page-' + pageId)) return;
     state.activePage = pageId;
     document.querySelectorAll('.nav-item').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.page === pageId);
@@ -72,8 +54,164 @@ function navTo(pageId) {
         loadNetworkAudit();
     } else if (pageId === 'account') {
         loadAccountSettings();
+    } else if (pageId === 'workspaces') {
+        loadWorkspaceMenuEditor();
     }
 }
+
+/* =================== WORKSPACE DESK / DYNAMIC MENU =================== */
+function workspaceToken() { return localStorage.getItem('thinkdome_token') || ''; }
+async function workspaceApi(path, options = {}) {
+    const result = await fetch(path, { credentials: 'same-origin', ...options, headers: {
+        'Content-Type': 'application/json', Authorization: `Bearer ${workspaceToken()}`, ...(options.headers || {})
+    }});
+    const data = await result.json().catch(() => ({}));
+    if (!result.ok) throw new Error(data.detail || 'Workspace request failed');
+    return data;
+}
+
+function workspaceMenuSelectId() { return localStorage.getItem('thinkdome_active_workspace_id') || ''; }
+function setActiveWorkspaceMenu(id) { localStorage.setItem('thinkdome_active_workspace_id', id); }
+
+function renderWorkspaceMenu(menu) {
+    const container = document.getElementById('workspaceMenuContainer');
+    if (!container) return;
+    container.replaceChildren();
+    // Built-in links are not a second source of navigation policy.  The Desk
+    // response is the single source of truth for what appears in the sidebar.
+    document.querySelectorAll('#sidebarNavContainer > .nav-section').forEach(section => { section.hidden = true; });
+    // `menu` is a server-resolved view model.  The browser does not validate
+    // URLs, guess routes, or decide which configured entries are usable.
+    (menu?.menu || []).forEach(section => {
+        const sectionEl = document.createElement('div'); sectionEl.className = 'nav-section workspace-nav-section';
+        const heading = document.createElement('div'); heading.className = 'nav-group-label'; heading.textContent = section.label;
+        sectionEl.appendChild(heading);
+        (section.items || []).forEach(item => {
+            const entry = document.createElement(item.action === 'external' ? 'a' : 'button');
+            entry.className = 'nav-item workspace-nav-item';
+            entry.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg>';
+            const text = document.createElement('span'); text.textContent = item.label; entry.appendChild(text);
+            if (item.action === 'external') {
+                entry.href = item.href; entry.target = '_blank'; entry.rel = 'noopener noreferrer'; entry.dataset.workspaceExternal = 'true';
+            } else { entry.type = 'button'; entry.dataset.page = item.page; entry.addEventListener('click', () => navTo(item.page)); }
+            sectionEl.appendChild(entry);
+        });
+        if (sectionEl.querySelector('.nav-item')) container.appendChild(sectionEl);
+    });
+    applyRoleBasedUINavigation();
+}
+
+function renderWorkspacePages(pages) {
+    document.querySelectorAll('[data-workspace-page="true"]').forEach(page => page.remove());
+    const main = document.querySelector('.main');
+    if (!main) return;
+    (pages || []).forEach(page => {
+        const section = document.createElement('section');
+        section.className = 'page hidden'; section.id = `page-${page.page_id}`; section.dataset.workspacePage = 'true';
+        const header = document.createElement('div'); header.className = 'page-header';
+        const title = document.createElement('h1'); title.textContent = page.title; header.appendChild(title); section.appendChild(header);
+        const content = document.createElement('div'); content.style.cssText = 'display:grid;gap:14px;max-width:1000px;';
+        (page.blocks || []).forEach(block => {
+            const card = document.createElement('div'); card.className = 'card'; card.style.padding = '20px';
+            if (block.type === 'metric') { const value = document.createElement('div'); value.style.cssText = 'font-size:30px;font-weight:700;color:var(--accent);'; value.textContent = block.value; card.appendChild(value); }
+            if (block.title) { const heading = document.createElement(block.type === 'heading' ? 'h2' : 'h3'); heading.textContent = block.title; card.appendChild(heading); }
+            if (block.body) { const body = document.createElement('p'); body.style.color = 'var(--fg-muted)'; body.textContent = block.body; card.appendChild(body); }
+            content.appendChild(card);
+        });
+        section.appendChild(content); main.appendChild(section);
+    });
+}
+
+async function refreshWorkspaceMenu() {
+    const id = workspaceMenuSelectId();
+    // Before an administrator creates/selects the first workspace, retain
+    // the builder entry so that the Desk can be configured.
+    if (!id) return;
+    try {
+        const [menu, pages] = await Promise.all([
+            workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`),
+            workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`),
+        ]);
+        renderWorkspacePages(pages.pages); renderWorkspaceMenu(menu);
+    } catch (_) { renderWorkspacePages([]); renderWorkspaceMenu({ menu: [] }); }
+}
+
+async function loadWorkspaceMenuEditor() {
+    const select = document.getElementById('workspaceMenuSelect');
+    try {
+        const list = await workspaceApi('/v1/workspaces');
+        const workspaces = list.workspaces || [];
+        if (select) {
+            const current = workspaceMenuSelectId();
+            select.replaceChildren(...workspaces.map(ws => new Option(ws.name, ws.workspace_id, false, ws.workspace_id === current)));
+            const id = select.value || current || workspaces[0]?.workspace_id || '';
+            if (id) { setActiveWorkspaceMenu(id); select.value = id; }
+        }
+        const id = workspaceMenuSelectId();
+        if (!id) return;
+        const menu = await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`);
+        const pages = await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`);
+        const editor = document.getElementById('workspaceMenuJson');
+        if (editor) editor.value = JSON.stringify({ sections: menu.config || [] }, null, 2);
+        const pagesEditor = document.getElementById('workspacePagesJson');
+        if (pagesEditor) pagesEditor.value = JSON.stringify({ pages: pages.pages || [] }, null, 2);
+        await refreshWorkspaceMenu();
+    } catch (error) { if (typeof showToast === 'function') showToast(error.message, 'error'); }
+}
+
+async function createWorkspaceForMenu() {
+    const name = window.prompt('Workspace name'); if (!name) return;
+    try {
+        const ws = await workspaceApi('/v1/workspaces', { method: 'POST', body: JSON.stringify({ name }) });
+        setActiveWorkspaceMenu(ws.workspace_id);
+        await loadWorkspaceMenuEditor();
+    } catch (error) { if (typeof showToast === 'function') showToast(error.message, 'error'); }
+}
+
+async function saveWorkspacePages() {
+    const id = workspaceMenuSelectId(); const editor = document.getElementById('workspacePagesJson');
+    if (!id || !editor) return;
+    try {
+        const pages = JSON.parse(editor.value);
+        if (!Array.isArray(pages.pages)) throw new Error('Pages JSON needs a pages array.');
+        await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`, { method: 'PUT', body: JSON.stringify({ pages: pages.pages }) });
+        await refreshWorkspaceMenu();
+        if (typeof showToast === 'function') showToast('Workspace pages saved.', 'success');
+    } catch (error) { if (typeof showToast === 'function') showToast(error.message || 'Invalid pages JSON.', 'error'); }
+}
+
+function addWorkspacePage() {
+    const title = window.prompt('Page title'); if (!title) return;
+    const roles = window.prompt('Allowed roles (comma-separated; leave blank for everyone)', '') || '';
+    const editor = document.getElementById('workspacePagesJson'); if (!editor) return;
+    try {
+        const config = JSON.parse(editor.value || '{"pages":[]}');
+        const pageId = title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        if (!pageId) throw new Error('Choose a title containing letters or numbers.');
+        if ((config.pages || []).some(page => page.page_id === pageId)) throw new Error('A page with that title already exists.');
+        config.pages = config.pages || [];
+        config.pages.push({ page_id: pageId, title, allowed_roles: roles.split(',').map(role => role.trim()).filter(Boolean), blocks: [{ type: 'heading', title }] });
+        editor.value = JSON.stringify(config, null, 2);
+    } catch (error) { if (typeof showToast === 'function') showToast(error.message, 'error'); }
+}
+
+async function saveWorkspaceMenu() {
+    const id = workspaceMenuSelectId(); const editor = document.getElementById('workspaceMenuJson');
+    if (!id || !editor) return;
+    try {
+        const menu = JSON.parse(editor.value);
+        if (!Array.isArray(menu.sections)) throw new Error('Menu JSON needs a sections array.');
+        await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`, { method: 'PUT', body: JSON.stringify({ sections: menu.sections }) });
+        await refreshWorkspaceMenu();
+        if (typeof showToast === 'function') showToast('Workspace menu saved.', 'success');
+    } catch (error) { if (typeof showToast === 'function') showToast(error.message || 'Invalid menu JSON.', 'error'); }
+}
+window.loadWorkspaceMenuEditor = loadWorkspaceMenuEditor;
+window.createWorkspaceForMenu = createWorkspaceForMenu;
+window.saveWorkspaceMenu = saveWorkspaceMenu;
+window.saveWorkspacePages = saveWorkspacePages;
+window.addWorkspacePage = addWorkspacePage;
+window.setActiveWorkspaceMenu = setActiveWorkspaceMenu;
 
 async function loadAccountSettings() {
     const result = await window.API?.getCurrentUser?.();
@@ -194,27 +332,7 @@ function applyRoleBasedUINavigation(role, username) {
     if (rolePillEl) rolePillEl.lastChild.textContent = ` ${activeRole}`;
     if (adminBannerEl) adminBannerEl.hidden = !(isAdminRole(activeRole));
 
-    // Show/Hide Nav Buttons according to Role Privileges
-    const allowedPages = allowedPagesForRole(activeRole);
     document.documentElement.dataset.thinkdomeRole = activeRole;
-
-    document.querySelectorAll('.nav-item').forEach(btn => {
-        const page = btn.dataset.page;
-        btn.style.display = allowedPages.has(page) ? 'flex' : 'none';
-    });
-    document.querySelectorAll('.nav-section').forEach(section => {
-        const hasVisibleChild = Array.from(section.querySelectorAll('.nav-item'))
-            .some(item => item.style.display !== 'none');
-        section.hidden = !hasVisibleChild;
-    });
-
-    // Hide inaccessible content as well as its navigation entry. This keeps
-    // direct DOM access from presenting an administrator page to a standard
-    // agent and makes the role boundary visible immediately after login.
-    document.querySelectorAll('.page[id^="page-"]').forEach(page => {
-        const pageId = page.id.slice('page-'.length);
-        if (!allowedPages.has(pageId)) page.classList.add('hidden');
-    });
 }
 
 function isAdminRole(role) {
@@ -258,6 +376,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (typeof loadMcpTools === 'function') {
             loadMcpTools();
         }
+        refreshWorkspaceMenu();
         renderAllViews();
     }
 });

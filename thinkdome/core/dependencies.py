@@ -99,10 +99,9 @@ async def get_current_user(
 async def get_current_admin(
     current_user: dict = Depends(get_current_user)
 ) -> dict:
-    from thinkdome.security.identity.core import ADMIN_ROLES
+    from thinkdome.security.identity.core import is_admin_role
     role = str(current_user.get("role", "")).upper()
-    username = str(current_user.get("username", "")).lower()
-    if role not in ADMIN_ROLES and username not in ("admin", "administrator"):
+    if not is_admin_role(role):
         from fastapi import HTTPException, status
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

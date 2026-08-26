@@ -40,12 +40,16 @@ class Field:
         default: Any = None,
         choices: Optional[List[Any]] = None,
         primary_key: bool = False,
+        indexed: bool = False,
+        unique: bool = False,
     ) -> None:
         self.name = ""
         self.required = required
         self.default = default
         self.choices = choices
         self.primary_key = primary_key
+        self.indexed = indexed
+        self.unique = unique
 
     def __get__(self, instance: Optional[Model], owner: Type[Model]) -> Any:
         if instance is None:
@@ -60,6 +64,11 @@ class Field:
 
 class StringField(Field):
     """Textual field descriptor."""
+    pass
+
+
+class TextField(Field):
+    """Unbounded text field, used for structured JSON owned by the ORM."""
     pass
 
 
@@ -139,7 +148,14 @@ class Query:
             stmt = stmt.where(table.c.is_deleted == False)
 
         for key, val in self.filters.items():
-            if key in table.c:
+            if key.endswith("__in") and key[:-4] in table.c:
+                # Keep set-based reads inside the ORM instead of requiring
+                # repositories to issue one lookup per related record.
+                values = tuple(val)
+                if not values:
+                    return []
+                stmt = stmt.where(table.c[key[:-4]].in_(values))
+            elif key in table.c:
                 stmt = stmt.where(table.c[key] == val)
 
         if self._limit is not None:
@@ -195,6 +211,8 @@ class ModelMetaclass(type):
             col_type: Any = String
             if isinstance(fval, IntegerField):
                 col_type = Integer
+            elif isinstance(fval, TextField):
+                col_type = Text
             elif isinstance(fval, FloatField):
                 col_type = Float
             elif isinstance(fval, BooleanField):
@@ -206,6 +224,8 @@ class ModelMetaclass(type):
                     col_type,
                     nullable=not fval.required,
                     default=fval.default,
+                    index=fval.indexed,
+                    unique=fval.unique,
                 )
             )
 

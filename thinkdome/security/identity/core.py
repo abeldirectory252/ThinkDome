@@ -85,6 +85,13 @@ ROLE_IDE = Role.IDE.value
 ROLE_WEB = Role.WEB.value
 
 ADMIN_ROLES = {Role.SUPER_ADMIN.value, Role.ENTERPRISE_ADMIN.value, Role.ADMIN.value, Role.ORCH.value, Role.IDE.value}
+ADMIN_ROLE_ALIASES = {"ORCHESTRATOR", "AGENT_ADMIN"}
+
+
+def is_admin_role(role: Optional[str]) -> bool:
+    """Return whether a persisted role grants administrative access."""
+    normalized = str(role or "").upper()
+    return normalized in ADMIN_ROLES or normalized in ADMIN_ROLE_ALIASES
 # No non-admin identity is globally trusted.  Sandboxes must be owned by the
 # authenticated username/key or accessed through an explicit admin role.
 GLOBAL_SANDBOX_OWNERS: set[str] = set()

@@ -15,8 +15,8 @@ class User(Model):
     """User account entity."""
     __tablename__ = "rbac_users"
 
-    username = StringField(required=True)
-    email = StringField(required=True)
+    username = StringField(required=True, indexed=True, unique=True)
+    email = StringField(required=True, indexed=True, unique=True)
     password_hash = StringField(required=True)
     status = SelectField(choices=["active", "disabled", "deactivated", "pending"], default="active")
     last_login = StringField()
@@ -39,7 +39,7 @@ class Role(Model):
     """Dynamic Role entity supporting hierarchy."""
     __tablename__ = "rbac_roles"
 
-    name = StringField(required=True)
+    name = StringField(required=True, indexed=True, unique=True)
     description = StringField(default="")
     parent_role_id = StringField()
     is_active = BooleanField(default=True)
@@ -67,8 +67,8 @@ class UserRole(Model):
     """Many-to-Many mapping between User and Role."""
     __tablename__ = "rbac_user_roles"
 
-    user_id = StringField(required=True)
-    role_id = StringField(required=True)
+    user_id = StringField(required=True, indexed=True)
+    role_id = StringField(required=True, indexed=True)
 
 
 class RolePermission(Model):

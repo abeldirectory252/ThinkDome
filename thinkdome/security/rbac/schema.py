@@ -21,6 +21,12 @@ def initialize_rbac_schema(db: DatabaseService) -> None:
         if not kernel.initialized:
             kernel.initialize()
         Base.metadata.create_all(kernel.db_engine)
+        # ``create_all`` does not add a newly-declared index to an existing
+        # table. Create ORM metadata indexes explicitly, with checkfirst,
+        # so upgrades receive the same lookup optimizations as fresh sites.
+        for table in ("rbac_users", "rbac_roles", "rbac_user_roles"):
+            for index in Base.metadata.tables[table].indexes:
+                index.create(kernel.db_engine, checkfirst=True)
         logger.info("Enterprise RBAC Schema tables verified and initialized via ThinkDome ORM.")
     except Exception as e:
         logger.warning(f"Failed to initialize schema via Kernel engine: {e}. Executing table creation on DB service.")

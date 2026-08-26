@@ -74,7 +74,8 @@ async def monitor_websocket(websocket: WebSocket):
     token = websocket.cookies.get("session_token")
     auth_service = getattr(websocket.app.state, "auth_service", None)
     identity = auth_service.verify_token(token) if token and auth_service else None
-    if not identity or str(identity.get("role", "")).upper() not in {"ADMIN", "SUPER_ADMIN", "ORCH", "ORCHESTRATOR", "IDE"}:
+    from thinkdome.security.identity.core import is_admin_role
+    if not identity or not is_admin_role(identity.get("role")):
         await websocket.close(code=1008, reason="Unauthorized")
         return
 

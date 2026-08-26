@@ -27,12 +27,10 @@ class RoleRepository(BaseRepository[Role]):
         """Fetch all active Role entities assigned to a user."""
         mappings = UserRole.query().filter(user_id=user_id).all()
         role_ids = [m.role_id for m in mappings]
-        roles = []
-        for rid in role_ids:
-            r = self.get_by_id(rid)
-            if r and r._values.get("is_active", True):
-                roles.append(r)
-        return roles
+        if not role_ids:
+            return []
+        # One set-based ORM query replaces an N+1 role lookup sequence.
+        return [role for role in Role.query().filter(id__in=role_ids).all() if role.is_active]
 
     def assign_role_to_user(self, user_id: str, role_id: str) -> UserRole:
         """Create mapping linking user to role."""

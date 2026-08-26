@@ -37,7 +37,8 @@ class PermissionEvaluator:
         # ── Level 1: Super Admin check ───────────────────────────────────────
         user_roles = self.role_repo.get_user_roles(user_id)
         role_names = {r.name.upper() for r in user_roles}
-        if "SUPER_ADMIN" in role_names or "ADMIN" in role_names or user.username.lower() in ("admin", "administrator"):
+        from thinkdome.security.identity.core import is_admin_role
+        if any(is_admin_role(role_name) for role_name in role_names):
             effective_perms.add("*")
             permission_cache.set(user_id, effective_perms)
             return effective_perms
