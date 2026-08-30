@@ -216,13 +216,21 @@ class SystemProvisioner:
         runtimes: Dict[str, Dict] = {}
 
         try:
-            import docker
-            client = docker.from_env()
-            if client.ping():
-                docker_connected = True
-                info = client.info()
-                docker_version = info.get("ServerVersion", "OK")
-                runtimes = info.get("Runtimes", {})
+            if self.settings.EXECUTOR_CONTROL_URL or self.settings.DEPLOYMENT_ENV.lower() in ("production", "staging"):
+                from thinkdome.sandbox.executors.docker.client import DockerExecutorClient
+                ex_client = DockerExecutorClient(self.settings)
+                health = asyncio.run(ex_client.health_check())
+                if health.status == "healthy":
+                    docker_connected = True
+                    docker_version = "OK (Isolated Executor Service)"
+            else:
+                import docker
+                client = docker.from_env()
+                if client.ping():
+                    docker_connected = True
+                    info = client.info()
+                    docker_version = info.get("ServerVersion", "OK")
+                    runtimes = info.get("Runtimes", {})
         except Exception:
             pass
 

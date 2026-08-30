@@ -134,6 +134,34 @@ class Settings(BaseSettings):
         jwt_secret = self.JWT_SECRET_KEY or self.SECRET_KEY
         if not jwt_secret or len(jwt_secret) < 32:
             raise RuntimeError("production JWT signing secret must be configured with at least 32 characters")
+        self.validate_docker_control_plane_boundary()
+
+    def validate_docker_control_plane_boundary(self) -> None:
+        """Enforce DIND-002 least-privilege boundary rules."""
+        if self.DEPLOYMENT_ENV.lower() in {"production", "staging"}:
+            if self.DOCKER_CERT_PATH and os.path.exists(os.path.join(self.DOCKER_CERT_PATH, "cert.pem")):
+                raise RuntimeError(
+                    "Production Security Invariant Violation (DIND-002): Docker TLS certificates mounted in "
+                    "API/worker service. Only the dedicated executor control-plane service may mount "
+                    "dind-certs. Remove dind-certs volume and configure EXECUTOR_CONTROL_URL."
+                )
+            if not self.EXECUTOR_CONTROL_URL:
+                raise RuntimeError(
+                    "Production Security Invariant Violation (DIND-002): EXECUTOR_CONTROL_URL is missing. "
+                    "Public API and worker services must communicate with Docker daemon strictly via "
+                    "the dedicated executor control-plane service."
+                )
+            if self.DOCKER_HOST.startswith(("unix://", "npipe://")):
+                raise RuntimeError(
+                    "Production Docker execution must use an externally managed authenticated daemon; "
+                    "local Docker sockets are forbidden."
+                )
+            if not self.EXECUTOR_CONTROL_AUTH_TOKEN or len(self.EXECUTOR_CONTROL_AUTH_TOKEN) < 32:
+                raise RuntimeError(
+                    "Production Security Invariant Violation (DIND-002): EXECUTOR_CONTROL_AUTH_TOKEN is missing "
+                    "or fewer than 32 characters. Strong service authentication is mandatory for executor control plane communication."
+                )
+
     # Comma-separated origins. Empty disables cross-origin browser requests;
     # same-origin dashboard traffic requires no CORS exception.
     CORS_ALLOW_ORIGINS: str = ""
@@ -156,10 +184,17 @@ class Settings(BaseSettings):
     EXECUTOR_BACKEND_USE_FALLBACK: bool = False
     EXECUTOR_IMAGE: str = "thinkdome-executor:latest"
 
+    # Dedicated Executor Control Plane Service Settings (DIND-002)
+    EXECUTOR_CONTROL_URL: Optional[str] = None  # e.g. "http://thinkdome-docker-executor:8200"
+    EXECUTOR_CONTROL_AUTH_TOKEN: Optional[str] = None  # Shared secret token / HMAC key for internal service auth
+    EXECUTOR_CONTROL_TIMEOUT_SEC: float = Field(default=30.0, ge=1.0, le=300.0)
+    EXECUTOR_CONTROL_MAX_PAYLOAD_BYTES: int = Field(default=1_048_576, ge=1024, le=16_777_216)
+    EXECUTOR_CONTROL_ALLOWED_OPERATIONS: str = "create,start,exec,exec_stream,stop,restart,destroy,inspect,logs,copy_in,copy_out,cleanup,pool_acquire,pool_release,metrics"
+
     # Docker backend settings
     DOCKER_HOST: str = "unix:///var/run/docker.sock"  # Use tcp://localhost:2376 for DinD sidecar
     DOCKER_TLS_VERIFY: bool = False                    # True when using DinD with mutual TLS
-    DOCKER_CERT_PATH: Optional[str] = None             # Path to TLS certs for DinD
+    DOCKER_CERT_PATH: Optional[str] = None             # Path to TLS certs for DinDnD
 
     # Kubernetes backend settings
     K8S_NAMESPACE: str = "thinkdome-sandboxes"

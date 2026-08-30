@@ -55,7 +55,8 @@ class ControlPlaneLifecycle:
             request.organization_id, "create_sandbox", idempotency_key
         )
         if existing:
-            if existing.project_id != request.project_id or existing.resource_id != request.sandbox_id:
+            existing_res_id = getattr(existing, "resource_id", getattr(existing, "sandbox_id", None))
+            if getattr(existing, "project_id", None) != request.project_id or existing_res_id != request.sandbox_id:
                 raise IdempotencyConflict("idempotency key belongs to another project or sandbox")
             payload = json.loads(existing.response_json)
             return ProvisionedSandbox(**payload)

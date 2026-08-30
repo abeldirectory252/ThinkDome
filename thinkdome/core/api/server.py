@@ -326,26 +326,31 @@ async def startup_event() -> None:
 
     docker_client = None
     if settings.EXECUTOR_BACKEND.lower() in ("docker", "hybrid", "microvm"):
-        try:
-            import docker
-            if settings.DOCKER_TLS_VERIFY and settings.DOCKER_CERT_PATH:
-                from docker.tls import TLSConfig
-                tls_config = TLSConfig(
-                    client_cert=(
-                        os.path.join(settings.DOCKER_CERT_PATH, 'cert.pem'),
-                        os.path.join(settings.DOCKER_CERT_PATH, 'key.pem')
-                    ),
-                    ca_cert=os.path.join(settings.DOCKER_CERT_PATH, 'ca.pem'),
-                    verify=True
-                )
-                docker_client = docker.DockerClient(
-                    base_url=settings.DOCKER_HOST,
-                    tls=tls_config
-                )
-            else:
-                docker_client = docker.DockerClient(base_url=settings.DOCKER_HOST)
-        except Exception as e:
-            logger.warning(f"Could not connect to Docker client: {e}")
+        if settings.EXECUTOR_CONTROL_URL or settings.DEPLOYMENT_ENV.lower() in ("production", "staging"):
+            from thinkdome.sandbox.executors.docker.client import DockerExecutorClient, DockerClientShim
+            executor_client = DockerExecutorClient(settings)
+            docker_client = DockerClientShim(executor_client)
+        else:
+            try:
+                import docker
+                if settings.DOCKER_TLS_VERIFY and settings.DOCKER_CERT_PATH:
+                    from docker.tls import TLSConfig
+                    tls_config = TLSConfig(
+                        client_cert=(
+                            os.path.join(settings.DOCKER_CERT_PATH, 'cert.pem'),
+                            os.path.join(settings.DOCKER_CERT_PATH, 'key.pem')
+                        ),
+                        ca_cert=os.path.join(settings.DOCKER_CERT_PATH, 'ca.pem'),
+                        verify=True
+                    )
+                    docker_client = docker.DockerClient(
+                        base_url=settings.DOCKER_HOST,
+                        tls=tls_config
+                    )
+                else:
+                    docker_client = docker.DockerClient(base_url=settings.DOCKER_HOST)
+            except Exception as e:
+                logger.warning(f"Could not connect to Docker client: {e}")
 
     app.state.pool_manager = PoolManager(settings, docker_client)
     app.state.security_scanner = SecurityScanner()

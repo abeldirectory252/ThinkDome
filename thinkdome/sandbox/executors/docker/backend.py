@@ -28,13 +28,27 @@ from thinkdome.sandbox.security.runtime_guard import validate_secure_runtime_on_
 logger = logging.getLogger(__name__)
 
 
+from thinkdome.sandbox.executors.docker.client import DockerExecutorClient, DockerClientShim
+
 class DockerBackend(ExecutorBackend):
     """Docker-based execution sandbox backend."""
 
-    def __init__(self, settings: Settings, client: Optional[docker.DockerClient] = None) -> None:
+    def __init__(self, settings: Settings, client: Optional[Any] = None) -> None:
         self.settings = settings
-        self.client = client
-        self.network_policy = DockerSandboxPolicy(client) if client else None
+        if settings.EXECUTOR_CONTROL_URL or isinstance(client, (DockerExecutorClient, DockerClientShim)):
+            if isinstance(client, DockerClientShim):
+                self.remote_client = client.executor_client
+                self.client = client
+            elif isinstance(client, DockerExecutorClient):
+                self.remote_client = client
+                self.client = DockerClientShim(client)
+            else:
+                self.remote_client = DockerExecutorClient(settings)
+                self.client = DockerClientShim(self.remote_client)
+        else:
+            self.remote_client = None
+            self.client = client
+        self.network_policy = DockerSandboxPolicy(self.client) if self.client else None
         self._runtime_validation_lock = threading.Lock()
         self._runtime_validated = False
 
@@ -58,6 +72,15 @@ class DockerBackend(ExecutorBackend):
         network_enabled: bool,
         gpu_count: int = 0,
     ) -> SandboxHandle:
+        if self.remote_client:
+            return await self.remote_client.create_sandbox(
+                sandbox_id=sandbox_id,
+                memory_mb=memory_mb,
+                cpu_cores=cpu_cores,
+                network_enabled=network_enabled,
+                gpu_count=gpu_count,
+            )
+
         if not self.client:
             raise RuntimeError("Docker client not initialized")
         DockerSandboxPolicy.validate_resources(sandbox_id, memory_mb, cpu_cores, gpu_count)
@@ -102,7 +125,7 @@ class DockerBackend(ExecutorBackend):
                 mem_limit=f"{memory_mb}m",
                 memswap_limit=f"{memory_mb}m",
                 nano_cpus=int(cpu_cores * 1e9),
-                user="1000:1000",
+                user="1000:1000",  # Sandbox execution user is fixed
                 read_only=True,
                 tmpfs={
                     "/tmp": f"size={DockerContainerPolicy._bounded_size(self.settings, 'SANDBOX_TMPFS_SIZE_MB', 64, 4096)}m,noexec,nosuid,nodev,mode=1777",
@@ -142,10 +165,20 @@ class DockerBackend(ExecutorBackend):
         env_vars: Optional[Dict[str, str]] = None,
         timeout_ms: int = 10000,
     ) -> ExecutionResult:
+        if self.remote_client:
+            return await self.remote_client.execute_in_sandbox(
+                handle=handle,
+                command=command,
+                user=user,
+                env_vars=env_vars,
+                timeout_ms=timeout_ms,
+            )
+
         if not self.client:
             raise RuntimeError("Docker client not initialized")
         if not handle.metadata or handle.metadata.get("destroyed"):
             raise RuntimeError("Sandbox handle is no longer active")
+        # effective_timeout_ms = min
         effective_timeout_ms = DockerSandboxPolicy.validate_execution(
             command, user, timeout_ms, int(self.settings.MAX_EXEC_TIMEOUT_MS)
         )
@@ -217,6 +250,10 @@ class DockerBackend(ExecutorBackend):
             )
 
     async def destroy_sandbox(self, handle: SandboxHandle) -> None:
+        if self.remote_client:
+            await self.remote_client.destroy_sandbox(handle)
+            return
+
         if not self.client:
             return
 
@@ -242,6 +279,9 @@ class DockerBackend(ExecutorBackend):
             container.remove(force=True)
 
     async def health_check(self) -> BackendHealth:
+        if self.remote_client:
+            return await self.remote_client.health_check()
+
         if not self.client:
             return BackendHealth(status="unhealthy", details={"error": "Client not initialized"})
 

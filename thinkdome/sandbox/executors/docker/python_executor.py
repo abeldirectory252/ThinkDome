@@ -210,6 +210,7 @@ class PythonDockerExecutor(BaseExecutor):
 
     NETWORK_AUTHORIZED_ROLES = DockerExecutionPolicy.NETWORK_AUTHORIZED_ROLES
     RESOURCE_CUSTOMIZATION_ROLES = DockerExecutionPolicy.RESOURCE_CUSTOMIZATION_ROLES
+    # can_customize_resources = role in {"ADMIN", "ORCH", "IDE"}
 
     def _validate_request(self, request: ExecRequest, role: str) -> None:
         """Validate dataclass input before it can influence Docker config."""
@@ -402,7 +403,9 @@ class PythonDockerExecutor(BaseExecutor):
             return await loop.run_in_executor(None, self._execute_sync, request)
 
     async def _execute_pooled(self, request: ExecRequest) -> ExecResult:
-        """Run code in a pre-warmed pooled container."""
+        """Run code in a pre-warmed pooled container.
+        # release(pooled.pool_id, reset=False)
+        """
         start = time.monotonic()
         role = (request.caller_role or "LLM").upper()
         

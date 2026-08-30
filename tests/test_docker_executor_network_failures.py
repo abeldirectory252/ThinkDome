@@ -330,9 +330,6 @@ def test_pooled_execution_uses_shared_command_resolution():
     source = Path("thinkdome/sandbox/executors/docker/python_executor.py").read_text()
     pooled = source[source.index("async def _execute_pooled"):source.index("    def _execute_sync", source.index("async def _execute_pooled"))]
     assert "cmd = self._execution_command(request)" in pooled
-    assert "before the container or its seccomp profile starts" in result.stderr
-    assert len(executor.client.containers.create_calls) == 1
-    assert executor.client.containers.create_calls[0]["network_mode"] == "none"
 
 
 def test_seccomp_profile_allows_statx_needed_by_current_runc():

@@ -13,6 +13,9 @@ from typing import Any, Dict, Generator, List, Optional
 from thinkdome.apps.sandbox.models import Sandbox
 from thinkdome.core.hooks.hooks import manager as hook_manager
 from thinkdome.core.events.events import emit
+from thinkdome.core.config import get_settings
+from thinkdome.sandbox.executors.docker.container_policy import DockerContainerPolicy
+from thinkdome.sandbox.network.docker_policy import DockerSandboxPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +24,15 @@ docker_client: Optional[Any] = None
 
 
 def get_docker_client() -> Optional[Any]:
-    """Initialize and retrieve the shared Docker Engine client wrapper."""
+    """Initialize and retrieve the shared Docker Engine client wrapper or remote executor client."""
     global docker_client
     if docker_client is not None:
+        return docker_client
+    settings = get_settings()
+    if settings.EXECUTOR_CONTROL_URL or settings.DEPLOYMENT_ENV.lower() in ("production", "staging"):
+        from thinkdome.sandbox.executors.docker.client import DockerExecutorClient, DockerClientShim
+        executor_client = DockerExecutorClient(settings)
+        docker_client = DockerClientShim(executor_client)
         return docker_client
     try:
         import docker
@@ -44,20 +53,52 @@ async def create_sandbox(sandbox_model: Sandbox) -> str:
     client = get_docker_client()
     if client:
         try:
-            # Prepare resource limits
-            mem_limit = f"{sandbox_model.memory_limit}m"
-            nano_cpus = int(sandbox_model.cpu_limit * 1e9)
+            settings = get_settings()
+            DockerSandboxPolicy.validate_resources(
+                str(sandbox_model.id),
+                int(sandbox_model.memory_limit),
+                float(sandbox_model.cpu_limit),
+                0,
+            )
+            # Never allow the model/client to select an arbitrary image. The
+            # configured executor image is the reviewed, immutable boundary.
+            attachment = DockerSandboxPolicy(client).attachment(bool(sandbox_model.network_enabled))
+            tmpfs = DockerContainerPolicy._tmpfs_config(settings)
+            security_opt = ["no-new-privileges:true"]
+            runtime = DockerContainerPolicy.runtime(settings)
+            if runtime:
+                runtime_kwargs = {"runtime": runtime}
+            else:
+                runtime_kwargs = {}
 
             # Spawn Docker container
             container = client.containers.run(
-                image=sandbox_model.image,
+                image=settings.EXECUTOR_IMAGE,
                 name=f"thinkdome-{sandbox_model.id}",
                 detach=True,
-                command="tail -f /dev/null",  # Keep container running alive
-                mem_limit=mem_limit,
-                nano_cpus=nano_cpus,
-                network_mode="bridge" if sandbox_model.network_enabled else "none",
-                labels={"thinkdome_sandbox": "true", "sandbox_id": sandbox_model.id},
+                command=["sleep", "infinity"],
+                user="1000:1000",
+                read_only=True,
+                tmpfs=tmpfs,
+                cap_drop=["ALL"],
+                privileged=False,
+                security_opt=security_opt,
+                pids_limit=100,
+                ipc_mode="private",
+                shm_size=DockerContainerPolicy.shm_size(settings),
+                ulimits=DockerContainerPolicy.nofile_ulimit(settings),
+                mem_limit=f"{int(sandbox_model.memory_limit)}m",
+                memswap_limit=f"{int(sandbox_model.memory_limit)}m",
+                nano_cpus=int(float(sandbox_model.cpu_limit) * 1e9),
+                network_mode=attachment.mode,
+                environment=attachment.environment,
+                labels={
+                    "thinkdome_sandbox": "true",
+                    "thinkdome.sandbox_id": str(sandbox_model.id),
+                    "thinkdome.security_profile": "restricted",
+                },
+                init=True,
+                **runtime_kwargs,
             )
             logger.info(f"✓ Provisioned Docker container {container.short_id} for sandbox {sandbox_model.id}")
         except Exception as e:

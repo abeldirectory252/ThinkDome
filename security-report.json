@@ -1,0 +1,70 @@
+{
+  "sandbox": "docker",
+  "status": "PASS_WITH_CONDITIONS",
+  "critical": 0,
+  "high": 0,
+  "medium": 0,
+  "low": 0,
+  "architecture": {
+    "control_plane": "Dedicated Docker Executor Control-Plane Service (thinkdome-docker-executor) running on internal network port 8200.",
+    "public_api": "Stateless FastAPI (thinkdome-api) communicating strictly with the executor service via authenticated internal RPC/HTTP REST endpoints.",
+    "task_workers": "Stateless RabbitMQ consumers (thinkdome-worker) communicating strictly with the executor service via authenticated internal RPC/HTTP REST endpoints."
+  },
+  "trust_boundaries": {
+    "dind_credentials": "Docker-in-Docker TLS certificates (dind-certs) are mounted EXCLUSIVELY into the thinkdome-docker-executor container. Neither API nor worker services receive Docker TLS certs, sockets, or direct Docker API access.",
+    "service_authentication": "Mandatory X-Executor-Auth token / HMAC authentication on all internal control plane operations.",
+    "server_side_authorization": "Server-side tenant_id, owner, and sandbox label validation on every operation to prevent cross-tenant and cross-sandbox access."
+  },
+  "changed_files": [
+    "thinkdome/core/config.py",
+    "thinkdome/sandbox/executors/docker/service.py",
+    "thinkdome/services/docker_executor.py",
+    "thinkdome/sandbox/executors/docker/client.py",
+    "thinkdome/sandbox/executors/docker/backend.py",
+    "thinkdome/api/server.py",
+    "thinkdome/core/api/server.py",
+    "thinkdome/apps/sandbox/controller.py",
+    "thinkdome/sandbox/provisioning.py",
+    "thinkdome/sandbox/sdk.py",
+    "docker/docker-compose.prod.yml",
+    "tests/security/docker/audit.py",
+    "tests/security/docker/test_dind002_regression.py",
+    "security-report.json"
+  ],
+  "tests": {
+    "filesystem_isolation": "PASS",
+    "process_isolation": "PASS",
+    "network_isolation": "PASS",
+    "resource_limits": "PASS",
+    "secret_isolation": "PASS",
+    "container_isolation": "PASS",
+    "docker_socket": "PASS",
+    "capabilities": "PASS",
+    "lifecycle": "PASS",
+    "dind002_boundary": "PASS"
+  },
+  "test_execution": {
+    "executed": 43,
+    "passed": 43,
+    "failed": 0,
+    "skipped": 0
+  },
+  "findings": [],
+  "resolved_findings": [
+    {
+      "id": "DIND-002",
+      "severity": "HIGH",
+      "title": "Docker client TLS certificate volume is shared with API/workers",
+      "evidence": "API and worker services no longer mount dind-certs:/certs:ro. Mount is strictly isolated to thinkdome-docker-executor service.",
+      "remediation": "Implemented dedicated Docker Executor Control-Plane Service (thinkdome-docker-executor) with service-to-service authentication and server-side tenant/owner authorization."
+    }
+  ],
+  "remaining_risks": [
+    "Production requires runtime verification of the externally managed rootless/hardened Docker daemon configured by EXECUTOR_DOCKER_HOST; the embedded rootless-DIND configuration was removed after runtime startup failure."
+  ],
+  "evidence": {
+    "compose_verification": "Verified docker-compose.prod.yml contains dind-certs mount ONLY under thinkdome-docker-executor.",
+    "pytest_suite": "43 passed, 0 failed, 0 skipped in tests/security/docker with RUN_DOCKER_SECURITY_LIVE=1."
+  },
+  "final_gate": "PASS_WITH_CONDITIONS"
+}

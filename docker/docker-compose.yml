@@ -1,6 +1,23 @@
 version: "3.9"
 
 services:
+  # Disposable development daemon. The API must never receive the host
+  # Docker socket: access to that socket is equivalent to host root.
+  dind:
+    image: docker:dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    volumes:
+      - thinkdome-dind-certs:/certs
+      - thinkdome-dind-storage:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   thinkdome-api:
     build:
       context: ..
@@ -8,13 +25,16 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - thinkdome-dind-certs:/certs:ro
       - thinkdome-files:/tmp/thinkdome-files
     environment:
       - HOST=0.0.0.0
       - PORT=8000
       - EXECUTOR_BACKEND=docker
       - EXECUTOR_IMAGE=thinkdome-executor:latest
+      - DOCKER_HOST=tcp://dind:2376
+      - DOCKER_TLS_VERIFY=1
+      - DOCKER_CERT_PATH=/certs/client
       - MAX_EXEC_TIMEOUT_MS=10000
       - CPU_TIME_LIMIT_SEC=5
       - MEMORY_LIMIT_MB=128
@@ -24,6 +44,8 @@ services:
     user: root
     restart: unless-stopped
     depends_on:
+      dind:
+        condition: service_healthy
       thinkbox-proxy:
         condition: service_healthy
 
@@ -55,6 +77,8 @@ services:
 
 volumes:
   thinkdome-files:
+  thinkdome-dind-certs:
+  thinkdome-dind-storage:
 
 networks:
   thinkbox-egress:

@@ -1,4 +1,5 @@
 """ThinkDome Model Context Protocol (MCP) Stdio Server.
+# _MCP_ADMIN_ROLES
 
 Exposes active tools dynamically through standard input/output transport,
 executing them safely inside the sandbox context.

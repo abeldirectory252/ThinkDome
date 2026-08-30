@@ -2,25 +2,23 @@
 # Run: docker compose -f docker/docker-compose.prod.yml up -d
 #
 # Services:
-#   - thinkdome-api:    Stateless FastAPI (connects to DinD sidecar for Docker execution)
-#   - thinkdome-worker: RabbitMQ consumer (runs sandbox tasks)
-#   - postgres:         State store (users, sandboxes, audit logs)
-#   - rabbitmq:         Task queue (distributed execution orchestration)
-#   - redis:            Rate limiting, session cache
-#   - dind:             Docker-in-Docker for isolated container execution
-#   - otel-collector:   OpenTelemetry metrics/traces receiver
+#   - thinkdome-api:             Stateless FastAPI (communicates via isolated executor control plane)
+#   - thinkdome-worker:          RabbitMQ consumer (communicates via isolated executor control plane)
+#   - thinkdome-docker-executor: Dedicated Docker Executor control-plane service (only service with Docker certs)
+#   - postgres:                  State store (users, sandboxes, audit logs)
+#   - rabbitmq:                  Task queue (distributed execution orchestration)
+#   - redis:                     Rate limiting, session cache
+#   - executor Docker daemon:    Externally managed rootless/hardened Docker endpoint
+#   - otel-collector:            OpenTelemetry metrics/traces receiver
 
 version: "3.9"
 
 x-common-env: &common-env
-  DATABASE_URL: postgresql://thinkdome:thinkdome@postgres:5432/thinkdome
-  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set with non-default production credentials}
+  RABBITMQ_URL: ${RABBITMQ_URL:?RABBITMQ_URL must be set with non-default production credentials}
   REDIS_URL: redis://redis:6379/0
-  DOCKER_HOST: tcp://dind:2376
-  DOCKER_TLS_VERIFY: "true"
-  DOCKER_CERT_PATH: /certs/client
   EXECUTOR_BACKEND: docker
-  EXECUTOR_IMAGE: thinkdome-executor:latest
+  EXECUTOR_IMAGE: ${EXECUTOR_IMAGE:?EXECUTOR_IMAGE must be an immutable image reference using @sha256}
   POOL_ENABLED: "true"
   POOL_MIN_WARM: "3"
   POOL_MAX_SIZE: "50"
@@ -33,16 +31,14 @@ services:
   # ── Data Stores ────────────────────────────────────────────────────────────
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres@sha256:e013e867e712fec275706a6c51c966f0bb0c93cfa8f51000f85a15f9865a28cb
     restart: unless-stopped
     environment:
       POSTGRES_DB: thinkdome
       POSTGRES_USER: thinkdome
-      POSTGRES_PASSWORD: thinkdome
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U thinkdome"]
       interval: 5s
@@ -50,13 +46,10 @@ services:
       retries: 5
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
     restart: unless-stopped
     volumes:
       - rmqdata:/var/lib/rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_running"]
       interval: 10s
@@ -64,36 +57,53 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redisdata:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ── Docker-in-Docker ───────────────────────────────────────────────────────
+  # ── Dedicated Docker Executor Service (DIND-002 Boundary) ───────────────────
 
-  dind:
-    image: docker:dind
-    privileged: true
+  thinkdome-docker-executor:
+    build:
+      context: ..
+      dockerfile: docker/thinkdome/Dockerfile
+    command: ["python", "-m", "thinkdome.services.docker_executor"]
     restart: unless-stopped
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
     environment:
-      DOCKER_TLS_CERTDIR: /certs
+      <<: *common-env
+      DOCKER_HOST: ${EXECUTOR_DOCKER_HOST:?EXECUTOR_DOCKER_HOST must point to an externally managed rootless/hardened Docker daemon}
+      DOCKER_TLS_VERIFY: "true"
+      DOCKER_CERT_PATH: /certs/client
+      EXECUTOR_CONTROL_AUTH_TOKEN: ${EXECUTOR_CONTROL_AUTH_TOKEN:?EXECUTOR_CONTROL_AUTH_TOKEN must be set to a random value of at least 32 characters}
+      EXECUTOR_CONTROL_PORT: "8200"
+      OTEL_SERVICE_NAME: thinkdome-docker-executor
     volumes:
-      - dind-certs:/certs
-      - dind-storage:/var/lib/docker
+      - ${EXECUTOR_DOCKER_CERT_DIR:?EXECUTOR_DOCKER_CERT_DIR must contain the executor Docker client certificates}:/certs:ro
       - workspace:/data/storage
-    healthcheck:
-      test: ["CMD", "docker", "info"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    user: "1000:1000"
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
 
   # ── Application ────────────────────────────────────────────────────────────
 
@@ -104,9 +114,11 @@ services:
     restart: unless-stopped
     environment:
       <<: *common-env
+      EXECUTOR_CONTROL_URL: http://thinkdome-docker-executor:8200
+      EXECUTOR_CONTROL_AUTH_TOKEN: ${EXECUTOR_CONTROL_AUTH_TOKEN:?EXECUTOR_CONTROL_AUTH_TOKEN must be set to a random value of at least 32 characters}
     volumes:
-      - dind-certs:/certs:ro
       - workspace:/data/storage
+    user: "1000:1000"
     ports:
       - "8000:8000"
     depends_on:
@@ -116,8 +128,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      dind:
-        condition: service_healthy
+      thinkdome-docker-executor:
+        condition: service_started
     deploy:
       replicas: 2
       resources:
@@ -136,17 +148,19 @@ services:
     restart: unless-stopped
     environment:
       <<: *common-env
+      EXECUTOR_CONTROL_URL: http://thinkdome-docker-executor:8200
+      EXECUTOR_CONTROL_AUTH_TOKEN: ${EXECUTOR_CONTROL_AUTH_TOKEN:?EXECUTOR_CONTROL_AUTH_TOKEN must be set to a random value of at least 32 characters}
       OTEL_SERVICE_NAME: thinkdome-worker
     volumes:
-      - dind-certs:/certs:ro
       - workspace:/data/storage
+    user: "1000:1000"
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      dind:
-        condition: service_healthy
+      thinkdome-docker-executor:
+        condition: service_started
     deploy:
       replicas: 3
       resources:
@@ -201,21 +215,15 @@ services:
   # ── Observability ──────────────────────────────────────────────────────────
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
     restart: unless-stopped
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
       - ./otel-config.yaml:/etc/otel/config.yaml:ro
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8888:8888"   # Prometheus metrics
 
 volumes:
   pgdata:
   rmqdata:
   redisdata:
-  dind-certs:
-  dind-storage:
   workspace:
   node-state:

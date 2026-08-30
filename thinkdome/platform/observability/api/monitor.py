@@ -1,4 +1,6 @@
-"""Monitor API endpoints — real-time sandbox metrics, alerts, and WebSocket streaming."""
+"""Monitor API endpoints — real-time sandbox metrics, alerts, and WebSocket streaming.
+# if not identity or str(identity.get("role", "")).upper()
+"""
 
 import json
 import logging

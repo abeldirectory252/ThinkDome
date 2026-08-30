@@ -287,12 +287,22 @@ class Sandbox:
 
             # 2. Try Docker (container-isolated)
             try:
-                import docker
-                client = docker.from_env()
-                client.ping()
-                self.backend = "docker"
-                logger.info("ThinkDome: Using Docker executor backend.")
-                return
+                from thinkdome.core.config import get_settings
+                st = get_settings()
+                if st.EXECUTOR_CONTROL_URL or st.DEPLOYMENT_ENV.lower() in ("production", "staging"):
+                    from thinkdome.sandbox.executors.docker.client import DockerExecutorClient
+                    ex_client = DockerExecutorClient(st)
+                    if ex_client.ping():
+                        self.backend = "docker"
+                        logger.info("ThinkDome: Using Docker executor backend (Isolated Control Plane).")
+                        return
+                else:
+                    import docker
+                    client = docker.from_env()
+                    client.ping()
+                    self.backend = "docker"
+                    logger.info("ThinkDome: Using Docker executor backend.")
+                    return
             except Exception:
                 pass
 

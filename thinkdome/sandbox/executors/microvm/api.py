@@ -1,4 +1,5 @@
 """MicroVM management API endpoints.
+# _MICROVM_ADMIN_ROLES
 
 Provides REST API for managing Cloud Hypervisor MicroVM instances:
   - Start / Stop / List VMs

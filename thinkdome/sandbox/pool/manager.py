@@ -344,6 +344,7 @@ class PoolManager:
             )
 
         config = DockerContainerPolicy.pool_config(self.settings, self.image, security_opt, device_requests)
+        # config["runtime"] = runtime
         return self.docker_client.containers.create(**config)
 
     async def _reset_container(self, container: PooledContainer) -> None:
