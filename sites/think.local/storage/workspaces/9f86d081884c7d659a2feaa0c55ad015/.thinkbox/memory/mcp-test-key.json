@@ -1,0 +1,9 @@
+{
+  "key": "mcp-test-key",
+  "content": "synthetic-test-value",
+  "tags": [
+    "test",
+    "mcp"
+  ],
+  "created_at": 1788114093.4067175
+}

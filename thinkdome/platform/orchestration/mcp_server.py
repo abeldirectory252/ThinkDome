@@ -71,7 +71,7 @@ def get_mcp_server(
 ) -> Server:
     """Create and configure low-level MCP server instance with dynamic RBAC identity and audit logging."""
     if identity is not None:
-        username = str(identity.metadata.get("workspace_id") or identity.username)
+        username = str(identity.username)
         if identity.roles:
             caller_role = select_effective_role(identity.roles, default="AGENT_STANDARD", username=username)
 
@@ -145,16 +145,26 @@ def get_mcp_server(
         if not all_dicts and hasattr(db_service, "list_sandboxes"):
             all_dicts = db_service.list_sandboxes()
 
+        from thinkdome.security.identity.core import UserIdentity, is_sandbox_accessible
+
+        effective_identity = identity
+        if effective_identity is None:
+            effective_identity = UserIdentity.from_dict({
+                "username": username,
+                "role": caller_role,
+                "tenant_id": site_name,
+            })
+
         if requested_sandbox_id:
             user_sandboxes = [
                 sb for sb in all_dicts
                 if (sb.get("sandbox_id") == requested_sandbox_id or sb.get("id") == requested_sandbox_id)
-                and (sb.get("owner") == username or is_admin_role(caller_role))
+                and is_sandbox_accessible(sb, effective_identity)
             ]
         else:
             user_sandboxes = [
                 sb for sb in all_dicts
-                if sb.get("owner") == username or is_admin_role(caller_role)
+                if is_sandbox_accessible(sb, effective_identity)
             ]
 
         sandbox_id = None

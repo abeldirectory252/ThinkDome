@@ -275,7 +275,7 @@ class RolePolicyEngine:
 
         # Check tenant isolation
         sbx_tenant = sandbox.get("tenant_id")
-        if sbx_tenant and identity.tenant_id not in ("default", "*") and sbx_tenant != identity.tenant_id:
+        if sbx_tenant and identity.tenant_id != "*" and sbx_tenant != identity.tenant_id:
             logger.warning(
                 f"Tenant isolation mismatch: sandbox tenant '{sbx_tenant}' vs identity tenant '{identity.tenant_id}'"
             )

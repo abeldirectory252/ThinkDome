@@ -1,0 +1,9 @@
+{
+  "mcp-test-key": {
+    "tags": [
+      "test",
+      "mcp"
+    ],
+    "file": "mcp-test-key.json"
+  }
+}

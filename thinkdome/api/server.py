@@ -534,11 +534,7 @@ def create_app() -> FastAPI:
         from thinkdome.security.identity.core import UserIdentity
 
         client_ip = request.client.host if request.client else "127.0.0.1"
-        identity = UserIdentity.from_dict({
-            "username": user.get("workspace_id", user.get("username", "anonymous")),
-            "role": user.get("role", "AGENT_STANDARD"),
-            "tenant_id": user.get("tenant_id", kernel.site_name),
-        })
+        identity = UserIdentity.from_dict(user)
 
         mcp_server = get_mcp_server(
             kernel.site_name,

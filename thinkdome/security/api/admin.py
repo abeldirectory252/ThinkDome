@@ -163,7 +163,7 @@ async def update_web_settings(payload: dict, _admin: dict = Depends(get_current_
 
 def _principal(user: dict) -> str:
     """Stable per-user namespace, including API-key identities."""
-    return str(user.get("workspace_id", user.get("username", "anonymous"))).strip().lower()
+    return str(user.get("username") or user.get("workspace_id") or "anonymous").strip().lower()
 
 
 def _is_admin(user: dict) -> bool:
@@ -404,7 +404,14 @@ def _host_memory_capacity_mb() -> tuple[int, int]:
     try:
         limit = Path("/sys/fs/cgroup/memory.max").read_text().strip()
         if limit != "max":
-            total = min(total, int(limit) // (1024 * 1024))
+            cg_total = int(limit) // (1024 * 1024)
+            cg_used = 0
+            try:
+                cg_used = int(Path("/sys/fs/cgroup/memory.current").read_text().strip()) // (1024 * 1024)
+            except Exception:
+                pass
+            total = min(total, cg_total) if total else cg_total
+            available = max(0, cg_total - cg_used)
     except (OSError, ValueError):
         pass
     return total, max(0, min(available, total))
@@ -416,8 +423,14 @@ def _validate_host_memory_for_sandbox(memory_mb: int) -> None:
     total_mb, available_mb = _host_memory_capacity_mb()
     if not total_mb:
         return
-    reserved_mb = sum(int(sb._values.get("memory_limit") or 0) for sb in Sandbox.query().all())
-    safety_floor = max(128, int(total_mb * 0.10))
+    now = time.time()
+    active_sbs = [
+        sb for sb in Sandbox.query().all()
+        if sb._values.get("status") in {"active", "Running", "Created"}
+        and float(sb._values.get("expires_at") or 0) > now
+    ]
+    reserved_mb = sum(int(sb._values.get("memory_limit") or 0) for sb in active_sbs)
+    safety_floor = max(32, min(128, int(total_mb * 0.10)))
     if memory_mb > max(0, available_mb - safety_floor) or reserved_mb + memory_mb > int(total_mb * 0.90):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

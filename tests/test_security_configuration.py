@@ -239,13 +239,13 @@ def test_execution_tools_use_identity_workspace_namespace():
 def test_mcp_uses_identity_workspace_namespace():
     from pathlib import Path
     source = Path("thinkdome/platform/orchestration/mcp_server.py").read_text()
-    assert 'identity.metadata.get("workspace_id")' in source
+    assert 'identity.username' in source
 
 
 def test_orchestrator_uses_identity_workspace_namespace():
     from pathlib import Path
     source = Path("thinkdome/platform/orchestration/api.py").read_text()
-    assert 'current_user.get("workspace_id"' in source
+    assert 'current_user.get("username"' in source
 
 
 def test_registration_usernames_cannot_escape_workspace_paths():
