@@ -119,15 +119,17 @@ def test_network_enabled_execution_bypasses_network_none_pool():
 
 def test_pool_reset_reaps_background_processes_before_reuse():
     source = Path("thinkdome/sandbox/pool/manager.py").read_text()
-    assert "sandbox-owned process reap" in source or "Reap every" in source
-    assert "signal.SIGKILL" in source
-    assert "sandbox process reap failed" in source
+    assert "docker_container.restart(timeout=2)" in source
+    assert "background descendants" in source
 
 
 def test_pool_creation_enforces_secure_runtime():
     source = Path("thinkdome/sandbox/pool/manager.py").read_text()
     assert "validate_secure_runtime_on_startup" in source
-    assert 'config["runtime"] = runtime' in source
+    assert "DockerContainerPolicy.pool_config" in source
+    assert "def runtime" in Path(
+        "thinkdome/sandbox/executors/docker/container_policy.py"
+    ).read_text()
 
 
 def test_pool_release_has_exclusive_reset_state():

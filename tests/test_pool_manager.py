@@ -49,7 +49,7 @@ async def test_pool_manager_acquire_and_release(mock_settings):
     assert status["cache_hits"] == 1
 
     # 2. Release back to pool
-    await pool.release(pooled.pool_id, reset=False)
+    await pool.release(pooled.pool_id, reset=True)
     status = pool.get_status()
     assert status["states"].get("warm") == 2
     assert status["states"].get("acquired") is None

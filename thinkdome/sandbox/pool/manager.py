@@ -344,8 +344,22 @@ class PoolManager:
             )
 
         config = DockerContainerPolicy.pool_config(self.settings, self.image, security_opt, device_requests)
-        # config["runtime"] = runtime
-        return self.docker_client.containers.create(**config)
+        # A pooled container is acquired through exec_create/exec_start, so it
+        # must be running before it is published as WARM.  Docker's
+        # containers.create() API only creates the container and leaves it in
+        # the Created state; publishing that object without starting it makes
+        # every pool hit fail at exec time.
+        container = self.docker_client.containers.create(**config)
+        try:
+            container.start()
+        except Exception:
+            # Do not leave an unusable container behind when startup fails.
+            try:
+                container.remove(force=True)
+            except Exception:
+                logger.exception("Failed to remove pooled container after startup failure")
+            raise
+        return container
 
     async def _reset_container(self, container: PooledContainer) -> None:
         """Reset a container's workspace to clean state (snapshot/restore pattern)."""
@@ -357,28 +371,21 @@ class PoolManager:
         def _reset_sync():
             try:
                 docker_container = self.docker_client.containers.get(container.container_id)
-                # Warm containers are shared across requests. Reap every
-                # sandbox-owned process before returning one to the pool;
-                # deleting files alone does not stop background descendants.
-                reap = docker_container.exec_run(
-                    ["python3", "-c", (
-                        "import os,signal; me=os.getpid(); "
-                        "[(os.kill(int(n), signal.SIGKILL)) for n in os.listdir('/proc') "
-                        "if n.isdigit() and int(n) > 1 and int(n) != me]"
-                    )],
-                    user="1000:1000",
-                )
-                if getattr(reap, "exit_code", 0) not in (0, None):
-                    raise RuntimeError("sandbox process reap failed")
+                # Warm containers are shared across requests. Restart through
+                # Docker before reuse so helper processes started by the
+                # untrusted program are terminated even when they changed UID
+                # or are not signalable by the sandbox user. Deleting files
+                # alone does not stop background descendants.
+                docker_container.restart(timeout=2)
                 # Clear /workspace by removing and recreating tmpfs content
                 workspace = docker_container.exec_run(
                     ["sh", "-c", "rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true"],
-                    user="1000:1000",
+                    user="0:0",
                 )
                 # Clear /tmp
                 tmp = docker_container.exec_run(
                     ["sh", "-c", "rm -rf /tmp/* /tmp/.[!.]* 2>/dev/null || true"],
-                    user="1000:1000",
+                    user="0:0",
                 )
                 if getattr(workspace, "exit_code", 0) not in (0, None) or getattr(tmp, "exit_code", 0) not in (0, None):
                     raise RuntimeError("sandbox workspace reset failed")
