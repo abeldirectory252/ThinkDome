@@ -9,12 +9,6 @@ function updateSidebarSandboxCount() {
     badge.textContent = `${active} Active`;
 }
 
-// The page dialog also doubles as a small, safe content builder.
-const workspacePageCreateAction = addWorkspacePage;
-window.addWorkspacePage = function () { workspacePageCreateAction(); renderWorkspaceBlocks(); };
-window.openWorkspacePageModal = window.addWorkspacePage;
-window.submitWorkspacePage = async function (event) { event.preventDefault(); const error = document.getElementById('workspacePageError'); try { const state = window.workspaceBuilderState || {pages:[],sections:[]}; const pageId = document.getElementById('workspacePageId').value.trim().toLowerCase(); const editing = document.getElementById('workspacePageModal').dataset.editing; if (!editing && state.pages.some(page => page.page_id === pageId)) throw new Error('A page with this ID already exists.'); const page = { page_id: pageId, title: document.getElementById('workspacePageTitle').value.trim(), allowed_roles: [...document.querySelectorAll('#workspacePageRoles input:checked')].map(input => input.value), blocks: collectWorkspaceBlocks() }; const index = state.pages.findIndex(item => item.page_id === editing); if (index >= 0) state.pages[index] = page; else state.pages.push(page); window.workspaceBuilderState = state; closeWorkspacePageModal(); renderWorkspaceBuilder(); await saveWorkspacePages(); } catch (e) { error.textContent = e.message; error.style.display = 'block'; } };
-
 // Add item-level drag and drop after the visual builder paints its rows.
 document.addEventListener('dragstart', event => {
     const row = event.target.closest?.('.workspace-menu-item');
@@ -62,10 +56,15 @@ function navTo(pageId) {
     document.querySelectorAll('.nav-item').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.page === pageId);
     });
+    let pageEl = document.getElementById('page-' + pageId);
+    if (!pageEl && typeof window.openDynamicPageRuntime === 'function') {
+        window.openDynamicPageRuntime(pageId);
+        return;
+    }
+
     document.querySelectorAll('.page').forEach(sec => {
         sec.classList.add('hidden');
     });
-    const pageEl = document.getElementById('page-' + pageId);
     if (pageEl) pageEl.classList.remove('hidden');
     ensurePageRefreshButton(pageEl, pageId);
 
@@ -93,7 +92,7 @@ function navTo(pageId) {
     } else if (pageId === 'account') {
         loadAccountSettings();
     } else if (pageId === 'workspaces') {
-        loadWorkspaceMenuEditor();
+        loadWorkspaceManager();
     } else if (pageId === 'users') {
         loadUsersFromServer();
     } else if (pageId === 'role-profiles') {
@@ -111,7 +110,7 @@ function setupModuleSearch() {
     let matches = [], active = -1;
     const score = (text, query) => { let pos = -1, points = 0; for (const char of query) { pos = text.indexOf(char, pos + 1); if (pos < 0) return -1; points += 3; } if (text.startsWith(query)) points += 12; if (text.includes(query)) points += 6; return points - text.length / 100; };
     const choose = index => { if (!matches[index]) return; navTo(matches[index].page); input.value = ''; results.classList.remove('active'); active = -1; };
-    const render = () => { const q = input.value.trim().toLowerCase(); results.replaceChildren(); active = -1; if (!q) { results.classList.remove('active'); return; } matches = moduleSearchItems().map(x => ({ ...x, rank: score(`${x.label} ${x.group}`.toLowerCase(), q) })).filter(x => x.rank >= 0).sort((a,b) => b.rank - a.rank).slice(0, 12); matches.forEach((item, i) => { const b = document.createElement('button'); b.className = 'module-search-result'; b.dataset.index = i; b.innerHTML = `<span><b>${item.label}</b><small>${item.group}</small></span><kbd>↵</kbd>`; b.onclick = () => choose(i); results.appendChild(b); }); if (!matches.length) { const empty = document.createElement('div'); empty.className = 'module-search-empty'; empty.textContent = 'No matching modules'; results.appendChild(empty); } results.classList.add('active'); };
+    const render = () => { const q = input.value.trim().toLowerCase(); results.replaceChildren(); active = -1; if (!q) { results.classList.remove('active'); return; } matches = moduleSearchItems().map(x => ({ ...x, rank: score(`${x.label} ${x.group}`.toLowerCase(), q) })).filter(x => x.rank >= 0).sort((a,b) => b.rank - a.rank).slice(0, 12); matches.forEach((item, i) => { const b = document.createElement('button'); b.className = 'module-search-result'; b.dataset.index = i; const wrap = document.createElement('span'); const label = document.createElement('b'); label.textContent = item.label; const group = document.createElement('small'); group.textContent = item.group; wrap.append(label, group); const key = document.createElement('kbd'); key.textContent = '↵'; b.append(wrap, key); b.onclick = () => choose(i); results.appendChild(b); }); if (!matches.length) { const empty = document.createElement('div'); empty.className = 'module-search-empty'; empty.textContent = 'No matching modules'; results.appendChild(empty); } results.classList.add('active'); };
     input.addEventListener('input', render); input.addEventListener('keydown', e => { if (e.key === 'Escape') { input.value = ''; results.classList.remove('active'); } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!matches.length) return; active = (active + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length; results.querySelectorAll('.module-search-result').forEach((b,i) => b.classList.toggle('active', i === active)); } else if (e.key === 'Enter') { e.preventDefault(); choose(active < 0 ? 0 : active); } }); document.addEventListener('click', e => { if (!e.target.closest('#topbarModuleSearch')) results.classList.remove('active'); });
     document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); input.focus(); input.select(); } });
 }
@@ -205,12 +204,21 @@ function renderWorkspaceMenu(menu) {
         const heading = document.createElement('div'); heading.className = 'nav-group-label'; heading.textContent = section.label;
         sectionEl.appendChild(heading);
         (section.items || []).forEach(item => {
-            const entry = document.createElement(item.action === 'external' ? 'a' : 'button');
+            const isExternal = item.action === 'external';
+            let externalHref = null;
+            if (isExternal) {
+                try {
+                    const parsed = new URL(String(item.href || ''), window.location.origin);
+                    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') externalHref = parsed.href;
+                } catch (_) { /* malformed external targets are not rendered */ }
+                if (!externalHref) return;
+            }
+            const entry = document.createElement(isExternal ? 'a' : 'button');
             entry.className = 'nav-item workspace-nav-item';
             entry.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg>';
             const text = document.createElement('span'); text.textContent = item.label; entry.appendChild(text);
-            if (item.action === 'external') {
-                entry.href = item.href; entry.target = '_blank'; entry.rel = 'noopener noreferrer'; entry.dataset.workspaceExternal = 'true';
+            if (isExternal) {
+                entry.href = externalHref; entry.target = '_blank'; entry.rel = 'noopener noreferrer'; entry.dataset.workspaceExternal = 'true';
             } else { entry.type = 'button'; entry.dataset.page = item.page; entry.addEventListener('click', () => navTo(item.page)); }
             sectionEl.appendChild(entry);
         });
@@ -229,7 +237,11 @@ function renderWorkspacePages(pages) {
         const header = document.createElement('div'); header.className = 'page-header';
         const title = document.createElement('h1'); title.textContent = page.title; header.appendChild(title); section.appendChild(header);
         const content = document.createElement('div'); content.style.cssText = 'display:grid;gap:14px;max-width:1000px;';
-        (page.blocks || []).forEach(block => {
+        // Registered declarative layouts always use the framework renderer.
+        // Keep the legacy block adapter only for older workspace records.
+        if (Array.isArray(page.layout) && page.layout.length && window.thinkdome?.ui?.renderPage) {
+            window.thinkdome.ui.renderPage(content, page);
+        } else (page.blocks || []).forEach(block => {
             const card = document.createElement('div'); card.className = 'card'; card.style.padding = '20px';
             if (block.type === 'metric') { const value = document.createElement('div'); value.style.cssText = 'font-size:30px;font-weight:700;color:var(--accent);'; value.textContent = block.value; card.appendChild(value); }
             if (block.title) { const heading = document.createElement(block.type === 'heading' ? 'h2' : 'h3'); heading.textContent = block.title; card.appendChild(heading); }
@@ -241,18 +253,57 @@ function renderWorkspacePages(pages) {
 }
 
 async function refreshWorkspaceMenu() {
-    const id = workspaceMenuSelectId();
-    // Before an administrator creates/selects the first workspace, retain
-    // the builder entry so that the Desk can be configured.
-    if (!id) return;
     try {
-        const [menu, pages] = await Promise.all([
-            workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`),
-            workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`),
-        ]);
-        renderWorkspacePages(pages.pages); renderWorkspaceMenu(menu);
-    } catch (_) { renderWorkspacePages([]); renderWorkspaceMenu({ menu: [] }); }
+        const nav = await window.thinkdome.ui.getNavigation();
+        const menu = {
+            menu: (nav.workspaces || []).map(workspace => ({
+                label: workspace.label || workspace.name,
+                items: (workspace.items || []).flatMap(item => item.type === 'group' ? (item.items || []) : [item]).map(item => ({
+                    label: item.label || item.name,
+                    page: item.route || item.name,
+                    action: item.action,
+                    href: item.href
+                }))
+            }))
+        };
+        renderWorkspacePages((nav.pages || []).map(page => ({
+            page_id: page.name || page.route,
+            title: page.title || page.name || page.route,
+            layout: page.layout,
+            blocks: page.blocks || []
+        })));
+        renderWorkspaceMenu(menu);
+        return nav;
+    } catch (error) {
+        // A failed workspace request must not leave the original application
+        // shell hidden. Restore the visual navigation template and surface
+        // the error without crashing the rest of the app.
+        document.querySelectorAll('#sidebarNavContainer > .nav-section').forEach(section => { section.hidden = false; });
+        document.getElementById('workspaceMenuContainer')?.replaceChildren();
+        console.warn('Workspace menu unavailable; restored original sidebar:', error);
+        return null;
+    }
 }
+
+async function loadDynamicWorkspace() {
+    try {
+        const nav = await refreshWorkspaceMenu();
+        if (!nav) return;
+        return nav;
+    } catch (error) {
+        console.warn('Dynamic workspace unavailable:', error);
+        return null;
+    }
+}
+window.loadDynamicWorkspace = loadDynamicWorkspace;
+async function loadWorkspaceManager() {
+    const nav = await loadDynamicWorkspace();
+    await loadWorkspaceMenuEditor();
+    renderWorkspaceRoleMatrix();
+    if (typeof window.loadFrameworkWorkspaceManager === 'function') await window.loadFrameworkWorkspaceManager();
+    return nav;
+}
+window.loadWorkspaceManager = loadWorkspaceManager;
 
 async function loadWorkspaceMenuEditor() {
     const select = document.getElementById('workspaceMenuSelect');
@@ -272,6 +323,10 @@ async function loadWorkspaceMenuEditor() {
         const pages = await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/pages`);
         window.workspaceBuilderState = { pages: pages.pages || [], sections: menu.config || [] };
         renderWorkspaceBuilder();
+        await loadWorkspaceRoles();
+        refreshWorkspaceRoleOptions();
+        refreshInlineWorkspacePages();
+        renderWorkspaceRoleMatrix();
         await refreshWorkspaceMenu();
     } catch (error) { if (typeof showToast === 'function') showToast(error.message, 'error'); }
 }
@@ -293,33 +348,66 @@ async function saveWorkspacePages() {
 }
 
 function addWorkspacePage() {
-    const body = document.querySelector('#workspacePageModal .modal-body'); if (body && !document.getElementById('workspacePageTemplate')) { const label = document.createElement('label'); label.className = 'field-label'; label.innerHTML = 'Starter template<select class="form-select" id="workspacePageTemplate"><option value="blank">Blank page</option><option value="operations">Operations overview</option><option value="finance">Finance dashboard</option><option value="developer">Developer workspace</option></select>'; label.querySelector('select').onchange = e => applyWorkspacePageTemplate(e.target.value); body.insertBefore(label, body.children[1]); }
-    const modal = document.getElementById('workspacePageModal'); if (modal) { const title = document.getElementById('workspacePageTitle'), id = document.getElementById('workspacePageId'); title.value = ''; id.value = ''; id.disabled = false; id.dataset.manual = 'false'; title.oninput = () => { if (id.dataset.manual !== 'true') id.value = title.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64); }; id.oninput = () => { id.dataset.manual = 'true'; }; renderRolePicker([]); document.getElementById('workspacePageBody').value = ''; document.getElementById('workspacePageError').style.display = 'none'; document.getElementById('workspacePageModalTitle').textContent = 'Create workspace page'; document.getElementById('workspacePageSubmit').textContent = 'Create page'; modal.dataset.editing = ''; modal.classList.add('active'); loadWorkspaceRoles(); }
+    const state = window.workspaceBuilderState || (window.workspaceBuilderState = {pages:[],sections:[]});
+    const base = 'new-page'; let pageId = base; let index = 2;
+    while (state.pages.some(page => page.page_id === pageId)) pageId = `${base}-${index++}`;
+    state.pages.push({page_id: pageId, title: 'New page', allowed_roles: [], blocks: [{type:'heading', title:'New page'}]});
+    renderWorkspaceBuilder(); refreshInlineWorkspacePages(); renderWorkspaceRoleMatrix();
+    const select = document.getElementById('workspaceInlinePage'); if (select) { select.value = pageId; loadInlineWorkspacePage(pageId); }
 }
-function applyWorkspacePageTemplate(template) { const data = { operations: ['Operations overview','operations-overview','', 'Monitor day-to-day activity and team workload.'], finance: ['Finance dashboard','finance-dashboard',['FINANCE_MANAGER'],'Review budgets, approvals, and financial performance.'], developer: ['Developer workspace','developer-workspace',['AGENT_STANDARD'],'Build, test, and monitor engineering work.'], blank: ['','','',''] }[template] || ['', '', [], '']; document.getElementById('workspacePageTitle').value = data[0]; document.getElementById('workspacePageId').value = data[1]; document.getElementById('workspacePageId').dataset.manual = 'false'; renderRolePicker(Array.isArray(data[2]) ? data[2] : (data[2] ? [data[2]] : [])); document.getElementById('workspacePageBody').value = data[3]; }
-window.applyWorkspacePageTemplate = applyWorkspacePageTemplate;
-function renderWorkspaceBlocks(blocks = []) { const list = document.getElementById('workspacePageBlocks'); if (!list) return; list.replaceChildren(); (blocks.length ? blocks : [{type:'heading',title:document.getElementById('workspacePageTitle')?.value || 'Page overview',body:'',value:''}]).forEach(block => { const row = document.createElement('div'); row.className = 'workspace-block-row'; row.innerHTML = `<select class="form-select block-type"><option value="heading">Heading</option><option value="text">Text</option><option value="metric">Metric</option></select><input class="form-input block-title" placeholder="Title"/><input class="form-input block-body" placeholder="Description or value"/><button type="button" class="icon-btn danger" title="Remove block">⌫</button>`; row.querySelector('.block-type').value = block.type || 'text'; row.querySelector('.block-title').value = block.title || ''; row.querySelector('.block-body').value = block.type === 'metric' ? (block.value || '') : (block.body || ''); row.querySelector('.danger').onclick = () => { row.remove(); }; row.querySelector('.block-type').onchange = () => { row.querySelector('.block-body').placeholder = row.querySelector('.block-type').value === 'metric' ? 'Metric value, e.g. 24' : 'Description or value'; }; list.appendChild(row); }); }
-function addWorkspaceBlock() { const list = document.getElementById('workspacePageBlocks'); if (!list) return; const before = [...list.children].map(row => ({type: row.querySelector('.block-type').value, title: row.querySelector('.block-title').value, body: row.querySelector('.block-body').value})); before.push({type:'text',title:'',body:'',value:''}); renderWorkspaceBlocks(before); list.lastElementChild?.querySelector('.block-title')?.focus(); }
-function collectWorkspaceBlocks() { return [...document.querySelectorAll('#workspacePageBlocks .workspace-block-row')].map(row => { const type = row.querySelector('.block-type').value, title = row.querySelector('.block-title').value.trim(), value = row.querySelector('.block-body').value.trim(); return type === 'metric' ? {type,title,value,body:''} : {type,title,body:value,value:''}; }).filter(block => block.title || block.body || block.value); }
-function closeWorkspacePageModal() { document.getElementById('workspacePageModal')?.classList.remove('active'); }
-async function submitWorkspacePage(event) { event.preventDefault(); const error = document.getElementById('workspacePageError'); try { const state = window.workspaceBuilderState || {pages:[],sections:[]}; const pageId = document.getElementById('workspacePageId').value.trim().toLowerCase(); const editing = document.getElementById('workspacePageModal').dataset.editing; if (!editing && state.pages.some(page => page.page_id === pageId)) throw new Error('A page with this ID already exists.'); const page = { page_id: pageId, title: document.getElementById('workspacePageTitle').value.trim(), allowed_roles: [...document.querySelectorAll('#workspacePageRoles input:checked')].map(input => input.value), blocks: [{ type: 'heading', title: document.getElementById('workspacePageTitle').value.trim() }, { type: 'text', body: document.getElementById('workspacePageBody').value.trim() }] }; const index = state.pages.findIndex(item => item.page_id === editing); if (index >= 0) state.pages[index] = page; else state.pages.push(page); window.workspaceBuilderState = state; closeWorkspacePageModal(); renderWorkspaceBuilder(); await saveWorkspacePages(); } catch (e) { error.textContent = e.message; error.style.display = 'block'; } }
-window.openWorkspacePageModal = window.addWorkspacePage;
-
+function refreshInlineWorkspacePages() { const select = document.getElementById('workspaceInlinePage'), editor = document.getElementById('workspaceInlineCustomizer'), pages = window.workspaceBuilderState?.pages || []; if (!select || !editor) return; const current = select.value; select.replaceChildren(...pages.map(page => new Option(page.title || page.page_id, page.page_id))); if (!pages.length) { editor.hidden = true; return; } editor.hidden = false; select.value = pages.some(page => page.page_id === current) ? current : pages[0].page_id; loadInlineWorkspacePage(select.value); }
+function renderInlineWorkspaceRoles(selected = []) { const target = document.getElementById('workspaceInlineRoles'); if (!target) return; const roles = window.workspaceRoles?.length ? window.workspaceRoles : [...new Set((window.workspaceBuilderState?.pages || []).flatMap(page => page.allowed_roles || []))]; target.replaceChildren(); if (!roles.length) { const note = document.createElement('small'); note.textContent = 'No roles configured yet; the page follows the workspace default.'; target.appendChild(note); return; } roles.forEach(role => { const label = document.createElement('label'); label.className = 'role-checkbox-label'; const input = document.createElement('input'); input.type = 'checkbox'; input.value = role; input.checked = selected.includes(role); label.append(input, document.createTextNode(` ${role}`)); target.appendChild(label); }); }
+function loadInlineWorkspacePage(pageId) { const page = (window.workspaceBuilderState?.pages || []).find(item => item.page_id === pageId); const list = document.getElementById('workspaceInlineBlocks'); if (!page || !list) return; document.getElementById('workspaceInlineTitle').value = page.title || ''; renderInlineWorkspaceRoles(page.allowed_roles || []); list.replaceChildren(); (page.blocks || []).forEach(block => addInlineWorkspaceBlock(block.type || 'text', block, false)); renderInlineWorkspacePreview(); }
+function addInlineWorkspaceBlock(type = 'text', block = {}, focus = true) { const list = document.getElementById('workspaceInlineBlocks'); if (!list) return; const row = document.createElement('div'); row.className = 'workspace-block-row'; row.innerHTML = `<select class="form-select block-type"><option value="heading">Heading</option><option value="text">Text</option><option value="card">Card</option><option value="metric">Metric</option><option value="stat">Stat</option></select><input class="form-input block-title" placeholder="Title or label"><input class="form-input block-body" placeholder="Description or value"><button type="button" class="icon-btn danger" title="Remove block">⌫</button>`; row.querySelector('.block-type').value = type; row.querySelector('.block-title').value = block.title || block.label || ''; row.querySelector('.block-body').value = ['metric','stat'].includes(type) ? (block.value || '') : (block.body || ''); row.querySelectorAll('input').forEach(input => input.addEventListener('input', renderInlineWorkspacePreview)); row.querySelector('.block-type').onchange = renderInlineWorkspacePreview; row.querySelector('.danger').onclick = () => { row.remove(); renderInlineWorkspacePreview(); }; list.appendChild(row); if (focus) row.querySelector('.block-title').focus(); }
+function collectInlineWorkspaceBlocks() { return [...document.querySelectorAll('#workspaceInlineBlocks .workspace-block-row')].map(row => { const type = row.querySelector('.block-type').value, title = row.querySelector('.block-title').value.trim(), value = row.querySelector('.block-body').value.trim(); return ['metric','stat'].includes(type) ? {type,title,value} : {type,title,body:value}; }).filter(block => block.title || block.body || block.value); }
+function renderInlineWorkspacePreview() { const preview = document.getElementById('workspaceInlinePreview'); if (!preview) return; const blocks = collectInlineWorkspaceBlocks(); preview.replaceChildren(); if (!blocks.length) { const empty = document.createElement('div'); empty.className = 'workspace-preview-empty'; empty.textContent = 'Add a block to preview this page.'; preview.appendChild(empty); return; } blocks.forEach(block => { const card = document.createElement('div'); card.className = `workspace-preview-block preview-${block.type}`; if (block.type === 'heading') { const h = document.createElement('h3'); h.textContent = block.title || 'Heading'; card.appendChild(h); } else if (['metric','stat'].includes(block.type)) { const label = document.createElement('span'); label.textContent = block.title || 'Value'; const value = document.createElement('strong'); value.textContent = block.value || '—'; card.append(label, value); } else { const title = document.createElement('strong'); title.textContent = block.title || (block.type === 'text' ? 'Text' : 'Card'); const body = document.createElement('p'); body.textContent = block.body || 'Content'; card.append(title, body); } preview.appendChild(card); }); }
+function saveInlineWorkspacePage() { const state = window.workspaceBuilderState, page = (state?.pages || []).find(item => item.page_id === document.getElementById('workspaceInlinePage')?.value); if (!page) return; page.title = document.getElementById('workspaceInlineTitle').value.trim() || page.title; page.allowed_roles = [...document.querySelectorAll('#workspaceInlineRoles input:checked')].map(input => input.value); page.blocks = collectInlineWorkspaceBlocks(); renderWorkspaceBuilder(); refreshInlineWorkspacePages(); renderWorkspaceRoleMatrix(); saveWorkspacePages(); if (typeof showToast === 'function') showToast('Page customization saved.', 'success'); }
 async function saveWorkspaceMenu() {
     const id = workspaceMenuSelectId(); const state = window.workspaceBuilderState;
     if (!id || !state) return;
     try {
         await workspaceApi(`/v1/workspaces/${encodeURIComponent(id)}/menu`, { method: 'PUT', body: JSON.stringify({ sections: state.sections }) });
+
+        if (typeof call === 'function') {
+            try {
+                const items = [];
+                (state.sections || []).forEach(sec => {
+                    (sec.items || []).forEach(it => {
+                        items.push({
+                            name: it.target || it.label,
+                            type: it.target_type || 'page',
+                            label: it.label,
+                            route: it.target,
+                            icon: it.icon || 'grid'
+                        });
+                    });
+                });
+                await call("thinkdome.core.ui.api.create_workspace", {
+                    config: {
+                        name: id,
+                        label: id.charAt(0).toUpperCase() + id.slice(1),
+                        sequence: 10,
+                        items: items
+                    }
+                });
+            } catch (rpcErr) {
+                console.warn("Dynamic UI platform workspace menu sync:", rpcErr);
+            }
+        }
+
         const status = document.getElementById('workspaceMenuStatus'); if (status) { status.textContent = 'Saved just now'; setTimeout(() => status.textContent = '', 2500); }
         await refreshWorkspaceMenu();
-        if (typeof showToast === 'function') showToast('Workspace menu saved.', 'success');
+        if (typeof showToast === 'function') showToast('Workspace menu saved & published.', 'success');
     } catch (error) { if (typeof showToast === 'function') showToast(error.message || 'Invalid menu JSON.', 'error'); }
 }
-function renderRolePicker(selected) { const box = document.getElementById('workspacePageRoles'); if (!box) return; box.replaceChildren(); (window.workspaceRoles || []).forEach(role => { const label = document.createElement('label'); label.className = 'role-option'; label.innerHTML = `<input type="checkbox" value="${role}"><span>${role}</span>`; label.querySelector('input').checked = selected.includes(role); box.appendChild(label); }); }
-async function loadWorkspaceRoles(selected = []) { try { const result = await workspaceApi('/v1/roles'); window.workspaceRoles = (Array.isArray(result) ? result : result.roles || []).map(role => role.name || role).sort(); renderRolePicker(selected); } catch (_) { renderRolePicker(selected); } }
+async function loadWorkspaceRoles() { try { const result = await workspaceApi('/v1/roles'); window.workspaceRoles = (Array.isArray(result) ? result : result.roles || []).map(role => role.name || role).sort(); refreshWorkspaceRoleOptions(); } catch (_) { refreshWorkspaceRoleOptions(); } }
+function refreshWorkspaceRoleOptions() { const select = document.getElementById('workspacePreviewRole'); if (!select) return; const roles = new Set(window.workspaceRoles || []); (window.workspaceBuilderState?.pages || []).forEach(page => (page.allowed_roles || []).forEach(role => roles.add(role))); const current = select.value || '__all__'; select.replaceChildren(new Option('All roles', '__all__'), ...[...roles].sort().map(role => new Option(role, role))); select.value = [...select.options].some(option => option.value === current) ? current : '__all__'; renderWorkspaceRolePreview(); }
+function renderWorkspaceRolePreview() { const result = document.getElementById('workspaceRolePreview'), state = window.workspaceBuilderState || {pages:[],sections:[]}; if (!result) return; const role = document.getElementById('workspacePreviewRole')?.value || '__all__'; const canSee = page => role === '__all__' || !(page.allowed_roles || []).length || (page.allowed_roles || []).includes(role); const pages = state.pages.filter(canSee); const pageIds = new Set(pages.map(page => page.page_id)); const links = state.sections.reduce((count, section) => count + (section.items || []).filter(item => pageIds.has(item.target)).length, 0); result.innerHTML = ''; const strong = document.createElement('strong'); strong.textContent = role === '__all__' ? 'All configured roles' : role; const summary = document.createElement('span'); summary.textContent = ` · ${pages.length} page${pages.length === 1 ? '' : 's'} · ${links} sidebar link${links === 1 ? '' : 's'}`; result.append(strong, summary); }
+function renderWorkspaceViewer() { const state = window.workspaceBuilderState || {pages:[],sections:[]}; const roleSelect = document.getElementById('workspaceViewerRole'), pageSelect = document.getElementById('workspaceViewerPage'), canvas = document.getElementById('workspaceViewerCanvas'); if (!roleSelect || !pageSelect || !canvas) return; const roles = new Set(window.workspaceRoles || []); state.pages.forEach(page => (page.allowed_roles || []).forEach(role => roles.add(role))); const oldRole = roleSelect.value || '__all__'; roleSelect.replaceChildren(new Option('All roles', '__all__'), ...[...roles].sort().map(role => new Option(role, role))); roleSelect.value = [...roleSelect.options].some(option => option.value === oldRole) ? oldRole : '__all__'; const role = roleSelect.value; const visible = state.pages.filter(page => role === '__all__' || !(page.allowed_roles || []).length || page.allowed_roles.includes(role)); const oldPage = pageSelect.value; pageSelect.replaceChildren(...visible.map(page => new Option(page.title || page.page_id, page.page_id))); if (!visible.length) { canvas.replaceChildren(); const empty = document.createElement('div'); empty.className = 'workspace-viewer-empty'; empty.textContent = state.pages.length ? 'This role has no page access.' : 'No configured page. The viewer is intentionally empty.'; canvas.appendChild(empty); return; } pageSelect.value = visible.some(page => page.page_id === oldPage) ? oldPage : visible[0].page_id; const page = visible.find(item => item.page_id === pageSelect.value) || visible[0]; canvas.replaceChildren(); const title = document.createElement('strong'); title.textContent = page.title || page.page_id; canvas.appendChild(title); (page.blocks || []).forEach(block => { const item = document.createElement('div'); item.className = `workspace-viewer-block viewer-${block.type || 'card'}`; if (['metric','stat'].includes(block.type)) { const label = document.createElement('span'); label.textContent = block.title || 'Value'; const value = document.createElement('strong'); value.textContent = block.value || '—'; item.append(label, value); } else { const heading = document.createElement(block.type === 'heading' ? 'h4' : 'strong'); heading.textContent = block.title || (block.type === 'heading' ? 'Section heading' : 'Content card'); item.appendChild(heading); if (block.body) { const body = document.createElement('p'); body.textContent = block.body; item.appendChild(body); } } canvas.appendChild(item); }); if (!(page.blocks || []).length) { const empty = document.createElement('span'); empty.className = 'workspace-viewer-empty'; empty.textContent = 'This page has no content blocks yet.'; canvas.appendChild(empty); } }
+function renderWorkspaceRoleMatrix() { const target = document.getElementById('workspaceRoleMatrix'), state = window.workspaceBuilderState || {pages:[],sections:[]}; if (!target) return; const roles = new Set(window.workspaceRoles || []); state.pages.forEach(page => (page.allowed_roles || []).forEach(role => roles.add(role))); target.replaceChildren(); if (!state.pages.length) { const empty = document.createElement('div'); empty.className = 'workspace-viewer-empty'; empty.textContent = 'Create a page to build the access map.'; target.appendChild(empty); } else { state.pages.slice(0, 5).forEach(page => { const row = document.createElement('div'); row.className = 'workspace-matrix-row'; const name = document.createElement('strong'); name.textContent = page.title || page.page_id; const access = document.createElement('span'); access.textContent = page.allowed_roles?.length ? page.allowed_roles.join(' · ') : 'Everyone'; row.append(name, access); target.appendChild(row); }); } const pageCount = document.getElementById('workspacePageCount'); const roleCount = document.getElementById('workspaceRoleCount'); const blockCount = document.getElementById('workspaceBlockCount'); if (pageCount) pageCount.textContent = state.pages.length; if (roleCount) roleCount.textContent = roles.size; if (blockCount) blockCount.textContent = state.pages.reduce((sum, page) => sum + (page.blocks || []).length, 0); renderWorkspaceViewer(); }
 function renderWorkspaceBuilder() { const state = window.workspaceBuilderState || {pages:[],sections:[]}; const pages = document.getElementById('workspacePagesVisual'), menu = document.getElementById('workspaceMenuVisual'); if (!pages || !menu) return; pages.replaceChildren(); menu.replaceChildren(); document.getElementById('workspacePagesEmpty').hidden = state.pages.length > 0; document.getElementById('workspaceMenuEmpty').hidden = state.sections.length > 0; state.pages.forEach(page => { const card = document.createElement('div'); card.className = 'workspace-page-card'; card.innerHTML = `<span class="workspace-page-dot">P</span><div class="workspace-card-copy"><strong></strong><span class="mono-muted"></span><div class="workspace-role-tags"></div></div><div class="workspace-card-actions"><button class="icon-btn" title="Edit page">✎</button><button class="icon-btn danger" title="Delete page">⌫</button></div>`; card.querySelector('strong').textContent = page.title; card.querySelector('.mono-muted').textContent = `/${page.page_id}`; const tags = card.querySelector('.workspace-role-tags'); (page.allowed_roles.length ? page.allowed_roles : ['Everyone']).forEach(role => { const tag = document.createElement('span'); tag.textContent = role; tags.appendChild(tag); }); card.querySelector('button').onclick = () => editWorkspacePage(page); card.querySelector('.danger').onclick = () => deleteWorkspacePage(page.page_id); pages.appendChild(card); }); state.sections.forEach((section, sectionIndex) => { const group = document.createElement('div'); group.className = 'workspace-section-card'; group.draggable = true; group.dataset.index = sectionIndex; group.innerHTML = `<div class="workspace-section-head"><span class="drag-handle">⠿</span><strong></strong><span class="item-count"></span><button class="icon-btn danger" title="Delete section">⌫</button></div><div class="workspace-item-list"></div><button class="add-item-link">+ Add menu item</button>`; group.querySelector('strong').textContent = section.label; group.querySelector('.item-count').textContent = `${section.items.length} item${section.items.length === 1 ? '' : 's'}`; group.querySelector('.danger').onclick = () => { state.sections.splice(sectionIndex, 1); renderWorkspaceBuilder(); }; const list = group.querySelector('.workspace-item-list'); section.items.forEach((item, itemIndex) => { const row = document.createElement('div'); row.className = 'workspace-menu-item'; row.innerHTML = `<span class="drag-handle">⠿</span><span class="workspace-item-icon">✦</span><strong></strong><span class="workspace-item-target"></span><button class="icon-btn" title="Edit item">✎</button><button class="icon-btn danger" title="Delete item">⌫</button>`; row.querySelector('strong').textContent = item.label; row.querySelector('.workspace-item-target').textContent = item.target; row.querySelector('button').onclick = () => editWorkspaceMenuItem(sectionIndex, itemIndex); row.querySelector('.danger').onclick = () => { section.items.splice(itemIndex, 1); renderWorkspaceBuilder(); }; list.appendChild(row); }); group.querySelector('.add-item-link').onclick = () => openWorkspaceMenuModal(sectionIndex); group.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', sectionIndex); }); group.addEventListener('dragover', e => e.preventDefault()); group.addEventListener('drop', e => { const from = Number(e.dataTransfer.getData('text/plain')); if (from !== sectionIndex) { const moved = state.sections.splice(from, 1)[0]; state.sections.splice(sectionIndex, 0, moved); renderWorkspaceBuilder(); } }); menu.appendChild(group); }); }
-function editWorkspacePage(page) { addWorkspacePage(); const modal = document.getElementById('workspacePageModal'); modal.dataset.editing = page.page_id; document.getElementById('workspacePageModalTitle').textContent = 'Edit workspace page'; document.getElementById('workspacePageSubmit').textContent = 'Save page'; document.getElementById('workspacePageTitle').value = page.title; document.getElementById('workspacePageId').value = page.page_id; document.getElementById('workspacePageId').disabled = true; document.getElementById('workspacePageId').dataset.manual = 'true'; document.getElementById('workspacePageBody').value = page.blocks?.find(block => block.type === 'text')?.body || ''; loadWorkspaceRoles(page.allowed_roles || []); }
-function deleteWorkspacePage(pageId) { const state = window.workspaceBuilderState; if (!confirm('Delete this page? Menu items linked to it should also be removed.')) return; state.pages = state.pages.filter(page => page.page_id !== pageId); state.sections.forEach(section => section.items = section.items.filter(item => !(item.target_type === 'page' && item.target === pageId))); renderWorkspaceBuilder(); }
+function editWorkspacePage(page) { refreshInlineWorkspacePages(); const select = document.getElementById('workspaceInlinePage'); if (select) { select.value = page.page_id; loadInlineWorkspacePage(page.page_id); } }
+function deleteWorkspacePage(pageId) { const state = window.workspaceBuilderState; if (!confirm('Delete this page? Menu items linked to it should also be removed.')) return; state.pages = state.pages.filter(page => page.page_id !== pageId); state.sections.forEach(section => section.items = section.items.filter(item => !(item.target_type === 'page' && item.target === pageId))); renderWorkspaceBuilder(); refreshInlineWorkspacePages(); renderWorkspaceRoleMatrix(); }
 function addWorkspaceSection() { const modal = document.getElementById('workspaceSectionModal'); if (!modal) return; document.getElementById('workspaceSectionLabel').value = ''; modal.classList.add('active'); setTimeout(() => document.getElementById('workspaceSectionLabel').focus(), 50); }
 function closeWorkspaceSectionModal() { document.getElementById('workspaceSectionModal')?.classList.remove('active'); }
 function submitWorkspaceSection(event) { event.preventDefault(); const state = window.workspaceBuilderState || {pages:[],sections:[]}; const label = document.getElementById('workspaceSectionLabel').value.trim(); if (!label) return; state.sections.push({label, items: []}); window.workspaceBuilderState = state; closeWorkspaceSectionModal(); renderWorkspaceBuilder(); }
@@ -328,7 +416,6 @@ function closeWorkspaceMenuModal() { document.getElementById('workspaceMenuModal
 function editWorkspaceMenuItem(sectionIndex, itemIndex) { openWorkspaceMenuModal(sectionIndex, itemIndex); }
 function submitWorkspaceMenuItem(event) { event.preventDefault(); const modal = document.getElementById('workspaceMenuModal'), state = window.workspaceBuilderState, section = state.sections[Number(modal.dataset.section)]; const item = {label: document.getElementById('workspaceMenuLabel').value.trim(), target_type: 'page', target: document.getElementById('workspaceMenuTarget').value, icon: document.getElementById('workspaceMenuIcon').value}; if (!item.target) { document.getElementById('workspaceMenuError').textContent = 'Create a page before adding a menu item.'; return; } const index = modal.dataset.item === '' ? -1 : Number(modal.dataset.item); if (index >= 0) section.items[index] = item; else section.items.push(item); closeWorkspaceMenuModal(); renderWorkspaceBuilder(); }
 window.loadWorkspaceMenuEditor = loadWorkspaceMenuEditor;
-window.createWorkspaceForMenu = createWorkspaceForMenu;
 window.saveWorkspaceMenu = saveWorkspaceMenu;
 window.saveWorkspacePages = saveWorkspacePages;
 window.setActiveWorkspaceMenu = setActiveWorkspaceMenu;
@@ -481,22 +568,25 @@ async function submitUserRoleAssignment() {
 }
 
 /* =================== AUTO RUN LOAD ON READY =================== */
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
     const appView = document.getElementById('appView');
     const isLoggedIn = localStorage.getItem('thinkdome_logged_in') === 'true';
     if (appView && isLoggedIn) {
         const role = localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD';
         const user = localStorage.getItem('thinkdome_username') || 'User';
         applyRoleBasedUINavigation(role, user);
-        navTo(state.activePage || 'dashboard');
-
-        if (typeof switchProject === 'function') {
-            switchProject('demo');
-        }
-        if (typeof loadMcpTools === 'function') {
-            loadMcpTools();
-        }
-        refreshWorkspaceMenu();
+        const nav = await loadWorkspaceManager();
+        const configuredPages = Array.isArray(nav?.pages) ? nav.pages : [];
+        // Dashboard is the preferred registered landing page. It is selected
+        // from the server manifest, so it remains dynamic and still falls
+        // back safely when an installation has no dashboard configured.
+        const firstPage = configuredPages.find(page => {
+            const id = String(page.name || page.page_id || page.route || '').toLowerCase();
+            return id === 'dashboard' || id === 'home';
+        }) || configuredPages[0];
+        // There is no client-side default route. With no configured pages,
+        // the application intentionally stays empty.
+        if (firstPage) navTo(firstPage.name || firstPage.page_id || firstPage.route);
         renderAllViews();
     }
 });

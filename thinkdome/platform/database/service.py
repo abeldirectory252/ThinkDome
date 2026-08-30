@@ -333,6 +333,11 @@ class DatabaseService:
                     self._initialize_sqlite()
         conn = sqlite3.connect(str(self.effective_db_path), timeout=15.0)
         conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=15000;")
+        except Exception:
+            pass
         return conn
 
     def _initialize_sqlite(self) -> None:
@@ -524,6 +529,10 @@ class DatabaseService:
         result["storage_quota_mb"] = storage_quota_mb
         result["cost_per_hour"] = cost_per_hour
         result["backend_type"] = backend_type
+
+        if not hasattr(self, "_sandbox_meta"):
+            self._sandbox_meta = {}
+        self._sandbox_meta[sandbox_id] = result
         return result
 
     def get_sandbox(self, sandbox_id: str) -> Optional[Dict[str, Any]]:
@@ -534,7 +543,10 @@ class DatabaseService:
             sb = Sandbox.query().filter(name=sandbox_id).first()
         if sb:
             d = sb.to_dict()
-            d["sandbox_id"] = d.get("id")
+            sid = d.get("id")
+            d["sandbox_id"] = sid
+            if hasattr(self, "_sandbox_meta") and sid in self._sandbox_meta:
+                d.update(self._sandbox_meta[sid])
             return d
         return None
 
@@ -549,7 +561,10 @@ class DatabaseService:
         results = []
         for sb in sbs:
             d = sb.to_dict()
-            d["sandbox_id"] = d.get("id")
+            sid = d.get("id")
+            d["sandbox_id"] = sid
+            if hasattr(self, "_sandbox_meta") and sid in self._sandbox_meta:
+                d.update(self._sandbox_meta[sid])
             results.append(d)
         return results
 

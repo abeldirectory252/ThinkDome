@@ -201,7 +201,10 @@ function renderSandboxCardsHTMLOnly() {
         }
         
         const statusLabel = sb.status;
-        
+        const expirationNotice = sb.expired
+            ? `<div class="alert alert-error" style="margin:10px 0 0;padding:8px 10px;font-size:11.5px;">${sb.expirationMessage || 'This sandbox lease has expired and is no longer available.'}</div>`
+            : '';
+
         const consoleBtn = `<button class="btn btn-ghost btn-sm" onclick="jumpToSbxConsole('${key}')" title="Open Console IDE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg></button>`;
         const powerBtn = `<button class="btn btn-ghost btn-sm" onclick="toggleSandboxState('${key}')" title="Stop/Start Sandbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M18.4 5.6a9 9 0 1 1-12.8 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg></button>`;
         const haltBtn = `<button class="btn btn-ghost btn-sm" onclick="setSandboxState('${key}', 'halted')" title="Halt Node" ${sb.status === 'halted' ? 'disabled style="opacity:0.4;"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg></button>`;

@@ -68,7 +68,7 @@ class BillingService:
 
         for sb in all_sandboxes:
             sb_id = sb["sandbox_id"]
-            created_at_str = sb["created_at"]
+            created_at_str = sb.get("created_at") or sb.get("created_at_str") or datetime.utcnow().isoformat()
             
             try:
                 created_at = datetime.fromisoformat(created_at_str)

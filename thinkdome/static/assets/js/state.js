@@ -3,7 +3,8 @@
 /* =================== INITIAL STATE & DATA =================== */
 const state = {
     theme: 'light', // stable original theme; changed only by explicit user toggle
-    activePage: 'dashboard',
+    // Navigation is selected only after the server UI manifest is loaded.
+    activePage: null,
     activeSbx: '',
     activeConsoleTab: 'ide', // ide or orchestrator
     activeIdePane: 'editor', // editor or tooluse

@@ -1,0 +1,59 @@
+{
+  "workspaces": [
+    {
+      "name": "developer",
+      "label": "AI & Dev Engineering",
+      "sequence": 1,
+      "icon": "🚀",
+      "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"],
+      "items": [
+        {"name": "dashboard", "label": "Dashboard", "route": "dashboard", "type": "page"},
+        {"name": "sandboxes", "label": "Sandboxes Studio", "route": "sandboxes", "type": "page"},
+        {"name": "console", "label": "Console & IDE", "route": "console", "type": "page"},
+        {"name": "mcp", "label": "MCP Tool Registry", "route": "mcp", "type": "page"},
+        {"name": "apikeys", "label": "API Key Management", "route": "apikeys", "type": "page"}
+      ]
+    },
+    {
+      "name": "operations",
+      "label": "Security & Operations Admin",
+      "sequence": 2,
+      "icon": "🛡️",
+      "allowed_roles": ["SUPER_ADMIN", "ADMIN"],
+      "items": [
+        {"name": "users", "label": "User Accounts", "route": "users", "type": "page"},
+        {"name": "roles", "label": "Role Permissions", "route": "roles", "type": "page"},
+        {"name": "audit", "label": "Security Audit", "route": "audit", "type": "page"},
+        {"name": "limits", "label": "Network Audit & Limits", "route": "limits", "type": "page"},
+        {"name": "workspaces", "label": "Workspace Manager", "route": "workspaces", "type": "page"}
+      ]
+    },
+    {
+      "name": "finance",
+      "label": "Finance & Resource Management",
+      "sequence": 3,
+      "icon": "💰",
+      "allowed_roles": ["SUPER_ADMIN", "ADMIN", "FINANCE_MANAGER"],
+      "items": [
+        {"name": "billing", "label": "Billing & Usage", "route": "billing", "type": "page"},
+        {"name": "account", "label": "Account Settings", "route": "account", "type": "page"},
+        {"name": "snapshots", "label": "Snapshots", "route": "snapshots", "type": "page"}
+      ]
+    }
+  ],
+  "pages": [
+    {"name": "dashboard", "title": "Dashboard", "route": "dashboard", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"], "layout": [{"type": "heading", "text": "ThinkDome Dashboard", "level": 1}]},
+    {"name": "sandboxes", "title": "Sandboxes Studio", "route": "sandboxes", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"], "layout": [{"type": "heading", "text": "AI Sandboxes Studio", "level": 1}]},
+    {"name": "console", "title": "Console & IDE", "route": "console", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"], "layout": [{"type": "heading", "text": "Interactive Development Console", "level": 1}]},
+    {"name": "mcp", "title": "MCP Tool Registry", "route": "mcp", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"], "layout": [{"type": "heading", "text": "MCP Tool Registry", "level": 1}]},
+    {"name": "apikeys", "title": "API Key Management", "route": "apikeys", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "API Key Management", "level": 1}]},
+    {"name": "users", "title": "User Accounts", "route": "users", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "RBAC User Accounts", "level": 1}]},
+    {"name": "roles", "title": "Role Permissions", "route": "roles", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Role Permissions Manager", "level": 1}]},
+    {"name": "audit", "title": "Security Audit", "route": "audit", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Security Audit Trail", "level": 1}]},
+    {"name": "limits", "title": "Network Audit & Limits", "route": "limits", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Network Audit & Limits", "level": 1}]},
+    {"name": "workspaces", "title": "Workspace Manager", "route": "workspaces", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Workspace Manager", "level": 1}]},
+    {"name": "billing", "title": "Billing & Usage", "route": "billing", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "FINANCE_MANAGER"], "layout": [{"type": "heading", "text": "Billing & Usage Reports", "level": 1}]},
+    {"name": "account", "title": "Account Settings", "route": "account", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"], "layout": [{"type": "heading", "text": "Account Settings", "level": 1}]},
+    {"name": "snapshots", "title": "Snapshots", "route": "snapshots", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"], "layout": [{"type": "heading", "text": "Snapshots & Backtrack", "level": 1}]}
+  ]
+}

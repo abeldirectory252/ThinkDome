@@ -41,9 +41,12 @@ from thinkdome.platform.observability.api.observability import router as observa
 from thinkdome.security.api.auth import router as auth_router
 from thinkdome.security.api.role_profiles import router as role_profiles_router
 from thinkdome.security.api.users import router as users_router
+from thinkdome.security.api.roles import router as rbac_roles_router
+from thinkdome.security.api.permissions import router as rbac_permissions_router
 from thinkdome.platform.orchestration.api import router as orchestrator_router
 from thinkdome.platform.observability.api.monitor import router as monitor_router
 from thinkdome.api.routes.control_plane import router as control_plane_router
+from thinkdome.api.routes.ui import router as ui_router, rpc_router
 
 # ── Original Service Imports ──────────────────────────────────────────────────
 from thinkdome.sandbox.core.service import ExecutionService
@@ -82,6 +85,8 @@ app.include_router(health_router)
 app.include_router(auth_router, prefix="/v1")
 app.include_router(role_profiles_router)
 app.include_router(users_router)
+app.include_router(rbac_roles_router)
+app.include_router(rbac_permissions_router)
 app.include_router(orchestrator_router, prefix="/v1")
 app.include_router(execute_router, prefix="/v1")
 app.include_router(files_router, prefix="/v1")
@@ -94,9 +99,14 @@ app.include_router(sandboxes_router, prefix="/v1")
 app.include_router(observability_router, prefix="/v1")
 app.include_router(monitor_router, prefix="/v1")
 app.include_router(control_plane_router, prefix="/v1")
+app.include_router(ui_router)
+app.include_router(rpc_router)
+
+from thinkdome.core.api.method import router as method_router
 
 # ── Mount Dynamic Metadata CRUD Router (/api prefix) ──────────────────────────
 app.include_router(api_router)
+app.include_router(method_router)
 
 # ── Mount Static Frontend Files ───────────────────────────────────────────────
 static_dir = Path(__file__).resolve().parents[2] / "static"

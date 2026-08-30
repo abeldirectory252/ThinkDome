@@ -53,6 +53,12 @@ async def lifespan(app: FastAPI):
     initialize_rbac_schema(app.state.db_service)
     from thinkdome.platform.storage.workspaces.schema import initialize_workspace_schema
     initialize_workspace_schema()
+    from thinkdome.core.ui.models import initialize_ui_schema
+    initialize_ui_schema()
+
+    # Seed SUPER_ADMIN users & premade Dynamic UI configuration into DB ORM
+    from thinkdome.security.auth.seed import seed_superadmin_and_dynamic_ui
+    seed_superadmin_and_dynamic_ui("think.local")
 
     # Control-plane state is persisted through the custom ORM.  This service is
     # deliberately independent from the local execution backend so public API
@@ -296,6 +302,8 @@ def create_app() -> FastAPI:
     from thinkdome.api.routes.execution.network_audit import router as network_audit_router
     from thinkdome.security.api.api_keys_router import router as api_keys_router
     from thinkdome.platform.storage.api.filebox import router as filebox_router
+    from thinkdome.api.routes.ui import router as ui_router, rpc_router
+    from thinkdome.core.api.method import router as method_router
 
     # Register routers
     app.include_router(health_router)
@@ -327,6 +335,9 @@ def create_app() -> FastAPI:
     app.include_router(vault_router, prefix="/v1")
     app.include_router(network_audit_router, prefix="/v1")
     app.include_router(control_plane_router, prefix="/v1")
+    app.include_router(ui_router)
+    app.include_router(rpc_router)
+    app.include_router(method_router)
 
     # Serve static assets
     from fastapi.staticfiles import StaticFiles

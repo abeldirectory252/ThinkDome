@@ -98,10 +98,20 @@ class Kernel:
 
         # Create connection engine
         if db_url.startswith("sqlite"):
+            from sqlalchemy import event
             self.db_engine = create_engine(
                 db_url,
                 connect_args={"check_same_thread": False, "timeout": 15},
             )
+            @event.listens_for(self.db_engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                try:
+                    cursor = dbapi_connection.cursor()
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.execute("PRAGMA busy_timeout=15000")
+                    cursor.close()
+                except Exception:
+                    pass
         else:
             self.db_engine = create_engine(
                 db_url,

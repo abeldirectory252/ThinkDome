@@ -291,6 +291,19 @@ class OrchestratorService:
                 if not tool:
                     raise ValueError(f"Unknown tool name: {tool_name}")
 
+                # Apply persisted MCP policy at the execution boundary too;
+                # listing filters alone are not authorization.
+                from thinkdome.core.ui.service import UIManager
+                from thinkdome.security.identity.core import is_admin_role
+                policy = UIManager().get_mcp_tool_metadata().get(tool_name)
+                role_upper = (caller_role or "LLM").upper()
+                if policy and not policy.get("is_active", True):
+                    raise PermissionError(f"Access denied: MCP tool '{tool_name}' is inactive.")
+                if policy and policy.get("allowed_roles") and not is_admin_role(role_upper):
+                    allowed_roles = {str(value).upper() for value in policy["allowed_roles"]}
+                    if role_upper not in allowed_roles:
+                        raise PermissionError(f"Access denied: MCP tool '{tool_name}' is not allowed for role '{caller_role}'.")
+
                 # Ensure non-core (app) tools are active in the current site config
                 if tool.app_name != "core":
                     site_name = os.environ.get("THINKDOME_SITE", "think.local")
@@ -302,7 +315,6 @@ class OrchestratorService:
                         )
 
                 # ── PRIVILEGE VERIFICATION ──
-                role_upper = (caller_role or "LLM").upper()
                 required_scope = tool.required_scope
                 
                 # Fetch scopes allowed for this role

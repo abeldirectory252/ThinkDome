@@ -89,6 +89,11 @@ async function refreshDash(btn) {
 }
 
 async function fetchDashboardData() {
+    // Resolve optional dashboard surfaces once. Dynamic UI pages may omit any
+    // of these targets, so every renderer must treat them as nullable.
+    const execBody = document.getElementById('execBody');
+    const auditBody = document.getElementById('auditBody');
+    const auditFullBody = document.getElementById('auditFullBody');
     try {
         const health = await fetch('/health');
         const apiStatus = document.getElementById('fleetApiStatus');
@@ -107,8 +112,22 @@ async function fetchDashboardData() {
         return;
     }
 
+    // Never decide whether to call admin endpoints from localStorage alone.
+    // Rehydrate the role from the authenticated server session first; the
+    // browser value is only a display hint and may be stale.
+    let serverIsAdmin = false;
     try {
-        const isAdmin = (localStorage.getItem('thinkdome_user_role') || '').toUpperCase().includes('ADMIN');
+        const identity = await window.API.getCurrentUser(token);
+        const serverRole = String(identity?.data?.user?.role || '').toUpperCase();
+        serverIsAdmin = ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'ORCH', 'IDE'].includes(serverRole);
+        if (serverRole) localStorage.setItem('thinkdome_user_role', serverRole);
+    } catch (_) {
+        // Fail closed: a role that the server did not confirm cannot access
+        // administrative dashboard data.
+    }
+
+    try {
+        const isAdmin = serverIsAdmin;
         const nodesResponse = isAdmin ? await fetch('/v1/control-plane/nodes', {
             headers: { 'Authorization': `Bearer ${token}` }
         }) : null;
@@ -135,7 +154,7 @@ async function fetchDashboardData() {
 
     try {
         // Fetch concurrently
-        const isAdmin = (localStorage.getItem('thinkdome_user_role') || '').toUpperCase().includes('ADMIN');
+        const isAdmin = serverIsAdmin;
         const [sandboxesRes, keysRes, logsRes, auditRes] = await Promise.all([
             window.API.getSandboxes(token),
             isAdmin ? window.API.getApiKeys(token) : Promise.resolve({ data: [] }),
@@ -820,11 +839,12 @@ async function revokeKey(keyId, index) {
 async function loadMcpTools() {
     const tbody = document.getElementById('mcpToolsTableBody');
     const token = localStorage.getItem('thinkdome_token') || "";
+    ensureMcpRegistryControls();
     
     try {
         if (window.API && typeof window.API.getTools === 'function') {
             const { data, error } = await window.API.getTools(token);
-            if (!error && data && Array.isArray(data) && data.length > 0) {
+            if (!error && Array.isArray(data)) {
                 renderMcpToolsTable(data);
                 return;
             }
@@ -833,8 +853,141 @@ async function loadMcpTools() {
         console.warn("API getTools failed, using 24 built-in MCP tools fallback:", err);
     }
     
-    // Always render 24 built-in MCP tools fallback if API data is unavailable!
-    renderMcpToolsTable(BUILTIN_MCP_TOOLS_FALLBACK);
+    // Do not fabricate a registry when the server is unavailable. The MCP
+    // page is server-authoritative and must show an explicit unavailable state.
+    renderMcpToolsTable([]);
+}
+
+function isMcpAdministrator() {
+    let roles = [];
+    try { roles = JSON.parse(localStorage.getItem('thinkdome_user_roles') || '[]'); } catch (_) { roles = []; }
+    const values = Array.isArray(roles) ? [...roles] : [];
+    values.push(localStorage.getItem('thinkdome_user_role') || '');
+    return values.some(role => ['ADMIN', 'ADMINISTRATOR', 'SUPERADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN']
+        .includes(String(role).toUpperCase()));
+}
+
+function ensureMcpRegistryControls() {
+    const page = document.getElementById('page-mcp');
+    if (!page || !isMcpAdministrator() || document.getElementById('mcpRegistryControls')) return;
+    const panel = document.createElement('div');
+    panel.id = 'mcpRegistryControls';
+    panel.className = 'table-card';
+    panel.style.cssText = 'padding:16px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;';
+    const copy = document.createElement('div');
+    const title = document.createElement('h3'); title.textContent = 'MCP Policy Registry'; title.style.margin = '0 0 4px';
+    const hint = document.createElement('p'); hint.textContent = 'Manage title, activation, and role access for registered tools.'; hint.style.cssText = 'font-size:12.5px;color:var(--fg-muted);margin:0;';
+    copy.append(title, hint);
+    const button = document.createElement('button'); button.className = 'btn btn-primary'; button.textContent = '+ Register Tool Policy';
+    button.onclick = () => editMcpToolPolicy();
+    panel.append(copy, button);
+    const anchor = page.querySelector('#mcpToolsTableBody')?.closest('.table-card');
+    if (anchor) anchor.parentNode.insertBefore(panel, anchor);
+}
+
+function closeMcpPolicyModal() {
+    const modal = document.getElementById('mcpPolicyModal');
+    if (modal) { modal.classList.remove('active'); modal.hidden = true; }
+}
+
+async function loadMcpPolicyRoles(selected = []) {
+    const select = document.getElementById('mcpPolicyRoles');
+    if (!select) return;
+    const token = localStorage.getItem('thinkdome_token') || '';
+    const headers = { Authorization: `Bearer ${token}` };
+    const names = new Set();
+    try {
+        const response = await fetch('/v1/roles', { headers });
+        if (response.ok) {
+            const payload = await response.json();
+            (Array.isArray(payload) ? payload : payload.roles || []).forEach(role => names.add(String(role.name || role)));
+        }
+    } catch (_) { /* role profiles may still provide usable options */ }
+    try {
+        const response = await fetch('/v1/role-profiles', { headers });
+        if (response.ok) {
+            const profiles = await response.json();
+            profiles.forEach(profile => (profile.roles || []).forEach(role => names.add(String(role))));
+        }
+    } catch (_) { /* optional role-profile endpoint */ }
+    selected.forEach(role => names.add(String(role)));
+    select.replaceChildren();
+    [...names].filter(Boolean).sort((a, b) => a.localeCompare(b)).forEach(role => {
+        const option = new Option(role, role, false, selected.some(item => String(item).toUpperCase() === role.toUpperCase()));
+        select.appendChild(option);
+    });
+    if (!select.options.length) {
+        const option = new Option('No registered roles found', '', false, false);
+        option.disabled = true;
+        select.appendChild(option);
+    }
+}
+
+async function editMcpToolPolicy(tool = null) {
+    if (typeof tool === 'string') {
+        tool = ((window.state && window.state.allMcpTools) || []).find(item => item.name === tool) || { name: tool };
+    }
+    const modal = document.getElementById('mcpPolicyModal');
+    if (!modal) return;
+    document.getElementById('mcpPolicyModalTitle').textContent = tool?.name ? 'Edit MCP Tool Policy' : 'Register MCP Tool Policy';
+    document.getElementById('mcpPolicyOriginalName').value = tool?.name || '';
+    document.getElementById('mcpPolicyName').value = tool?.name || '';
+    document.getElementById('mcpPolicyTitle').value = tool?.title || tool?.name || '';
+    document.getElementById('mcpPolicyDescription').value = tool?.description || '';
+    document.getElementById('mcpPolicyScope').value = tool?.required_scope || '';
+    await loadMcpPolicyRoles(tool?.allowed_roles || []);
+    document.getElementById('mcpPolicyActive').checked = tool?.is_active !== false;
+    document.getElementById('mcpPolicyDelete').hidden = !tool?.name;
+    document.getElementById('mcpPolicyRuntimeInfo').textContent = tool?.is_runtime_registered === false
+        ? 'Policy saved, but no executable implementation is registered yet.'
+        : tool?.name ? 'Executable implementation is registered in the runtime tool registry.' : 'New policies can be attached to a registered MCP tool.';
+    document.getElementById('mcpPolicyError').hidden = true;
+    modal.hidden = false;
+    modal.classList.add('active');
+    modal.onclick = event => { if (event.target === modal) closeMcpPolicyModal(); };
+    document.getElementById('mcpPolicyName').focus();
+}
+
+async function submitMcpPolicyModal(event) {
+    event.preventDefault();
+    const originalName = document.getElementById('mcpPolicyOriginalName').value;
+    const name = document.getElementById('mcpPolicyName').value.trim();
+    const error = document.getElementById('mcpPolicyError');
+    const payload = { name, title: document.getElementById('mcpPolicyTitle').value.trim(),
+        description: document.getElementById('mcpPolicyDescription').value.trim(),
+        required_scope: document.getElementById('mcpPolicyScope').value.trim() || null,
+        is_active: document.getElementById('mcpPolicyActive').checked,
+        allowed_roles: [...document.getElementById('mcpPolicyRoles').selectedOptions].map(option => option.value).filter(Boolean) };
+    try {
+        const endpoint = `/v1/tools/metadata${originalName ? `/${encodeURIComponent(originalName)}` : ''}`;
+        const response = await fetch(endpoint, { method: originalName ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('thinkdome_token') || ''}` }, body: JSON.stringify(payload) });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'MCP policy update failed');
+        closeMcpPolicyModal();
+        await loadMcpTools();
+    } catch (e) {
+        error.textContent = e.message;
+        error.hidden = false;
+    }
+}
+
+async function deleteMcpPolicyFromModal() {
+    const name = document.getElementById('mcpPolicyOriginalName').value;
+    if (!name || !confirm(`Delete the saved policy for '${name}'? It will be retained as inactive so the tool cannot be re-enabled accidentally.`)) return;
+    try {
+        const response = await fetch(`/v1/tools/metadata/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('thinkdome_token') || ''}` } });
+        if (!response.ok) throw new Error('MCP policy deletion failed');
+        closeMcpPolicyModal();
+        await loadMcpTools();
+    } catch (e) {
+        const error = document.getElementById('mcpPolicyError'); error.textContent = e.message; error.hidden = false;
+    }
+}
+
+async function deleteMcpToolPolicy(name) {
+    if (!confirm(`Delete the saved policy for '${name}'? The executable code registry will not be modified.`)) return;
+    const response = await fetch(`/v1/tools/metadata/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('thinkdome_token') || ''}` } });
+    if (!response.ok) throw new Error('MCP policy deletion failed');
+    await loadMcpTools();
 }
 
 const BUILTIN_MCP_TOOLS_FALLBACK = [
@@ -895,27 +1048,49 @@ function renderMcpToolsTable(tools) {
     const tbody = document.getElementById('mcpToolsTableBody');
     if (!tbody) return;
 
-    const list = (tools && tools.length > 0) ? tools : BUILTIN_MCP_TOOLS_FALLBACK;
+    const list = Array.isArray(tools) ? tools : [];
     if (!window.state) window.state = typeof state !== 'undefined' ? state : {};
     window.state.allMcpTools = list;
 
     const statEl = document.getElementById('mcpStatCount');
     if (statEl) statEl.textContent = list.length;
+    const headingEl = document.getElementById('mcpRegistryHeading');
+    if (headingEl) headingEl.textContent = `Dynamic Tool Registry (${list.length} Tools)`;
+    const domains = new Set(list.map(tool => tool.app_name).filter(Boolean));
+    const scopes = new Set(list.map(tool => tool.required_scope).filter(Boolean));
+    const domainCount = document.getElementById('mcpDomainCount');
+    const scopeCount = document.getElementById('mcpScopeCount');
+    if (domainCount) domainCount.textContent = domains.size;
+    if (scopeCount) scopeCount.textContent = scopes.size;
 
+    const escapeMcpHtml = value => String(value ?? '').replace(/[&<>\"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' }[char]));
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--fg-muted);padding:24px;">No MCP tools are available from the server registry.</td></tr>';
+        return;
+    }
     let html = "";
     list.forEach(t => {
+        const domain = escapeMcpHtml(t.app_name || 'general');
+        const name = escapeMcpHtml(t.name);
+        const title = escapeMcpHtml(t.title || t.name);
+        const description = escapeMcpHtml(t.description);
+        const scope = escapeMcpHtml(t.required_scope || 'None');
         const domainColor = t.app_name === 'execution' ? 'var(--accent)' : t.app_name === 'storage' ? 'var(--warn)' : t.app_name === 'memory' ? 'var(--success)' : 'var(--fg-muted)';
-        const statusBadge = `<span class="badge" style="background:var(--success-subtle);color:var(--success);padding:2px 7px;font-size:11px;font-weight:600;">Active</span>`;
+        const statusBadge = t.is_active === false ? `<span class="badge" style="background:var(--surface-raised);color:var(--fg-muted);padding:2px 7px;font-size:11px;font-weight:600;">Inactive</span>` : `<span class="badge" style="background:var(--success-subtle);color:var(--success);padding:2px 7px;font-size:11px;font-weight:600;">Active</span>`;
+        const safeToolArg = escapeMcpHtml(JSON.stringify(String(t.name || '')));
+        const adminActions = isMcpAdministrator() ? `<button class="btn btn-ghost btn-sm" onclick="editMcpToolPolicy(${safeToolArg})" style="padding:4px 8px;font-size:11px;">Edit</button><button class="btn btn-danger btn-sm" onclick="deleteMcpToolPolicy(${safeToolArg})" style="padding:4px 8px;font-size:11px;">Delete</button>` : '';
+        const testAction = t.is_runtime_registered === false ? '<span class="mono-muted" title="This policy has no executable implementation registered">Policy only</span>' : `<button class="btn btn-primary btn-sm" onclick="testMcpTool(${safeToolArg})" style="padding:4px 10px;font-size:11.5px;font-weight:600;white-space:nowrap;">⚡ Test Tool</button>`;
         
         html += `
             <tr style="border-bottom:1px solid var(--border);transition:background 0.1s ease;">
-                <td style="padding:8px 12px;font-weight:700;color:var(--fg);font-family:var(--font-mono);font-size:12.5px;">${t.name}</td>
-                <td style="padding:8px 10px;"><span style="background:var(--surface-raised);color:${domainColor};padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid var(--border);display:inline-block;">${t.app_name}</span></td>
-                <td style="padding:8px 10px;"><span style="font-family:var(--font-mono);font-size:11px;padding:2px 6px;background:var(--surface-raised);border-radius:4px;border:1px solid var(--border);color:var(--fg-muted);">${t.required_scope || 'None'}</span></td>
+                <td style="padding:8px 12px;font-weight:700;color:var(--fg);font-family:var(--font-mono);font-size:12.5px;">${name}</td>
+                <td style="padding:8px 10px;color:var(--fg);">${title}</td>
+                <td style="padding:8px 10px;"><span style="background:var(--surface-raised);color:${domainColor};padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid var(--border);display:inline-block;">${domain}</span></td>
+                <td style="padding:8px 10px;"><span style="font-family:var(--font-mono);font-size:11px;padding:2px 6px;background:var(--surface-raised);border-radius:4px;border:1px solid var(--border);color:var(--fg-muted);">${scope}</span></td>
                 <td style="padding:8px 10px;">${statusBadge}</td>
-                <td style="padding:8px 12px;color:var(--fg-muted);font-size:12.5px;line-height:1.35;">${t.description}</td>
+                <td style="padding:8px 12px;color:var(--fg-muted);font-size:12.5px;line-height:1.35;">${description}</td>
                 <td style="padding:8px 12px;text-align:right;">
-                    <button class="btn btn-primary btn-sm" onclick="testMcpTool('${t.name}')" style="padding:4px 10px;font-size:11.5px;font-weight:600;white-space:nowrap;">⚡ Test Tool</button>
+                    ${testAction}${adminActions}
                 </td>
             </tr>
         `;
@@ -925,7 +1100,7 @@ function renderMcpToolsTable(tools) {
 
 function filterMcpToolsTable() {
     const term = (document.getElementById('mcpSearchInput')?.value || '').toLowerCase();
-    const allTools = (window.state && window.state.allMcpTools) || BUILTIN_MCP_TOOLS_FALLBACK;
+    const allTools = (window.state && window.state.allMcpTools) || [];
     if (!term) {
         renderMcpToolsTable(allTools);
         return;

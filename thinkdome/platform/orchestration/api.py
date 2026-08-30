@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import json
 import time
+from typing import List, Optional
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from thinkdome.core.dependencies import (
     get_orchestrator_service,
     get_current_user,
+    get_current_admin,
     get_request_log_service
 )
 from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
 from thinkdome.platform.orchestration.request_log import RequestLogService
+from thinkdome.core.ui.service import UIManager
+from thinkdome.security.identity.core import is_admin_role
 
 router = APIRouter(tags=["orchestrator"])
 _MAX_ORCHESTRATOR_BODY_BYTES = 1 * 1024 * 1024
@@ -195,9 +200,14 @@ async def list_tools(current_user: dict = Depends(get_current_user)):
     import os
     from thinkdome.platform.orchestration.tools import registry
     from thinkdome.platform.orchestration.orchestrator_service import ROLE_SCOPES
+    roles = {str(value).upper() for value in (current_user.get("roles") or [current_user.get("role", "LLM")])}
     role = str(current_user.get("role", "LLM")).upper()
-    allowed_scopes = ROLE_SCOPES.get(role, ROLE_SCOPES["LLM"])
+    allowed_scopes = set().union(*(ROLE_SCOPES.get(value, ROLE_SCOPES["LLM"]) for value in roles))
+    metadata = UIManager().get_mcp_tool_metadata()
     tools = registry.list_all_tools()
+    admin = any(is_admin_role(value) for value in roles)
+    tools = [t for t in tools if admin or metadata.get(t.name, {}).get("is_active", True)]
+    tools = [t for t in tools if admin or not metadata.get(t.name, {}).get("allowed_roles") or roles.intersection({str(item).upper() for item in metadata.get(t.name, {}).get("allowed_roles", [])})]
     tools = [t for t in tools if not t.required_scope or t.required_scope in allowed_scopes]
     
     response = []
@@ -211,10 +221,57 @@ async def list_tools(current_user: dict = Depends(get_current_user)):
 
         response.append({
             "name": t.name,
-            "description": t.description,
+            "title": metadata.get(t.name, {}).get("title") or t.name,
+            "description": metadata.get(t.name, {}).get("description") or t.description,
             "required_scope": t.required_scope,
             "app_name": t.app_name,
-            "is_active": True,
+            "is_active": metadata.get(t.name, {}).get("is_active", True),
+            "allowed_roles": metadata.get(t.name, {}).get("allowed_roles", []),
+            "is_runtime_registered": True,
             "input_schema": schema
         })
+    runtime_names = {item["name"] for item in response}
+    for name, item in metadata.items():
+        if name in runtime_names:
+            continue
+        if not admin and (not item.get("is_active", True) or (item.get("allowed_roles") and not roles.intersection({str(value).upper() for value in item.get("allowed_roles", [])}))):
+            continue
+        response.append({
+            "name": name,
+            "title": item.get("title") or name,
+            "description": item.get("description", ""),
+            "required_scope": item.get("required_scope"),
+            "app_name": item.get("app_name", "managed"),
+            "is_active": item.get("is_active", True),
+            "allowed_roles": item.get("allowed_roles", []),
+            "is_runtime_registered": False,
+            "input_schema": item.get("input_schema"),
+        })
     return response
+
+
+class McpToolMetadataPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    title: str = Field(default="", max_length=255)
+    description: str = Field(default="", max_length=2000)
+    is_active: bool = True
+    allowed_roles: List[str] = Field(default_factory=list, max_length=100)
+    required_scope: Optional[str] = Field(default=None, max_length=255)
+
+
+@router.post("/tools/metadata", status_code=201)
+async def create_mcp_tool_metadata(payload: McpToolMetadataPayload, current_user: dict = Depends(get_current_admin)):
+    """Create or register the policy metadata for an MCP tool."""
+    return UIManager().register_mcp_tool(payload.model_dump())
+
+
+@router.put("/tools/metadata/{tool_name}")
+async def update_mcp_tool_metadata(tool_name: str, payload: McpToolMetadataPayload, current_user: dict = Depends(get_current_admin)):
+    if payload.name != tool_name:
+        raise HTTPException(status_code=400, detail="Tool name cannot be changed")
+    return UIManager().register_mcp_tool(payload.model_dump())
+
+
+@router.delete("/tools/metadata/{tool_name}")
+async def delete_mcp_tool_metadata(tool_name: str, current_user: dict = Depends(get_current_admin)):
+    return {"deleted": UIManager().delete_mcp_tool(tool_name)}

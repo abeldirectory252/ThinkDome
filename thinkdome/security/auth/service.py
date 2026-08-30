@@ -376,6 +376,7 @@ class AuthService:
         if jwt_payload:
             username = jwt_payload.get("sub", jwt_payload.get("username", "anonymous"))
             role = jwt_payload.get("role", "AGENT_STANDARD")
+            resolved_roles = [role]
             # Rehydrate RBAC from ORM so a JWT cannot retain a stale
             # AGENT_STANDARD role after an administrator assignment changes.
             try:
@@ -384,8 +385,10 @@ class AuthService:
                 from thinkdome.security.identity.core import select_effective_role
                 rbac_user = UserRepository().get_by_username(username)
                 if rbac_user:
+                    assigned_roles = RoleRepository().get_user_roles(rbac_user.id)
+                    resolved_roles = [str(item.name) for item in assigned_roles]
                     resolved_role = select_effective_role(
-                        RoleRepository().get_user_roles(rbac_user.id),
+                        assigned_roles,
                         username=username,
                     )
                     role = resolved_role
@@ -393,15 +396,18 @@ class AuthService:
                     # A validly signed JWT must not retain privileged claims
                     # after its backing user has been deleted.
                     role = "AGENT_STANDARD"
+                    resolved_roles = [role]
             except Exception:
                 # Fail closed during RBAC outages: preserve authentication for
                 # basic access, but never trust a cached privileged JWT claim.
                 from thinkdome.security.identity.core import is_admin_role
                 if is_admin_role(role):
                     role = "AGENT_STANDARD"
+                    resolved_roles = [role]
             return {
                 "username": username,
                 "role": role,
+                "roles": resolved_roles,
                 "tenant_id": jwt_payload.get("tenant_id", "default"),
                 "key_id": jwt_payload.get("key_id"),
                 "jti": jwt_payload.get("jti"),

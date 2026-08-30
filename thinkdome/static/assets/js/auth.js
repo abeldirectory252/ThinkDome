@@ -135,9 +135,6 @@ async function enterApp(e) {
                 if (loginView) loginView.style.display = 'none';
                 appView.style.display = 'flex';
                 
-                // Trigger initialization/rendering functions in app.js if they exist
-                if (typeof switchProject === 'function') switchProject('demo');
-                if (typeof renderAllViews === 'function') renderAllViews();
                 if (typeof refreshWorkspaceMenu === 'function') refreshWorkspaceMenu();
             } else {
                 // Multi-page page redirect to main dashboard
@@ -195,10 +192,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (loginView) loginView.style.display = 'none';
         if (appView) {
             appView.style.display = 'flex';
-            // Trigger initialization/rendering in app.js if they are loaded
-            if (typeof switchProject === 'function') switchProject('demo');
-            if (typeof renderAllViews === 'function') renderAllViews();
-            if (typeof refreshWorkspaceMenu === 'function') refreshWorkspaceMenu();
+            // app.js owns the server-manifest boot sequence. Do not render
+            // static HTML pages or select a client-side default route here.
         } else {
             // Logged in but viewing standalone login, redirect to dashboard
             window.location.href = 'index.html';

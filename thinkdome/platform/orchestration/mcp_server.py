@@ -92,6 +92,16 @@ def get_mcp_server(
 
         active_tools = registry.get_active_tools(site_name)
         role_scopes = ROLE_SCOPES.get(str(caller_role).upper(), ROLE_SCOPES["LLM"])
+        from thinkdome.core.ui.service import UIManager
+        from thinkdome.security.identity.core import is_admin_role
+        policies = UIManager().get_mcp_tool_metadata()
+        role_upper = str(caller_role).upper()
+        active_tools = [
+            tool for tool in active_tools
+            if policies.get(tool.name, {}).get("is_active", True)
+            and (is_admin_role(role_upper) or not policies.get(tool.name, {}).get("allowed_roles")
+                 or role_upper in {str(value).upper() for value in policies.get(tool.name, {}).get("allowed_roles", [])})
+        ]
         # Do not advertise tools the authenticated caller cannot invoke.
         active_tools = [
             tool for tool in active_tools

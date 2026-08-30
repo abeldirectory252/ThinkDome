@@ -13,7 +13,7 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap"
     rel="stylesheet">
 
-  <link rel="stylesheet" href="assets/css/styles.css?v=12">
+  <link rel="stylesheet" href="assets/css/styles.css?v=23">
   <!-- RequireJS for loading Monaco Editor from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
 </head>
@@ -551,26 +551,189 @@
           </div>
         </section>
 
-        <!-- 3. BILLING & USAGE VIEW -->
+        <!-- 3. WORKSPACE DESK & MODERN SIDE-BY-SIDE CARDS PLATFORM -->
         <section class="page hidden" id="page-workspaces">
-          <div class="workspace-hero"><div><span class="access-eyebrow">DESK BUILDER</span><h1>Workspace studio</h1><p>Shape a focused workspace for each team. Pages and navigation are delivered according to the roles you configure.</p></div><span class="workspace-hero-mark">▦</span></div>
-          <div class="workspace-shell">
-            <div class="workspace-toolbar"><div><span class="workspace-label">Current workspace</span><strong>Choose a workspace to configure</strong></div><div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
-              <label class="workspace-select-field">Active workspace
-                <select id="workspaceMenuSelect" onchange="setActiveWorkspaceMenu(this.value);loadWorkspaceMenuEditor()"></select>
-              </label>
-              <button class="btn btn-primary" onclick="openWorkspaceCreateModal()">New workspace</button>
-            </div></div>
-            <div class="workspace-editor-grid"><section class="workspace-editor-panel"><div class="workspace-panel-head"><div><span class="workspace-panel-icon">P</span><div><h3>Pages</h3><p>Create the destinations your team can access.</p></div></div><button class="btn btn-primary btn-sm" onclick="addWorkspacePage()">+ Add page</button></div>
-              <div id="workspacePagesVisual" class="workspace-page-list"></div>
-              <div id="workspacePagesEmpty" class="workspace-empty"><span class="workspace-empty-icon">✦</span><strong>No pages yet</strong><span>Start with a page for your team.</span><button class="btn btn-ghost btn-sm" onclick="addWorkspacePage()">Create your first page</button></div>
-              <div class="workspace-save-row"><span id="workspacePagesStatus" class="workspace-save-status"></span><button class="btn btn-primary" onclick="saveWorkspacePages()">Save pages</button></div>
-            </section><section class="workspace-editor-panel"><div class="workspace-panel-head"><div><span class="workspace-panel-icon">N</span><div><h3>Navigation</h3><p>Arrange the links shown in the workspace sidebar.</p></div></div><button class="btn btn-primary btn-sm" onclick="addWorkspaceSection()">+ Add section</button></div>
-              <div id="workspaceMenuVisual" class="workspace-menu-list"></div>
-              <div id="workspaceMenuEmpty" class="workspace-empty"><span class="workspace-empty-icon">☷</span><strong>Build your navigation</strong><span>Add a section, then choose which pages belong in it.</span><button class="btn btn-ghost btn-sm" onclick="addWorkspaceSection()">Add your first section</button></div>
-              <div class="workspace-save-row"><span id="workspaceMenuStatus" class="workspace-save-status"></span><button class="btn btn-primary" onclick="saveWorkspaceMenu()">Save navigation</button></div>
-            </section></div>
+          <div class="workspace-compact-head">
+            <div>
+              <span class="access-eyebrow">FRAMEWORK WORKSPACE CONTROL CENTER</span>
+              <h1>Dynamic Workspace Manager</h1>
+              <p>Base Administrator control center for workspace viewing, privilege mapping, and central framework registration.</p>
+            </div>
+            <div class="workspace-compact-actions">
+              <button class="btn btn-primary" onclick="loadWorkspaceManager()">↺ Refresh Platform State</button>
+            </div>
           </div>
+
+          <!-- SMALL HORIZONTAL NAV CARDS -->
+          <div class="wm-nav-cards">
+            <div class="wm-nav-card active" data-wm-card="card1" onclick="switchWorkspaceCard('card1')">
+              <span class="wm-nav-icon">◈</span>
+              <div class="wm-nav-info">
+                <strong>Workspace Viewer</strong>
+                <small>Tree & group explorer</small>
+              </div>
+            </div>
+            <div class="wm-nav-card" data-wm-card="card2" onclick="switchWorkspaceCard('card2')">
+              <span class="wm-nav-icon">▤</span>
+              <div class="wm-nav-info">
+                <strong>Sidebar & Pages</strong>
+                <small>Navigation structure editor</small>
+              </div>
+            </div>
+            <div class="wm-nav-card" data-wm-card="card3" onclick="switchWorkspaceCard('card3')">
+              <span class="wm-nav-icon">◎</span>
+              <div class="wm-nav-info">
+                <strong>Page & Role Mapper</strong>
+                <small>Privilege grant & deny</small>
+              </div>
+            </div>
+            <div class="wm-nav-card" data-wm-card="card4" onclick="switchWorkspaceCard('card4')">
+              <span class="wm-nav-icon">✦</span>
+              <div class="wm-nav-info">
+                <strong>UI Renderer Customizer</strong>
+                <small>Central framework registry</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD PAGES (only one visible at a time) -->
+          <div class="wm-card-pages">
+            <!-- PAGE 1: WORKSPACE VIEWER -->
+            <div id="wmPageCard1" class="wm-card-page active">
+              <div class="workspace-viewer-toolbar">
+                <div class="wm-filter-group">
+                  <label class="field-label">Role Filter:
+                    <select id="wmViewerRoleSelect" class="form-select" onchange="setViewerRoleFilter(this.value)"></select>
+                  </label>
+                </div>
+                <div class="wm-view-toggle">
+                  <button id="wmViewerBtnTree" class="btn btn-sm btn-ghost active" onclick="setViewerMode('tree')">🌲 Tree</button>
+                  <button id="wmViewerBtnGroup" class="btn btn-sm btn-ghost" onclick="setViewerMode('group')">▦ Group</button>
+                </div>
+              </div>
+              <div id="wmViewerCanvas" class="workspace-viewer-canvas"></div>
+            </div>
+
+            <!-- PAGE 2: SIDEBAR & PAGES -->
+            <div id="wmPageCard2" class="wm-card-page" style="display:none;">
+              <div class="workspace-viewer-toolbar"><div><span class="workspace-card-kicker">SIDEBAR &amp; PAGES</span><h3>Runtime navigation structure</h3></div><button class="btn btn-sm btn-primary" onclick="loadWorkspaceManager()">↺ Refresh structure</button></div>
+              <div id="wmSidebarCanvas" class="wm-sidebar-canvas"></div>
+            </div>
+
+            <!-- PAGE 3: PAGE & ROLE MAPPER -->
+            <div id="wmPageCard3" class="wm-card-page" style="display:none;">
+              <div class="wm-mapper-toolbar">
+                <div class="wm-sub-tabs">
+                  <button id="wmMapperTabPages" class="wm-tab-btn active" onclick="setMapperTab('pages')">📄 Pages</button>
+                  <button id="wmMapperTabModules" class="wm-tab-btn" onclick="setMapperTab('modules')">▦ Modules</button>
+                  <button id="wmMapperTabProcesses" class="wm-tab-btn" onclick="setMapperTab('processes')">⚡ Processes</button>
+                  <button id="wmMapperTabPermissions" class="wm-tab-btn" onclick="setMapperTab('permissions')">🔐 Role Permissions</button>
+                  <button id="wmMapperTabUiParts" class="wm-tab-btn" onclick="setMapperTab('ui_parts')">🧩 UI Parts</button>
+                </div>
+                <div class="wm-filter-group">
+                  <select id="wmMapperRoleSelect" class="form-select" onchange="setMapperRole(this.value)"></select>
+                </div>
+              </div>
+              <div class="wm-mapper-body">
+                <div id="wmRoleMatrixContainer" class="wm-matrix-wrapper"></div>
+                <div id="wmGrantedViewContainer" class="wm-granted-wrapper"></div>
+              </div>
+            </div>
+
+            <!-- PAGE 4: THE BOSS -->
+            <div id="wmPageCard4" class="wm-card-page" style="display:none;">
+              <div class="wm-boss-summary-strip">
+                <div class="wm-boss-stat">
+                  <strong id="wmBossCountRegistered">0</strong>
+                  <small>Registered</small>
+                </div>
+                <div class="wm-boss-stat">
+                  <strong id="wmBossCountVersions">0</strong>
+                  <small>Snapshots</small>
+                </div>
+                <div class="wm-boss-stat">
+                  <strong id="wmBossCountComponents">0</strong>
+                  <small>Components</small>
+                </div>
+              </div>
+              <div class="wm-boss-toolbar">
+                <div class="wm-sub-tabs">
+                  <button id="wmBossTab_register" class="wm-tab-btn active" onclick="setBossTab('register')">✦ Register</button>
+                  <button id="wmBossTab_registry" class="wm-tab-btn" onclick="setBossTab('registry')">📋 Registry</button>
+                  <button id="wmBossTab_designer" class="wm-tab-btn" onclick="setBossTab('designer')">🎨 Designer</button>
+                  <button id="wmBossTab_versions" class="wm-tab-btn" onclick="setBossTab('versions')">↺ History</button>
+                </div>
+              </div>
+              <div class="wm-boss-body">
+                <div id="wmBossRegisterTab" class="wm-boss-tab-pane"></div>
+                <div id="wmBossRegistryTab" class="wm-boss-tab-pane" style="display:none;"></div>
+                <div id="wmBossDesignerTab" class="wm-boss-tab-pane" style="display:none;"></div>
+                <div id="wmBossVersionsTab" class="wm-boss-tab-pane" style="display:none;"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+
+
+
+        <!-- CREATE SIDEBAR MENU MODAL -->
+        <div class="modal-overlay" id="modalCreateSidebarMenu">
+          <div class="modal-card" style="max-width:520px;">
+            <div class="modal-header">
+              <h3><span>🗂️</span> Create Sidebar Menu Section</h3>
+              <button type="button" class="close-modal-btn" onclick="closeCreateMenuModal()">×</button>
+            </div>
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;">
+              <div class="field-group">
+                <label class="field-label">Workspace Identifier</label>
+                <input type="text" id="modalWsName" class="form-input" placeholder="e.g. operations, analytics"/>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label">Workspace Display Label</label>
+                <input type="text" id="modalWsLabel" class="form-input" placeholder="e.g. Operations Workspace"/>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" style="display:flex;justify-content:space-between;align-items:center;">
+                  <span>Sidebar Menu Items</span>
+                  <button type="button" class="btn btn-ghost btn-xs" onclick="addModalMenuItem()">+ Add Item</button>
+                </label>
+                <div id="modalMenuItemsList" style="display:flex;flex-direction:column;gap:8px;">
+                  <div class="creator-block-row">
+                    <input type="text" class="form-input item-label" placeholder="Item Label" value="Dashboard"/>
+                    <input type="text" class="form-input item-route" placeholder="Target Page ID" value="dashboard"/>
+                    <select class="form-select item-icon" style="width:90px;">
+                      <option value="grid">Grid</option>
+                      <option value="terminal">Terminal</option>
+                      <option value="box">Box</option>
+                      <option value="settings">Settings</option>
+                    </select>
+                    <button type="button" class="btn btn-ghost btn-xs" onclick="this.parentElement.remove()">✕</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-ghost" onclick="closeCreateMenuModal()">Cancel</button>
+              <button type="button" class="btn btn-primary" onclick="submitModalCreateWorkspace()">Publish Navigation via RPC</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Page Runtime Render Target Page -->
+        <section class="page hidden" id="page-dynamic-runtime">
+          <div class="page-head">
+            <div class="page-title">
+              <span class="ico">✦</span>
+              <div>
+                <h2 id="dynamicRuntimePageTitle">Dynamic Page</h2>
+                <p class="subtitle" id="dynamicRuntimePageSubtitle">Delivered dynamically via ThinkDome UIManager.</p>
+              </div>
+            </div>
+          </div>
+          <div id="dynamicRuntimePageContainer"></div>
         </section>
 
         <section class="page hidden" id="page-billing">
@@ -1247,7 +1410,7 @@
             </div>
             <div class="stat-card">
               <div class="stat-top">Exposed Domains</div>
-              <div class="stat-value">6</div>
+              <div class="stat-value" id="mcpDomainCount">0</div>
               <div class="stat-sub">Storage, Execution, Search, Memory, Network, Comms</div>
             </div>
             <div class="stat-card">
@@ -1257,7 +1420,7 @@
             </div>
             <div class="stat-card">
               <div class="stat-top">Required Scopes</div>
-              <div class="stat-value">11</div>
+              <div class="stat-value" id="mcpScopeCount">0</div>
               <div class="stat-sub">Enforced by RBAC boundary</div>
             </div>
           </div>
@@ -1312,7 +1475,7 @@
           <div class="table-card" style="padding:16px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:12px;">
               <div>
-                <h3 style="font-size:15.5px;font-weight:700;margin:0;">Dynamic Tool Registry (24 Tools)</h3>
+                <h3 id="mcpRegistryHeading" style="font-size:15.5px;font-weight:700;margin:0;">Dynamic Tool Registry</h3>
                 <p style="font-size:12.5px;color:var(--fg-muted);margin-top:2px;">Tools exposed dynamically to Claude, Cursor, and custom agent runtimes.</p>
               </div>
               <div style="display:flex;gap:10px;align-items:center;">
@@ -1325,19 +1488,55 @@
                 <thead>
                   <tr style="border-bottom:1px solid var(--border);text-align:left;background:var(--surface-raised);">
                     <th style="padding:8px 12px;width:170px;">TOOL NAME</th>
+                    <th style="padding:8px 10px;width:150px;">TITLE</th>
                     <th style="padding:8px 10px;width:100px;">DOMAIN</th>
                     <th style="padding:8px 10px;width:130px;">SCOPE</th>
                     <th style="padding:8px 10px;width:90px;">STATUS</th>
                     <th style="padding:8px 12px;">DESCRIPTION</th>
-                    <th style="padding:8px 12px;width:100px;text-align:right;">ACTION</th>
+                    <th style="padding:8px 12px;width:180px;text-align:right;">ACTION</th>
                   </tr>
                 </thead>
                 <tbody id="mcpToolsTableBody">
                   <tr>
-                    <td colspan="6" style="text-align:center;color:var(--fg-muted);padding:24px;">Loading tools from registry...</td>
+                    <td colspan="7" style="text-align:center;color:var(--fg-muted);padding:24px;">Loading tools from registry...</td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <!-- MCP POLICY EDITOR MODAL -->
+          <div id="mcpPolicyModal" class="modal-overlay" hidden>
+            <div class="modal-card" style="max-width:680px;width:95%;padding:0;overflow:hidden;">
+              <div class="modal-header" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface-raised);">
+                <div>
+                  <span class="page-eyebrow">MCP REGISTRY</span>
+                  <h3 id="mcpPolicyModalTitle" style="font-size:18px;font-weight:700;margin:3px 0 0;">Register MCP Tool Policy</h3>
+                </div>
+                <button type="button" class="icon-btn" onclick="closeMcpPolicyModal()" aria-label="Close">✕</button>
+              </div>
+              <form id="mcpPolicyForm" onsubmit="submitMcpPolicyModal(event)" style="padding:20px;display:grid;gap:16px;">
+                <input type="hidden" id="mcpPolicyOriginalName" />
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                  <label class="field-label">MCP name *<input id="mcpPolicyName" class="form-input" required maxlength="255" placeholder="e.g. search_documents" /></label>
+                  <label class="field-label">Display title *<input id="mcpPolicyTitle" class="form-input" required maxlength="255" placeholder="Search Documents" /></label>
+                </div>
+                <label class="field-label">Description<textarea id="mcpPolicyDescription" class="form-input" maxlength="2000" rows="3" placeholder="Explain what this MCP tool does."></textarea></label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                  <label class="field-label">Required scope<input id="mcpPolicyScope" class="form-input" maxlength="255" placeholder="tool:search" /></label>
+                  <label class="field-label">Allowed roles<select id="mcpPolicyRoles" class="form-select" multiple size="5" aria-describedby="mcpPolicyRolesHint"></select><small id="mcpPolicyRolesHint" class="mono-muted">Choose one or more registered roles. Choose none for every role.</small></label>
+                </div>
+                <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius-md);font-weight:600;">
+                  <input type="checkbox" id="mcpPolicyActive" />
+                  <span>Tool is active and may be exposed to permitted users</span>
+                </label>
+                <div id="mcpPolicyRuntimeInfo" class="mono-muted" style="padding:10px 12px;background:var(--surface-raised);border-radius:var(--radius-md);">Runtime registration status will appear here.</div>
+                <div id="mcpPolicyError" class="alert alert-error" hidden></div>
+                <div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--border);padding-top:16px;">
+                  <button type="button" id="mcpPolicyDelete" class="btn btn-danger" onclick="deleteMcpPolicyFromModal()" hidden>Delete Policy</button>
+                  <div style="display:flex;gap:10px;margin-left:auto;"><button type="button" class="btn btn-ghost" onclick="closeMcpPolicyModal()">Cancel</button><button type="submit" class="btn btn-primary">Save MCP Policy</button></div>
+                </div>
+              </form>
             </div>
           </div>
 
@@ -2974,7 +3173,6 @@
     </div>
   </div>
 
-  <div id="workspacePageModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspacePageModal()"><div class="modal-card" style="max-width:620px;width:92%;"><div class="modal-header"><div><h3 id="workspacePageModalTitle">Create workspace page</h3><small>Design the content your team sees when they open this page.</small></div><button class="close-modal-btn" onclick="closeWorkspacePageModal()">&times;</button></div><form onsubmit="submitWorkspacePage(event)"><div class="modal-body" style="display:grid;gap:14px;padding:20px;max-height:72vh;overflow:auto;"><div id="workspacePageError" style="display:none;padding:10px;border:1px solid var(--danger);border-radius:8px;color:var(--danger);background:var(--danger-subtle);font-size:12px;"></div><div class="workspace-form-grid"><label class="field-label">Page title<input class="form-input" id="workspacePageTitle" required placeholder="e.g. Finance overview" /></label><label class="field-label">Page ID<input class="form-input" id="workspacePageId" required pattern="[a-z][a-z0-9-]{0,63}" placeholder="finance-overview" /></label></div><div class="field-label">Who can access this page <small>Select one or more roles</small><div id="workspacePageRoles" class="role-picker"></div></div><div class="workspace-block-builder"><div class="workspace-block-head"><div><strong>Page content</strong><small>Stack simple blocks to create a useful team workspace.</small></div><button type="button" class="btn btn-ghost btn-sm" onclick="addWorkspaceBlock()">+ Add block</button></div><div id="workspacePageBlocks" class="workspace-block-list"></div></div><textarea id="workspacePageBody" hidden></textarea></div><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeWorkspacePageModal()">Cancel</button><button class="btn btn-primary" type="submit" id="workspacePageSubmit">Create page</button></div></form></div></div>
   <div id="workspaceMenuModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspaceMenuModal()"><div class="modal-card" style="max-width:520px;width:92%;"><div class="modal-header"><h3 id="workspaceMenuModalTitle">Add menu item</h3><button class="close-modal-btn" onclick="closeWorkspaceMenuModal()">&times;</button></div><form onsubmit="submitWorkspaceMenuItem(event)"><div class="modal-body" style="display:grid;gap:14px;padding:20px;"><div id="workspaceMenuError" class="workspace-form-error"></div><label class="field-label">Menu label<input class="form-input" id="workspaceMenuLabel" required maxlength="80" placeholder="e.g. Team overview" /></label><label class="field-label">Destination<select class="form-select" id="workspaceMenuTarget" required></select></label><label class="field-label">Icon <select class="form-select" id="workspaceMenuIcon"><option value="grid">Grid</option><option value="box">Box</option><option value="terminal">Terminal</option><option value="chart">Chart</option><option value="settings">Settings</option><option value="book">Book</option></select></label></div><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeWorkspaceMenuModal()">Cancel</button><button class="btn btn-primary" type="submit" id="workspaceMenuSubmit">Add menu item</button></div></form></div></div>
   <div id="workspaceSectionModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspaceSectionModal()"><div class="modal-card" style="max-width:440px;width:92%;"><div class="modal-header"><h3>Add navigation section</h3><button class="close-modal-btn" onclick="closeWorkspaceSectionModal()">&times;</button></div><form onsubmit="submitWorkspaceSection(event)"><div class="modal-body" style="display:grid;gap:14px;padding:20px;"><label class="field-label">Section name<input class="form-input" id="workspaceSectionLabel" required maxlength="80" placeholder="e.g. Team tools" /></label></div><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeWorkspaceSectionModal()">Cancel</button><button class="btn btn-primary" type="submit">Add section</button></div></form></div></div>
   <div id="workspaceCreateModal" class="modal-overlay" onclick="if(event.target===this)closeWorkspaceCreateModal()">
@@ -3178,12 +3376,16 @@
   </script>
   <script src="assets/js/plugin.js?v=19"></script>
   <script src="assets/js/state.js?v=21"></script>
-  <script src="assets/js/auth.js?v=20"></script>
-  <script src="assets/js/dashboard.js?v=22"></script>
+  <script src="assets/js/auth.js?v=21"></script>
+  <script src="assets/js/dashboard.js?v=28"></script>
   <script src="assets/js/sandboxes.js?v=21"></script>
   <script src="assets/js/editor.js?v=21"></script>
   <script src="assets/js/terminal.js?v=29"></script>
-  <script src="assets/js/app.js?v=47"></script>
+  <script src="assets/js/thinkdome.js?v=4"></script>
+  <script src="assets/js/ui_builder.js?v=2"></script>
+  <script src="assets/js/workspace_manager.js?v=9"></script>
+  <script src="assets/js/app.js?v=73"></script>
 </body>
+
 
 </html>

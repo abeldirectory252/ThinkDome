@@ -17,6 +17,7 @@ opentelemetry-sdk>=1.20.0
 opentelemetry-instrumentation-fastapi>=0.40b0
 opentelemetry-exporter-otlp>=1.20.0
 pytest-asyncio>=0.23.0
+redis>=5.0.0
 
 numpy>=1.26.0
 pandas>=2.2.0

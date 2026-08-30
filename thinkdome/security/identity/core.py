@@ -85,7 +85,7 @@ ROLE_IDE = Role.IDE.value
 ROLE_WEB = Role.WEB.value
 
 ADMIN_ROLES = {Role.SUPER_ADMIN.value, Role.ENTERPRISE_ADMIN.value, Role.ADMIN.value, Role.ORCH.value, Role.IDE.value}
-ADMIN_ROLE_ALIASES = {"ORCHESTRATOR", "AGENT_ADMIN"}
+ADMIN_ROLE_ALIASES = {"ORCHESTRATOR", "AGENT_ADMIN", "ADMINISTRATOR", "SUPERADMIN", "SUPER_ADMIN"}
 
 
 def is_admin_role(role: Optional[str]) -> bool:
