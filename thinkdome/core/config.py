@@ -277,6 +277,21 @@ class Settings(BaseSettings):
 
     # Telegram Bot Settings
     TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_DEFAULT_CHAT_ID: Optional[str] = None
+    TELEGRAM_GROUP_NAME: Optional[str] = None
+    TELEGRAM_GROUP_ID: Optional[str] = None
+    TELEGRAM_CHANNEL_NAME: Optional[str] = None
+    TELEGRAM_CHANNEL_ID: Optional[str] = None
+
+    # WhatsApp API Settings
+    WHATSAPP_PROVIDER: str = "cloud_api"  # "cloud_api" | "twilio" | "custom"
+    WHATSAPP_API_TOKEN: Optional[str] = None
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_BUSINESS_ACCOUNT_ID: Optional[str] = None
+    TWILIO_ACCOUNT_SID: Optional[str] = None
+    TWILIO_AUTH_TOKEN: Optional[str] = None
+    TWILIO_WHATSAPP_NUMBER: Optional[str] = None
+    WHATSAPP_API_URL: Optional[str] = None
 
     # ── Pool Manager Settings ──
     POOL_MIN_WARM: int = 3              # Minimum pre-warmed containers

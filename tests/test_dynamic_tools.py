@@ -59,6 +59,9 @@ async def test_core_tools_registered():
         "memory_store", "memory_retrieve", "memory_search",
         "memory_delete", "memory_list",
         "shell_exec", "send_email", "send_telegram",
+        "telegram_get_updates", "telegram_get_chat",
+        "telegram_send_media", "telegram_manage_chat",
+        "send_whatsapp",
     ]
     for name in expected:
         tool = registry.get_tool(name)

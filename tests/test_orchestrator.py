@@ -438,6 +438,23 @@ async def test_orchestrate_send_telegram_denied_for_llm(client, api_keys):
 
 
 @pytest.mark.asyncio
+async def test_orchestrate_send_whatsapp_denied_for_llm(client, api_keys):
+    """Test that LLM tokens cannot send WhatsApp messages."""
+    headers = {"Authorization": f"Bearer {api_keys['LLM']}"}
+    payload = {
+        "type": "tool_use",
+        "id": "t_wa_denied",
+        "name": "send_whatsapp",
+        "input": {"to": "+15551234567", "message": "test"}
+    }
+    resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_error"] is True
+    assert "ADMIN privileges" in data["content"]
+
+
+@pytest.mark.asyncio
 async def test_orchestrate_http_request_denied_for_llm(client, api_keys):
     """Test that LLM tokens cannot make HTTP requests."""
     headers = {"Authorization": f"Bearer {api_keys['LLM']}"}

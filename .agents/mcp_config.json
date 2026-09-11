@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "thinkdome": {
+      "command": "/home/sandbox/ThinkDome/venv/bin/python",
+      "args": [
+        "/home/sandbox/ThinkDome/think",
+        "mcp",
+        "--site",
+        "think.local"
+      ],
+      "env": {
+        "THINKDOME_SITE": "think.local"
+      }
+    }
+  }
+}

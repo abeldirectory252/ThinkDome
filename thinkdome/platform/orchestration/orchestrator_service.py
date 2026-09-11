@@ -326,6 +326,9 @@ class OrchestratorService:
                         "write_file", "make_dir", "remove_file", "remove_dir",
                         "move_file", "copy_file", "shell_exec",
                         "send_email", "send_telegram",
+                        "telegram_get_updates", "telegram_get_chat",
+                        "telegram_send_media", "telegram_manage_chat",
+                        "send_whatsapp",
                         "memory_delete",
                     }
                     ADMIN_NETWORK_TOOLS = {"http_request"}

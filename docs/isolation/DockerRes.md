@@ -163,3 +163,6 @@ Squid is a proxy server. The ubuntu/squid Docker image packages Squid so
  
 
 
+ - ephemeral containers
+      - pooled containers
+      - backend-managed sandboxes

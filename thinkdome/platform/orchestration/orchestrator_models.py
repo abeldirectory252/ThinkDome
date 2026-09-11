@@ -147,10 +147,89 @@ class SendEmailInput(BaseModel):
 
 
 class SendTelegramInput(BaseModel):
-    chat_id: str = Field(..., description="Telegram chat ID or username to send the message to.")
+    chat_id: Optional[str] = Field(
+        default=None,
+        description="Telegram chat ID, username (e.g. @channelusername), or alias ('group', 'channel', 'person'). Defaults to configured .env setting if omitted."
+    )
     message: str = Field(..., description="The message text to send.")
     parse_mode: Optional[Literal["Markdown", "MarkdownV2", "HTML"]] = Field(
         default=None, description="Optional parse mode for message formatting."
+    )
+    reply_to_message_id: Optional[int] = Field(
+        default=None, description="Optional ID of the target message to reply to in a group or private chat."
+    )
+    disable_notification: Optional[bool] = Field(
+        default=False, description="Send the message silently without triggering user notifications (great for channel broadcasts)."
+    )
+    pin_message: Optional[bool] = Field(
+        default=False, description="Whether to automatically pin the message in the group or channel after sending."
+    )
+
+
+class TelegramGetUpdatesInput(BaseModel):
+    offset: Optional[int] = Field(
+        default=None, description="Identifier of the first update to be returned. Set to last update_id + 1 to acknowledge messages."
+    )
+    limit: Optional[int] = Field(
+        default=20, ge=1, le=100, description="Limits the number of updates to be retrieved (1-100, default 20)."
+    )
+    timeout: Optional[int] = Field(
+        default=0, ge=0, le=60, description="Timeout in seconds for long polling (0 for short polling)."
+    )
+
+
+class TelegramGetChatInput(BaseModel):
+    chat_id: Optional[str] = Field(
+        default=None,
+        description="Unique identifier for the target chat, username, or alias ('group', 'channel', 'person'). Defaults to configured .env setting if omitted."
+    )
+
+
+class TelegramSendMediaInput(BaseModel):
+    chat_id: Optional[str] = Field(
+        default=None,
+        description="Telegram chat ID, @channel_username, or alias ('group', 'channel', 'person'). Defaults to configured .env setting if omitted."
+    )
+    media_type: Literal["photo", "document", "audio", "video"] = Field(
+        default="photo", description="Type of media to send: photo, document, audio, or video."
+    )
+    media_url: str = Field(..., description="Public HTTP/HTTPS URL or local file path of the media file.")
+    caption: Optional[str] = Field(default=None, description="Optional caption for the media.")
+    parse_mode: Optional[Literal["Markdown", "MarkdownV2", "HTML"]] = Field(
+        default=None, description="Optional parse mode for caption formatting."
+    )
+
+
+class TelegramManageChatInput(BaseModel):
+    chat_id: Optional[str] = Field(
+        default=None,
+        description="Target chat ID, channel username, or alias ('group', 'channel'). Defaults to configured .env setting if omitted."
+    )
+    action: Literal["pin_message", "unpin_message", "unpin_all_messages", "set_title", "set_description", "delete_message"] = Field(
+        ..., description="Management action to perform."
+    )
+    message_id: Optional[int] = Field(
+        default=None, description="Target message ID for pin, unpin, or delete actions."
+    )
+    text: Optional[str] = Field(
+        default=None, description="New chat title or description when action is set_title or set_description."
+    )
+
+
+class SendWhatsAppInput(BaseModel):
+    to: str = Field(..., description="Recipient phone number with country code (e.g. +1234567890 or whatsapp:+1234567890).")
+    message: str = Field(..., description="Text message content to send.")
+    media_url: Optional[str] = Field(
+        default=None, description="Optional public media URL (image, PDF, audio) to attach to the message."
+    )
+    template_name: Optional[str] = Field(
+        default=None, description="Optional pre-approved WhatsApp Business template name (for Meta Cloud API)."
+    )
+    template_language: Optional[str] = Field(
+        default="en_US", description="Language code for the template (default en_US)."
+    )
+    provider: Optional[Literal["auto", "cloud_api", "twilio", "custom"]] = Field(
+        default="auto", description="WhatsApp provider to use: auto (uses configured keys), cloud_api (Meta), twilio, or custom gateway."
     )
 
 
@@ -197,6 +276,11 @@ INPUT_MODELS = {
     # Communication
     "send_email": SendEmailInput,
     "send_telegram": SendTelegramInput,
+    "telegram_get_updates": TelegramGetUpdatesInput,
+    "telegram_get_chat": TelegramGetChatInput,
+    "telegram_send_media": TelegramSendMediaInput,
+    "telegram_manage_chat": TelegramManageChatInput,
+    "send_whatsapp": SendWhatsAppInput,
 }
 
 # All valid tool names (auto-generated from the registry)
@@ -211,7 +295,8 @@ class ToolUseRequest(BaseModel):
         "hash_file", "host_html", "http_request", "list_dir", "make_dir",
         "memory_delete", "memory_list", "memory_retrieve", "memory_search", "memory_store",
         "move_file", "read_file", "remove_dir", "remove_file", "run_code",
-        "send_email", "send_telegram", "shell_exec",
+        "send_email", "send_telegram", "send_whatsapp", "shell_exec",
+        "telegram_get_chat", "telegram_get_updates", "telegram_manage_chat", "telegram_send_media",
         "web_search", "write_file"
     ]
     input: dict
