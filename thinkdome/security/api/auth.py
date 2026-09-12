@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from typing import Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status, Header
 from pydantic import BaseModel, Field
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 from thinkdome.core.dependencies import get_auth_service, get_current_user
 from thinkdome.core.config import get_settings
 from thinkdome.security.auth.service import AuthService
+from thinkdome.security.repositories.role import RoleRepository
 from thinkdome.security.rbac.service import UserService
 
 router = APIRouter(tags=["auth"])
@@ -76,10 +78,43 @@ async def login(
 ):
     """Authenticate credentials, issue short-lived JWT access token and rotating refresh token, set HTTP-only cookies."""
     username = credentials.username.strip().lower()
-    # Authentication is owned by the RBAC ORM.  Do not read the legacy
-    # ``users`` table here: CLI- and API-provisioned identities use the same
-    # model and are therefore authenticated identically.
+    # RBAC is the canonical authentication store. Existing installations may
+    # still have accounts in the legacy ``users`` table; the compatibility
+    # path below upgrades those accounts after a successful verification.
     authenticated = user_service.authenticate(username, credentials.password)
+    if not authenticated:
+        # Existing installations may still contain accounts in the original
+        # salted ``users`` table.  Verify those credentials against the
+        # legacy hash, then upgrade the account into RBAC using the plaintext
+        # password supplied for this request.  This is a one-time compatibility
+        # path; subsequent logins use the canonical RBAC record.
+        legacy_user = auth_svc.db_service.fetch_one(
+            "SELECT username, hashed_password, salt FROM users WHERE username = ?",
+            (username,),
+        )
+        if legacy_user and hmac.compare_digest(
+            auth_svc._hash_password(credentials.password, legacy_user["salt"]),
+            legacy_user["hashed_password"],
+        ):
+            try:
+                migrated_user = user_service.create_user(
+                    username=username,
+                    email=f"{username}@enterprise.local",
+                    password=credentials.password,
+                    actor="legacy-auth-migration",
+                )
+                role_repo = RoleRepository()
+                standard_role = role_repo.get_by_name("AGENT_STANDARD")
+                if standard_role:
+                    user_service.assign_role_to_user(
+                        migrated_user.id,
+                        standard_role.id,
+                        actor="legacy-auth-migration",
+                    )
+                authenticated = user_service.authenticate(username, credentials.password)
+            except ValueError:
+                # Another request may have migrated the account concurrently.
+                authenticated = user_service.authenticate(username, credentials.password)
     if not authenticated:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
