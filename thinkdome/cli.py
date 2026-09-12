@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+import os
 
 
 
@@ -65,10 +66,29 @@ def main() -> None:
     subparsers.add_parser("setup", help="Download and provision all MicroVM & sandbox prerequisites automatically")
     subparsers.add_parser("setup-microvm", help="Alias for setup: provision hypervisor binaries, kernel, and rootfs")
 
+    # stop command
+    stop_parser = subparsers.add_parser("stop", help="Stop the running ThinkDome API server")
+    stop_parser.add_argument("--force", "-f", action="store_true", help="Forcefully kill the server process (SIGKILL)")
+
+    # reset-admin-password / reset-password commands
+    admin_pw_parser = subparsers.add_parser("reset-admin-password", help="Reset Administrator password")
+    admin_pw_parser.add_argument("--password", "-p", help="New administrator password")
+    admin_pw_parser.add_argument("--username", "-u", default="admin", help="Administrator username (default: admin)")
+
+    pw_parser = subparsers.add_parser("reset-password", help="Reset password for any user account")
+    pw_parser.add_argument("username", nargs="?", default="admin", help="Username to reset")
+    pw_parser.add_argument("--password", "-p", help="New password")
+
     args = parser.parse_args()
 
     if args.command == "serve":
         _serve(args)
+    elif args.command == "stop":
+        _stop(args)
+    elif args.command == "reset-admin-password":
+        _reset_password(getattr(args, "username", "admin"), args.password)
+    elif args.command == "reset-password":
+        _reset_password(args.username, args.password)
     elif args.command == "node-agent":
         _node_agent(args)
     elif args.command == "version":
@@ -92,18 +112,174 @@ def main() -> None:
 
 def _serve(args) -> None:
     """Start the FastAPI server."""
+    import os
     import uvicorn
+    from thinkdome.core.config import get_settings
 
-    print(f"Starting ThinkDome API server on {args.host}:{args.port}")
-    uvicorn.run(
-        "thinkdome.api.server:create_app",
-        factory=True,
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        reload_dirs=["thinkdome"] if args.reload else None,
-        workers=args.workers,
-    )
+    pid = os.getpid()
+    storage_dir = Path(get_settings().FILE_STORAGE_DIR)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    pid_file = storage_dir / "thinkdome.pid"
+
+    try:
+        pid_file.write_text(str(pid), encoding="utf-8")
+    except Exception:
+        pass
+
+    print(f"Starting ThinkDome API server on {args.host}:{args.port} (PID: {pid})")
+    try:
+        uvicorn.run(
+            "thinkdome.api.server:create_app",
+            factory=True,
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            reload_dirs=["thinkdome"] if args.reload else None,
+            workers=args.workers,
+        )
+    finally:
+        if pid_file.exists():
+            try:
+                pid_file.unlink()
+            except Exception:
+                pass
+
+
+def _stop(args) -> None:
+    """Stop running ThinkDome server process gracefully (SIGTERM) or forcefully (SIGKILL)."""
+    import os
+    import signal
+    import time
+    from thinkdome.core.config import get_settings
+
+    storage_dir = Path(get_settings().FILE_STORAGE_DIR)
+    pid_file = storage_dir / "thinkdome.pid"
+    pids_to_kill: set[int] = set()
+
+    if pid_file.exists():
+        try:
+            pid_str = pid_file.read_text(encoding="utf-8").strip()
+            if pid_str.isdigit():
+                pids_to_kill.add(int(pid_str))
+        except Exception:
+            pass
+
+    # Inspect process list in /proc to find active ThinkDome server processes
+    try:
+        my_pid = os.getpid()
+        for proc_dir in Path("/proc").glob("[0-9]*"):
+            try:
+                cmdline = (proc_dir / "cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", errors="ignore")
+                if "thinkdome" in cmdline and "serve" in cmdline and str(my_pid) not in cmdline:
+                    pids_to_kill.add(int(proc_dir.name))
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    if not pids_to_kill:
+        print("No active ThinkDome server process found.")
+        return
+
+    force = getattr(args, "force", False)
+    sig = signal.SIGKILL if force else signal.SIGTERM
+    sig_name = "SIGKILL (forceful)" if force else "SIGTERM (graceful)"
+
+    stopped_count = 0
+    for pid in pids_to_kill:
+        try:
+            print(f"Sending {sig_name} to ThinkDome server process (PID: {pid})...")
+            os.kill(pid, sig)
+            stopped_count += 1
+            if not force:
+                for _ in range(10):
+                    time.sleep(0.2)
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        break
+        except ProcessLookupError:
+            print(f"Process {pid} is no longer running.")
+        except Exception as e:
+            print(f"Failed to signal PID {pid}: {e}", file=sys.stderr)
+
+    if pid_file.exists():
+        try:
+            pid_file.unlink()
+        except Exception:
+            pass
+
+    print(f"✓ ThinkDome stop command finished ({stopped_count} process(es) signaled).")
+
+
+def _reset_password(username: str | None, password: str | None) -> None:
+    """Reset password for administrator or specified user account across auth databases."""
+    import getpass
+    import hashlib
+    import secrets
+    from thinkdome.core.config import get_settings
+    from thinkdome.platform.database.service import DatabaseService
+    from thinkdome.security.auth.service import AuthService
+    from thinkdome.security.rbac.models import User
+
+    target_user = (username or "admin").strip().lower()
+    if not password:
+        password = getpass.getpass(f"Enter new password for user '{target_user}': ")
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            print("Error: Passwords do not match.", file=sys.stderr)
+            sys.exit(1)
+
+    if len(password) < 6:
+        print("Error: Password must be at least 6 characters long.", file=sys.stderr)
+        sys.exit(1)
+
+    settings = get_settings()
+    db_svc = DatabaseService(settings)
+    auth_svc = AuthService(settings, db_svc)
+
+    # 1. Update SQLite AuthService users table
+    salt = secrets.token_hex(16)
+    hashed_password = auth_svc._hash_password(password, salt)
+
+    existing = db_svc.fetch_one("SELECT username FROM users WHERE username = ?", (target_user,))
+    if existing:
+        db_svc.execute(
+            "UPDATE users SET hashed_password = ?, salt = ? WHERE username = ?",
+            (hashed_password, salt, target_user)
+        )
+    else:
+        auth_svc.register(target_user, password, role="ADMIN")
+
+    # If resetting admin user, also update 'administrator' / 'admin' alias
+    if target_user in ("admin", "administrator"):
+        alt_user = "administrator" if target_user == "admin" else "admin"
+        alt_existing = db_svc.fetch_one("SELECT username FROM users WHERE username = ?", (alt_user,))
+        if alt_existing:
+            alt_salt = secrets.token_hex(16)
+            alt_hashed = auth_svc._hash_password(password, alt_salt)
+            db_svc.execute(
+                "UPDATE users SET hashed_password = ?, salt = ? WHERE username = ?",
+                (alt_hashed, alt_salt, alt_user)
+            )
+
+    # 2. Update Custom ORM User model
+    try:
+        from thinkdome.core.cli.site_ops import _init_kernel_for_site
+        site_name = os.environ.get("THINKDOME_SITE", "think.local")
+        _init_kernel_for_site(site_name)
+
+        orm_user = User.query().filter(username=target_user).first()
+        if not orm_user and target_user in ("admin", "administrator"):
+            orm_user = User.query().filter(username="administrator").first() or User.query().filter(username="admin").first()
+
+        if orm_user:
+            orm_user.password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+            orm_user.save()
+    except Exception:
+        pass
+
+    print(f"✓ Password updated successfully for user '{target_user}'.")
 
 
 def _node_agent(args) -> None:

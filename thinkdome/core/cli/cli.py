@@ -102,6 +102,9 @@ def main() -> None:
     serve_p.add_argument("--port", type=int, default=8000, help="Port to bind")
     serve_p.add_argument("--reload", action="store_true", help="Enable reload mode")
 
+    stop_p = subparsers.add_parser("stop", help="Stop the running ThinkDome API server")
+    stop_p.add_argument("--force", "-f", action="store_true", help="Forcefully kill the server process (SIGKILL)")
+
     subparsers.add_parser("worker", help="Start background queue worker")
     subparsers.add_parser("scheduler", help="Start cron scheduler process")
     subparsers.add_parser("shell", help="Open an interactive Python shell pre-loaded with site context")
@@ -119,6 +122,14 @@ def main() -> None:
     restore_p.add_argument("--admin-password", dest="admin_password", help="Set a new Administrator password after restore")
 
     # ── Password Management ───────────────────────────────────────────────────
+    reset_admin_pw_p = subparsers.add_parser("reset-admin-password", help="Reset the Administrator (superadmin) password")
+    reset_admin_pw_p.add_argument("--password", "-p", help="New Administrator password")
+    reset_admin_pw_p.add_argument("--username", "-u", default="admin", help="Administrator username")
+
+    reset_pw_p = subparsers.add_parser("reset-password", help="Reset password for any user account")
+    reset_pw_p.add_argument("username", nargs="?", default="admin", help="Username to reset")
+    reset_pw_p.add_argument("--password", "-p", help="New password")
+
     admin_pw_p = subparsers.add_parser("set-admin-password", help="Reset the Administrator (superadmin) password")
     admin_pw_p.add_argument("password", help="New Administrator password")
 
@@ -191,6 +202,15 @@ def main() -> None:
             handle_migration_status(args.site)
         elif args.command == "serve":
             handle_serve(args.host, args.port, args.reload)
+        elif args.command == "stop":
+            from thinkdome.cli import _stop
+            _stop(args)
+        elif args.command == "reset-admin-password":
+            from thinkdome.cli import _reset_password
+            _reset_password(getattr(args, "username", "admin"), args.password)
+        elif args.command == "reset-password":
+            from thinkdome.cli import _reset_password
+            _reset_password(args.username, args.password)
         elif args.command == "worker":
             handle_worker(args.site)
         elif args.command == "scheduler":

@@ -7,11 +7,26 @@ import logging
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 
-from thinkdome.core.dependencies import get_current_admin
+from thinkdome.core.dependencies import get_current_admin, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["monitor"])
+
+
+@router.get("/monitoring/stats")
+@router.get("/monitor/stats")
+async def get_monitoring_stats(request: Request, _user=Depends(get_current_user)):
+    """Get aggregate monitoring statistics for console overview dashboard."""
+    monitor = getattr(request.app.state, "monitor_service", None)
+    active_metrics = monitor.get_all_metrics() if monitor else {}
+    active_sandboxes = len(active_metrics)
+    return {
+        "concurrent_sandboxes": active_sandboxes,
+        "concurrent_limit": getattr(request.app.state, "settings", None).DOCKER_MAX_CONCURRENT_EXECUTIONS if hasattr(request.app.state, "settings") else 20,
+        "start_rate_per_second": 0.0,
+        "peak_concurrent_30d": active_sandboxes,
+    }
 
 
 @router.get("/monitor/metrics")
