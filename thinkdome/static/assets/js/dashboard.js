@@ -119,7 +119,7 @@ async function fetchDashboardData() {
     try {
         const identity = await window.API.getCurrentUser(token);
         const serverRole = String(identity?.data?.user?.role || '').toUpperCase();
-        serverIsAdmin = ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'ORCH', 'IDE'].includes(serverRole);
+        serverIsAdmin = ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'ORCH', 'IDE', 'AUDITOR'].includes(serverRole);
         if (serverRole) localStorage.setItem('thinkdome_user_role', serverRole);
     } catch (_) {
         // Fail closed: a role that the server did not confirm cannot access
@@ -157,7 +157,7 @@ async function fetchDashboardData() {
         const isAdmin = serverIsAdmin;
         const [sandboxesRes, keysRes, logsRes, auditRes] = await Promise.all([
             window.API.getSandboxes(token),
-            isAdmin ? window.API.getApiKeys(token) : Promise.resolve({ data: [] }),
+            ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'ORCH', 'IDE'].includes(serverRole) ? window.API.getApiKeys(token) : Promise.resolve({ data: [] }),
             isAdmin ? window.API.getRequestLogs(token, 20) : Promise.resolve({ data: [] }),
             isAdmin ? window.API.getAuditLogs(token, 50) : Promise.resolve({ data: [] })
         ]);

@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
@@ -18,6 +19,7 @@ from thinkdome.core.dependencies import (
     get_request_log_service,
     get_current_admin,
     get_current_user,
+    get_current_audit_viewer,
     get_billing_service
 )
 from thinkdome.security.auth.service import AuthService
@@ -239,10 +241,41 @@ async def revoke_key(
 async def get_logs(
     limit: int = 100,
     log_svc: RequestLogService = Depends(get_request_log_service),
-    _admin: dict = Depends(get_current_admin)
+    viewer: dict = Depends(get_current_audit_viewer)
 ):
-    """Retrieve execution request logs."""
-    return log_svc.get_logs(limit=limit)
+    """Retrieve execution request logs, scoped for non-admin auditors."""
+    from thinkdome.security.identity.core import is_admin_role
+    role = str(viewer.get("role", "")).upper()
+    actor = None if is_admin_role(role) else viewer.get("username")
+    logs = log_svc.get_logs(limit=limit, actor=actor)
+    if logs or not actor:
+        return logs
+
+    # MCP calls historically wrote only audit events, not request_logs. Make
+    # those persisted execution events visible to an auditor as history too.
+    rows = log_svc.get_audit_events(limit=limit, actor=actor, execution_only=True)
+    history = []
+    for row in rows:
+        details = row.get("details")
+        if isinstance(details, str):
+            try:
+                details = json.loads(details)
+            except Exception:
+                details = {}
+        details = details or {}
+        history.append({
+            "id": row.get("id"),
+            "timestamp": row.get("timestamp"),
+            "display_name": actor,
+            "role": details.get("caller_role", "AGENT_STANDARD"),
+            "tool_name": details.get("tool_name", row.get("action")),
+            "request_payload": details.get("arguments", details.get("input", details)),
+            "response_payload": details.get("status", "recorded"),
+            "status": details.get("status", "recorded"),
+            "sandbox_id": details.get("sandbox_id"),
+            "duration_ms": details.get("duration_ms", 0),
+        })
+    return history
 
 @router.post("/logs/clear")
 async def clear_logs(
@@ -262,27 +295,48 @@ async def clear_logs(
 @router.get("/audits")
 async def get_audits(
     limit: int = 100,
-    auth_svc: AuthService = Depends(get_auth_service),
-    _admin: dict = Depends(get_current_admin)
+    log_svc: RequestLogService = Depends(get_request_log_service),
+    viewer: dict = Depends(get_current_audit_viewer)
 ):
-    """Retrieve system audit trails."""
+    """Retrieve audit trails, scoped for non-admin auditors."""
     from thinkdome.security.rbac.models import RbacAuditLog
-    logs = RbacAuditLog.query().limit(limit).all()
-    return [l.to_dict() for l in logs]
+    from thinkdome.security.identity.core import is_admin_role
+    role = str(viewer.get("role", "")).upper()
+    query = RbacAuditLog.query()
+    if not is_admin_role(role):
+        query = query.filter(actor=viewer.get("username"))
+    logs = query.limit(limit).all()
+    result = [l.to_dict() for l in logs]
+    # Include legacy audit events where older MCP and sandbox services wrote
+    # history before the RBAC audit table became canonical.
+    legacy = log_svc.get_audit_events(
+        limit=limit,
+        actor=None if is_admin_role(role) else viewer.get("username"),
+    )
+    result.extend(legacy)
+    result.sort(key=lambda item: item.get("id", 0), reverse=True)
+    return result[:limit]
 
 @router.get("/audits/{audit_id}")
 async def get_audit_detail(
     audit_id: str,
-    auth_svc: AuthService = Depends(get_auth_service),
-    _admin: dict = Depends(get_current_admin)
+    log_svc: RequestLogService = Depends(get_request_log_service),
+    viewer: dict = Depends(get_current_audit_viewer)
 ):
     """Retrieve a single audit log entry with parsed details."""
     import json as _json
     from thinkdome.security.rbac.models import RbacAuditLog
     log_model = RbacAuditLog.get(audit_id)
-    if not log_model:
-        raise HTTPException(status_code=404, detail="Audit log entry not found.")
-    entry = log_model.to_dict()
+    from thinkdome.security.identity.core import is_admin_role
+    if log_model:
+        entry = log_model.to_dict()
+    else:
+        legacy_entry = log_svc.get_audit_event(audit_id)
+        if not legacy_entry:
+            raise HTTPException(status_code=404, detail="Audit log entry not found.")
+        entry = legacy_entry
+    if not is_admin_role(str(viewer.get("role", "")).upper()) and entry.get("actor") != viewer.get("username"):
+        raise HTTPException(status_code=403, detail="Forbidden: audit entry is outside your profile scope.")
     # Parse details JSON string into object
     try:
         entry["details"] = _json.loads(entry["details"]) if isinstance(entry["details"], str) else entry["details"]
@@ -292,23 +346,8 @@ async def get_audit_detail(
     # Try to find a related request log by matching timestamp window (+/- 2 seconds)
     related_log = None
     if entry.get("timestamp"):
-        related_log = auth_svc.db_service.fetch_one(
-            """SELECT * FROM request_logs 
-               WHERE ABS(julianday(timestamp) - julianday(?)) < 0.00003
-               ORDER BY ABS(julianday(timestamp) - julianday(?)) ASC
-               LIMIT 1""",
-            (entry["timestamp"], entry["timestamp"])
-        )
+        related_log = log_svc.find_related_log(entry["timestamp"])
     if related_log:
-        related_log = dict(related_log)
-        try:
-            related_log["request_payload"] = _json.loads(related_log["request_payload"]) if isinstance(related_log["request_payload"], str) else related_log["request_payload"]
-        except Exception:
-            pass
-        try:
-            related_log["response_payload"] = _json.loads(related_log["response_payload"]) if isinstance(related_log["response_payload"], str) else related_log["response_payload"]
-        except Exception:
-            pass
         entry["related_execution"] = related_log
     else:
         entry["related_execution"] = None
@@ -745,12 +784,11 @@ async def get_network_policy(
     _admin: dict = Depends(get_current_admin)
 ):
     """Get active network egress policies."""
-    row = auth_svc.db_service.fetch_one(
-        "SELECT config_value FROM admin_configs WHERE config_key = 'network_policy'"
-    )
+    from thinkdome.platform.observability.config import AdminConfig
+    row = AdminConfig.get("network_policy")
     if row:
         import json
-        return json.loads(row["config_value"])
+        return json.loads(row.config_value)
     return {
         "tenant_id": "default",
         "allowlist": [r".*\.github\.com$", r".*\.pypi\.org$", r".*\.python\.org$"],
@@ -778,14 +816,12 @@ async def update_network_policy(
         "updated_at": request.headers.get("date", "")
     }
     
-    auth_svc.db_service.execute(
-        """
-        INSERT INTO admin_configs (config_key, config_value, updated_at, updated_by)
-        VALUES ('network_policy', ?, CURRENT_TIMESTAMP, ?)
-        ON CONFLICT(config_key) DO UPDATE SET config_value = excluded.config_value, updated_by = excluded.updated_by
-        """,
-        (json.dumps(policy_data), actor)
-    )
+    from thinkdome.platform.observability.config import AdminConfig
+    config = AdminConfig.get("network_policy") or AdminConfig(config_key="network_policy")
+    config.config_value = json.dumps(policy_data)
+    config.updated_at = datetime.utcnow().isoformat()
+    config.updated_by = actor
+    config.save()
     
     # Audit log
     auth_svc.db_service.log_audit(

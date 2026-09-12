@@ -196,15 +196,21 @@ class ModelMetaclass(type):
 
         attrs["_fields"] = fields
         attrs.setdefault("__tablename__", name.lower() + "s")
+        primary_key_name = attrs.setdefault("__primary_key__", "id")
+        attrs["_primary_key_name"] = primary_key_name
 
         # Map to SQLAlchemy Columns registered on shared Base metadata
-        columns = [
-            Column("id", String, primary_key=True, default=lambda: str(uuid.uuid4())),
-            Column("is_deleted", Boolean, default=False),
-        ]
+        primary_key_type = String
+        if isinstance(fields.get(primary_key_name), IntegerField):
+            primary_key_type = Integer
+        columns = [Column(primary_key_name, primary_key_type, primary_key=True)]
+        if primary_key_name == "id":
+            columns[0].default = lambda: str(uuid.uuid4())
+        if not attrs.get("__omit_soft_delete__", False):
+            columns.append(Column("is_deleted", Boolean, default=False))
 
         for fname, fval in fields.items():
-            if fname == "id":
+            if fname == primary_key_name:
                 continue
             
             # Map Python ORM field types to SQLAlchemy SQL types
@@ -265,15 +271,17 @@ class Model(metaclass=ModelMetaclass):
                 default = default()
             self._values[name] = default
 
-        self._values.setdefault("id", str(uuid.uuid4()))
-        self._values.setdefault("is_deleted", False)
+        primary_key_name = self.__class__._primary_key_name
+        self._values.setdefault(primary_key_name, str(uuid.uuid4()))
+        if not self.__class__.__dict__.get("__omit_soft_delete__", False):
+            self._values.setdefault("is_deleted", False)
 
         for k, v in kwargs.items():
             self._values[k] = v
 
     @property
     def id(self) -> str:
-        return self._values["id"]
+        return self._values[self.__class__._primary_key_name]
 
     @classmethod
     def query(cls) -> Query:
@@ -305,7 +313,7 @@ class Model(metaclass=ModelMetaclass):
             self._run_hook("after_create")
         else:
             self._run_hook("before_update")
-            stmt = update(table).where(table.c.id == self.id).values(**self._values)
+            stmt = update(table).where(table.c[self.__class__._primary_key_name] == self.id).values(**self._values)
             db.execute(stmt)
             db.commit()
             self._run_hook("after_update")
@@ -319,10 +327,10 @@ class Model(metaclass=ModelMetaclass):
 
         if soft:
             self._values["is_deleted"] = True
-            stmt = update(table).where(table.c.id == self.id).values(is_deleted=True)
+            stmt = update(table).where(table.c[self.__class__._primary_key_name] == self.id).values(is_deleted=True)
             db.execute(stmt)
         else:
-            stmt = delete(table).where(table.c.id == self.id)
+            stmt = delete(table).where(table.c[self.__class__._primary_key_name] == self.id)
             db.execute(stmt)
 
         db.commit()

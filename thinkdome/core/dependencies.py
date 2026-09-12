@@ -108,3 +108,19 @@ async def get_current_admin(
             detail="Forbidden: Admin or Orchestrator access required."
         )
     return current_user
+
+
+async def get_current_audit_viewer(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Allow admins and auditors to inspect only permitted audit data."""
+    from thinkdome.security.identity.core import is_admin_role
+
+    role = str(current_user.get("role", "")).upper()
+    if is_admin_role(role) or role == "AUDITOR":
+        return current_user
+    from fastapi import HTTPException, status
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Forbidden: audit viewer or administrator access required.",
+    )

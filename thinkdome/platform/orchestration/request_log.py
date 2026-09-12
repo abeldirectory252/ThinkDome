@@ -7,7 +7,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 from thinkdome.core.config import Settings, get_settings
 from thinkdome.platform.database.service import DatabaseService
 
@@ -154,31 +154,82 @@ class RequestLogService:
         except Exception as e:
             logger.error(f"Failed to prune old request logs: {e}")
 
-    def get_logs(self, limit: int = 100) -> list[dict[str, Any]]:
+    def get_logs(self, limit: int = 100, actor: Optional[str] = None) -> list[dict[str, Any]]:
         """Get the latest request logs from database."""
         try:
-            rows = self.db_service.fetch_all(
-                "SELECT * FROM request_logs ORDER BY id DESC LIMIT ?", (limit,)
-            )
-            logs = []
-            for row in rows:
-                log_entry = dict(row)
-                # Parse JSON fields back
-                try:
-                    log_entry["request_payload"] = json.loads(log_entry["request_payload"])
-                except Exception:
-                    pass
-                
-                try:
-                    # check if response payload is JSON dict
-                    log_entry["response_payload"] = json.loads(log_entry["response_payload"])
-                except Exception:
-                    pass
-                logs.append(log_entry)
-            return logs
+            from thinkdome.platform.observability.models import RequestLog
+            query = RequestLog.query()
+            if actor:
+                query = query.filter(display_name=actor)
+            rows = query.all()
+            rows.sort(key=lambda row: row.id, reverse=True)
+            return [self._decode_log(row.to_dict()) for row in rows[:limit]]
         except Exception as e:
             logger.error(f"Failed to fetch request logs from database: {e}")
             return []
+
+    @staticmethod
+    def _decode_log(log_entry: dict[str, Any]) -> dict[str, Any]:
+        for field in ("request_payload", "response_payload"):
+            try:
+                log_entry[field] = json.loads(log_entry[field])
+            except (TypeError, json.JSONDecodeError, KeyError):
+                pass
+        return log_entry
+
+    def get_audit_events(
+        self,
+        limit: int = 100,
+        actor: Optional[str] = None,
+        execution_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Read legacy audit events through the ORM."""
+        from thinkdome.platform.observability.models import LegacyAuditLog
+        query = LegacyAuditLog.query()
+        if actor:
+            query = query.filter(actor=actor)
+        rows = [row.to_dict() for row in query.all()]
+        if execution_only:
+            rows = [row for row in rows if row.get("action") in {"mcp_call_tool", "sandbox_execution_intent"}]
+        rows.sort(key=lambda row: row.get("id", 0), reverse=True)
+        return rows[:limit]
+
+    def get_audit_event(self, audit_id: str) -> Optional[dict[str, Any]]:
+        """Read one legacy audit event through the ORM."""
+        from thinkdome.platform.observability.models import LegacyAuditLog
+        row = LegacyAuditLog.get(audit_id)
+        return row.to_dict() if row else None
+
+    def find_related_log(self, timestamp: Any, window_seconds: float = 2.0) -> Optional[dict[str, Any]]:
+        """Find the closest request log without database-specific date SQL."""
+        if not timestamp:
+            return None
+
+        def parse(value: Any) -> Optional[datetime]:
+            if isinstance(value, datetime):
+                return value
+            if not value:
+                return None
+            try:
+                return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                return None
+
+        target = parse(timestamp)
+        if target is None:
+            return None
+        candidates = []
+        from thinkdome.platform.observability.models import RequestLog
+        for row in RequestLog.query().all():
+            current = parse(row.timestamp)
+            if current is not None:
+                distance = abs((current - target).total_seconds())
+                if distance < window_seconds:
+                    candidates.append((distance, row))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return self._decode_log(candidates[0][1].to_dict())
 
     def clear_logs(self, actor: str = "admin", actor_ip: str = "unknown") -> None:
         """Clear all request logs and record the action in audit logs."""
