@@ -36,6 +36,9 @@ from thinkdome.platform.orchestration.request_log import RequestLogService
 from thinkdome.platform.billing.service import BillingService
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown."""
@@ -167,7 +170,18 @@ async def lifespan(app: FastAPI):
     )
     app.state.orchestrator_service.db = app.state.db_service
 
-    await app.state.execution_service.initialize()
+    # Execution is a capability, not a prerequisite for the control plane.
+    # A native ThinkDome install may intentionally have no Docker daemon;
+    # authentication, UI, audit, and workspace APIs must still start.
+    try:
+        await app.state.execution_service.initialize()
+        app.state.execution_available = True
+    except Exception as exc:
+        app.state.execution_available = False
+        logger.warning(
+            "Execution backend unavailable; continuing in control-plane mode: %s",
+            exc,
+        )
     python_executor = app.state.execution_service._executors.get("python")
     if python_executor and hasattr(python_executor, "set_pool_manager"):
         python_executor.set_pool_manager(app.state.pool_manager)

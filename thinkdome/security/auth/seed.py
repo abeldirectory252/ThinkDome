@@ -45,8 +45,9 @@ def seed_superadmin_and_dynamic_ui(site_name: str = "think.local") -> None:
             if not UserRole.query().filter(user_id=user.id, role_id=super_role.id).first():
                 UserRole(user_id=user.id, role_id=super_role.id).save()
 
-        if not UIDeveloperConfig.query().all():
-            UIManager().setup(load_bootstrap_ui())
+        # Reconcile the manifest on every startup so role-policy changes in
+        # bootstrap.json reach existing installations, not only fresh sites.
+        UIManager().setup(load_bootstrap_ui())
         UICacheManager.get_instance().clear()
         logger.info("System account and dynamic UI bootstrap complete.")
     except Exception as err:

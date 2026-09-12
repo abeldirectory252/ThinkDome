@@ -19,13 +19,22 @@
       "label": "Security & Operations Admin",
       "sequence": 2,
       "icon": "🛡️",
-      "allowed_roles": ["SUPER_ADMIN", "ADMIN"],
+      "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AUDITOR"],
       "items": [
         {"name": "users", "label": "User Accounts", "route": "users", "type": "page"},
         {"name": "roles", "label": "Role Permissions", "route": "roles", "type": "page"},
-        {"name": "audit", "label": "Security Audit", "route": "audit", "type": "page"},
         {"name": "limits", "label": "Network Audit & Limits", "route": "limits", "type": "page"},
         {"name": "workspaces", "label": "Workspace Manager", "route": "workspaces", "type": "page"}
+      ]
+    },
+    {
+      "name": "audit",
+      "label": "Execution History",
+      "sequence": 4,
+      "icon": "📋",
+      "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AUDITOR", "AGENT_STANDARD"],
+      "items": [
+        {"name": "audit", "label": "Audit Logs", "route": "audit", "type": "page"}
       ]
     },
     {
@@ -49,7 +58,7 @@
     {"name": "apikeys", "title": "API Key Management", "route": "apikeys", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "API Key Management", "level": 1}]},
     {"name": "users", "title": "User Accounts", "route": "users", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "RBAC User Accounts", "level": 1}]},
     {"name": "roles", "title": "Role Permissions", "route": "roles", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Role Permissions Manager", "level": 1}]},
-    {"name": "audit", "title": "Security Audit", "route": "audit", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Security Audit Trail", "level": 1}]},
+    {"name": "audit", "title": "Security Audit", "route": "audit", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AUDITOR", "AGENT_STANDARD"], "layout": [{"type": "heading", "text": "Security Audit Trail", "level": 1}]},
     {"name": "limits", "title": "Network Audit & Limits", "route": "limits", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Network Audit & Limits", "level": 1}]},
     {"name": "workspaces", "title": "Workspace Manager", "route": "workspaces", "allowed_roles": ["SUPER_ADMIN", "ADMIN"], "layout": [{"type": "heading", "text": "Workspace Manager", "level": 1}]},
     {"name": "billing", "title": "Billing & Usage", "route": "billing", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "FINANCE_MANAGER"], "layout": [{"type": "heading", "text": "Billing & Usage Reports", "level": 1}]},

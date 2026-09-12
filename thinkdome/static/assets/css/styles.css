@@ -5634,6 +5634,17 @@ input[type="radio"]:checked::after {
     color: var(--fg-muted);
 }
 
+#userModalRolePicker { display:grid; gap:7px; margin-top:8px; }
+.role-picker-search { width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:8px; background:var(--surface-raised); color:var(--fg); font-size:11px; outline:none; }
+.role-picker-search:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-subtle); }
+.role-picker-options { display:flex; flex-wrap:wrap; gap:6px; max-height:92px; overflow-y:auto; padding:1px; }
+.role-picker-option { display:inline-flex; align-items:center; gap:5px; padding:6px 8px; border:1px solid var(--border); border-radius:7px; background:var(--surface-raised); color:var(--fg-muted); cursor:pointer; font-size:10px; font-weight:600; }
+.role-picker-option:hover { border-color:var(--fg-subtle); color:var(--fg); }
+.role-picker-option.selected { border-color:var(--accent); background:var(--accent-subtle); color:var(--fg); }
+.role-picker-option input { accent-color:var(--accent); width:13px; height:13px; margin:0; }
+.role-picker-empty { padding:5px; color:var(--fg-subtle); font-size:10px; }
+.role-picker-retry { padding:6px 8px; border:1px solid var(--danger); border-radius:7px; background:var(--danger-subtle); color:var(--danger); cursor:pointer; font-size:10px; }
+
 .wm-sidebar-canvas { display:grid; gap:12px; }
 .wm-sidebar-group { padding:14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
 .wm-sidebar-group .wm-group-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:10px; border-bottom:1px solid var(--border); }

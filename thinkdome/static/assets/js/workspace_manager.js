@@ -85,8 +85,11 @@
     const sessionRole = (localStorage.getItem('thinkdome_user_role') || '').toUpperCase();
     if (sessionRole) wmState.activeMapperRole = sessionRole;
     try {
+      // The role mapper uses the workspace tree as its fallback catalog. Load
+      // that source first; parallel loading caused a race where the mapper
+      // rendered before pages were available and showed a false empty state.
+      await refreshWorkspaceViewerData();
       await Promise.all([
-        refreshWorkspaceViewerData(),
         refreshRoleMapperData(),
         refreshBossRegistryData(),
       ]);

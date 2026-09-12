@@ -116,10 +116,13 @@ async function fetchDashboardData() {
     // Rehydrate the role from the authenticated server session first; the
     // browser value is only a display hint and may be stale.
     let serverIsAdmin = false;
+    let serverRole = '';
+    let serverCanViewAudit = false;
     try {
         const identity = await window.API.getCurrentUser(token);
-        const serverRole = String(identity?.data?.user?.role || '').toUpperCase();
+        serverRole = String(identity?.data?.user?.role || '').toUpperCase();
         serverIsAdmin = ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'ORCH', 'IDE', 'AUDITOR'].includes(serverRole);
+        serverCanViewAudit = serverIsAdmin || serverRole === 'AGENT_STANDARD';
         if (serverRole) localStorage.setItem('thinkdome_user_role', serverRole);
     } catch (_) {
         // Fail closed: a role that the server did not confirm cannot access
@@ -159,7 +162,7 @@ async function fetchDashboardData() {
             window.API.getSandboxes(token),
             ['ADMIN', 'SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'ORCH', 'IDE'].includes(serverRole) ? window.API.getApiKeys(token) : Promise.resolve({ data: [] }),
             isAdmin ? window.API.getRequestLogs(token, 20) : Promise.resolve({ data: [] }),
-            isAdmin ? window.API.getAuditLogs(token, 50) : Promise.resolve({ data: [] })
+            serverCanViewAudit ? window.API.getAuditLogs(token, 50) : Promise.resolve({ data: [] })
         ]);
 
         // Process Sandboxes
@@ -302,6 +305,67 @@ async function fetchDashboardData() {
         if (keysTableBody) keysTableBody.innerHTML = emptyRow(5, 'Waiting for API connection…');
     }
 }
+const auditHistoryState = { logs: [], page: 1, pageSize: 20 };
+
+function renderAuditHistoryPage() {
+    const table = document.getElementById('auditFullBody');
+    if (!table) return;
+    const logs = auditHistoryState.logs;
+    if (!logs.length) {
+        table.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--fg-subtle);padding:20px">No audit logs recorded</td></tr>';
+        document.getElementById('auditHistoryPager')?.replaceChildren();
+        return;
+    }
+    const totalPages = Math.ceil(logs.length / auditHistoryState.pageSize);
+    auditHistoryState.page = Math.min(auditHistoryState.page, totalPages);
+    const start = (auditHistoryState.page - 1) * auditHistoryState.pageSize;
+    table.innerHTML = logs.slice(start, start + auditHistoryState.pageSize).map(ev => {
+        const dateStr = ev.timestamp ? String(ev.timestamp).replace('T', ' ').substring(0, 19) : '—';
+        const details = ev.details ? (typeof ev.details === 'object' ? JSON.stringify(ev.details) : ev.details) : '';
+        const summary = details.length > 90 ? `${details.substring(0, 90)}…` : details;
+        return `<tr class="audit-history-row" data-audit-id="${String(ev.id).replace(/"/g, '&quot;')}" title="Click to view full details">
+          <td class="time">${dateStr}</td>
+          <td class="mono">${ev.sandbox_id || ev.ip_address || '—'}</td>
+          <td class="mono">${ev.action || '—'}</td>
+          <td><span class="status-tag success">${ev.status || 'AUDIT_OK'}</span></td>
+          <td><span class="action-tag">${ev.actor || '—'}</span></td>
+          <td style="font-weight:500;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${summary}</td>
+        </tr>`;
+    }).join('');
+    table.querySelectorAll('.audit-history-row').forEach(row => row.addEventListener('click', () => openAuditDetailModal(row.dataset.auditId)));
+    const pager = document.getElementById('auditHistoryPager');
+    if (pager) {
+        pager.replaceChildren();
+        const label = document.createElement('span');
+        label.textContent = `Showing ${start + 1}–${Math.min(start + auditHistoryState.pageSize, logs.length)} of ${logs.length}`;
+        const previous = document.createElement('button'); previous.className = 'btn btn-ghost btn-sm'; previous.textContent = 'Previous'; previous.disabled = auditHistoryState.page <= 1;
+        const next = document.createElement('button'); next.className = 'btn btn-ghost btn-sm'; next.textContent = 'Next'; next.disabled = auditHistoryState.page >= totalPages;
+        previous.onclick = () => { auditHistoryState.page -= 1; renderAuditHistoryPage(); };
+        next.onclick = () => { auditHistoryState.page += 1; renderAuditHistoryPage(); };
+        pager.append(label, previous, next);
+    }
+}
+
+async function loadAuditHistory() {
+    const table = document.getElementById('auditFullBody');
+    if (!table) return;
+    const token = localStorage.getItem('thinkdome_token');
+    if (!window.API || !token) {
+        table.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--danger);padding:20px">Please sign in to view audit history.</td></tr>';
+        return;
+    }
+    table.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--fg-subtle);padding:20px">Loading execution history…</td></tr>';
+    const result = await window.API.getAuditLogs(token, 100);
+    if (result.error) {
+        table.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger);padding:20px">Unable to load audit history: ${result.error}</td></tr>`;
+        return;
+    }
+    auditHistoryState.logs = Array.isArray(result.data) ? result.data : [];
+    auditHistoryState.page = 1;
+    renderAuditHistoryPage();
+}
+window.fetchDashboardData = fetchDashboardData;
+window.loadAuditHistory = loadAuditHistory;
 
 function renderDashboardRecentTables() {
     fetchDashboardData();

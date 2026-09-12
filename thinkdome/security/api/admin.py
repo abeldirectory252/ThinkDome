@@ -314,7 +314,34 @@ async def get_audits(
         actor=None if is_admin_role(role) else viewer.get("username"),
     )
     result.extend(legacy)
-    result.sort(key=lambda item: item.get("id", 0), reverse=True)
+
+    # Execution requests are the canonical history for sandbox/tool runs, but
+    # older installations persisted them in request_logs rather than the RBAC
+    # audit table. Expose them in this view so an execution cannot disappear
+    # merely because it used the older persistence path.
+    execution_logs = log_svc.get_logs(
+        limit=limit,
+        actor=None if is_admin_role(role) else viewer.get("username"),
+    )
+    for execution in execution_logs:
+        execution_id = execution.get("id")
+        result.append({
+            "id": f"execution:{execution_id}",
+            "timestamp": execution.get("timestamp"),
+            "actor": execution.get("display_name") or viewer.get("username"),
+            "action": execution.get("tool_name") or "sandbox_execution",
+            "details": {
+                "source": "request_logs",
+                "status": execution.get("status"),
+                "sandbox_id": execution.get("sandbox_id"),
+                "request_payload": execution.get("request_payload"),
+                "response_payload": execution.get("response_payload"),
+                "duration_ms": execution.get("duration_ms"),
+            },
+            "source": "execution",
+        })
+
+    result.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
     return result[:limit]
 
 @router.get("/audits/{audit_id}")
@@ -326,6 +353,21 @@ async def get_audit_detail(
     """Retrieve a single audit log entry with parsed details."""
     import json as _json
     from thinkdome.security.rbac.models import RbacAuditLog
+
+    if str(audit_id).startswith("execution:"):
+        execution_id = str(audit_id).split(":", 1)[1]
+        execution = next(
+            (item for item in log_svc.get_logs(limit=1000) if str(item.get("id")) == execution_id),
+            None,
+        )
+        if execution:
+            return {
+                **execution,
+                "action": execution.get("tool_name") or "sandbox_execution",
+                "source": "execution",
+            }
+        raise HTTPException(status_code=404, detail="Audit entry not found.")
+
     log_model = RbacAuditLog.get(audit_id)
     from thinkdome.security.identity.core import is_admin_role
     if log_model:
@@ -345,8 +387,20 @@ async def get_audit_detail(
 
     # Try to find a related request log by matching timestamp window (+/- 2 seconds)
     related_log = None
+    if entry.get("action") == "mcp_call_tool" and isinstance(entry.get("details"), dict):
+        details = entry["details"]
+        related_log = {
+            "tool_name": details.get("tool_name"),
+            "request_payload": details.get("arguments", {}),
+            "response_payload": details.get("result", details.get("error", "")),
+            "status": details.get("status", "unknown"),
+            "duration_ms": details.get("duration_ms", 0),
+            "sandbox_id": details.get("sandbox_id"),
+        }
     if entry.get("timestamp"):
-        related_log = log_svc.find_related_log(entry["timestamp"])
+        timestamp_log = log_svc.find_related_log(entry["timestamp"])
+        if timestamp_log:
+            related_log = timestamp_log
     if related_log:
         entry["related_execution"] = related_log
     else:

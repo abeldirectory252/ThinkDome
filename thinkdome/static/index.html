@@ -13,7 +13,7 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap"
     rel="stylesheet">
 
-  <link rel="stylesheet" href="/assets/css/styles.css?v=24">
+  <link rel="stylesheet" href="/assets/css/styles.css?v=27">
   <!-- RequireJS for loading Monaco Editor from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
 </head>
@@ -252,12 +252,6 @@
               </svg>
               <span>API Keys</span>
             </button>
-            <button class="nav-item" data-page="audit" onclick="navTo('audit')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
-              </svg>
-              <span>Audit Logs</span>
-            </button>
           </div>
 
           <div class="nav-section">
@@ -309,13 +303,6 @@
 
         <!-- Sidebar Footer -->
         <div class="sidebar-footer">
-          <a class="nav-item nav-item-doc" href="https://github.com/abeldirectory252/ThinkDome" target="_blank" rel="noopener noreferrer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/>
-            </svg>
-            <span>Documentation</span>
-            <svg class="nav-external-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
-          </a>
           <div class="sidebar-profile" onclick="navTo('account')" title="View Account Settings">
             <div style="position:relative;">
               <div class="sidebar-profile-avatar" id="sidebarProfileAvatar">DV</div>
@@ -549,6 +536,7 @@
                 <!-- Dynamically populated -->
               </tbody>
             </table>
+            <div id="auditHistoryPager" style="display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--border);color:var(--fg-muted);font-size:12px;"></div>
           </div>
         </section>
 
@@ -3213,14 +3201,13 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Assigned RBAC Role</label>
-              <select class="form-select" id="userModalRole" style="width:100%;">
-                <option value="SUPER_ADMIN">SUPER_ADMIN (Super Admin)</option>
-                <option value="ENTERPRISE_ADMIN">ENTERPRISE_ADMIN (Admin)</option>
-                <option value="FINANCE_MANAGER">FINANCE_MANAGER (Finance)</option>
-                <option value="AUDITOR">AUDITOR (Compliance)</option>
-                <option value="AGENT_STANDARD" selected>AGENT_STANDARD (Standard Agent)</option>
-                <option value="LLM">LLM (Automated Token)</option>
+              <select class="form-select" id="userModalRole" multiple size="4" style="display:none;">
               </select>
+              <div id="userModalRolePicker" class="role-picker" aria-label="Assigned roles">
+                <input id="userModalRoleSearch" class="role-picker-search" type="search" placeholder="Search roles..." autocomplete="off" />
+                <div id="userModalRoleOptions" class="role-picker-options"></div>
+              </div>
+              <small id="userModalRoleSummary" style="display:block;margin-top:7px;color:var(--fg-muted);">Choose one or more roles.</small>
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Account Status</label>
@@ -3378,14 +3365,14 @@
   <script src="/assets/js/plugin.js?v=20"></script>
   <script src="/assets/js/state.js?v=22"></script>
   <script src="/assets/js/auth.js?v=22"></script>
-  <script src="/assets/js/dashboard.js?v=29"></script>
+  <script src="/assets/js/dashboard.js?v=33"></script>
   <script src="/assets/js/sandboxes.js?v=22"></script>
   <script src="/assets/js/editor.js?v=22"></script>
   <script src="/assets/js/terminal.js?v=30"></script>
   <script src="/assets/js/thinkdome.js?v=5"></script>
   <script src="/assets/js/ui_builder.js?v=3"></script>
-  <script src="/assets/js/workspace_manager.js?v=10"></script>
-  <script src="/assets/js/app.js?v=74"></script>
+  <script src="/assets/js/workspace_manager.js?v=11"></script>
+  <script src="/assets/js/app.js?v=80"></script>
   <script>
     // Do not allow a saved password to be restored into the login form.
     window.addEventListener('pageshow', function () {

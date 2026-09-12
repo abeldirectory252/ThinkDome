@@ -24,6 +24,7 @@ from thinkdome.platform.database.service import DatabaseService
 from thinkdome.sandbox.core.service import ExecutionService
 from thinkdome.platform.orchestration.search.service import SearchService
 from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService, ROLE_SCOPES
+from thinkdome.platform.orchestration.request_log import RequestLogService
 from thinkdome.platform.orchestration.tools import registry
 from thinkdome.security.identity.core import UserIdentity, select_effective_role
 from thinkdome.apps.sandbox.models import Sandbox
@@ -76,6 +77,7 @@ def get_mcp_server(
             caller_role = select_effective_role(identity.roles, default="AGENT_STANDARD", username=username)
 
     server = Server("ThinkDome Sandbox MCP Server")
+    request_log = RequestLogService(get_settings(), db_service)
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
@@ -215,6 +217,14 @@ def get_mcp_server(
             )
             content = res.get("content", "")
             duration_ms = (time.time() - start_time) * 1000
+            request_log.log_request(
+                client_ip,
+                {"username": username, "display_name": username, "role": caller_role},
+                tool_use,
+                res,
+                duration_ms,
+                sandbox_id=sandbox_id,
+            )
 
             try:
                 db_service.log_audit(
@@ -224,6 +234,7 @@ def get_mcp_server(
                     details={
                         "tool_name": name,
                         "arguments": safe_arguments,
+                        "result": _redact_mcp_value(content),
                         "caller_role": caller_role,
                         "status": "success",
                         "duration_ms": round(duration_ms, 2),
@@ -237,6 +248,18 @@ def get_mcp_server(
         except Exception as e:
             logger.error("Error executing tool %s via orchestrator: %s", name, type(e).__name__)
             duration_ms = (time.time() - start_time) * 1000
+            error_result = {
+                "is_error": True,
+                "content": "Error executing tool: operation failed safely",
+            }
+            request_log.log_request(
+                client_ip,
+                {"username": username, "display_name": username, "role": caller_role},
+                tool_use,
+                error_result,
+                duration_ms,
+                sandbox_id=sandbox_id,
+            )
 
             try:
                 db_service.log_audit(
@@ -246,6 +269,7 @@ def get_mcp_server(
                     details={
                         "tool_name": name,
                         "arguments": safe_arguments,
+                        "result": error_result["content"],
                         "caller_role": caller_role,
                         "status": "error",
                         "error_type": type(e).__name__,

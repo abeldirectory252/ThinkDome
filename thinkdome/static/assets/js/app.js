@@ -97,6 +97,8 @@ function navTo(pageId) {
         loadUsersFromServer();
     } else if (pageId === 'role-profiles') {
         loadRoleProfiles();
+    } else if (pageId === 'audit' && typeof window.loadAuditHistory === 'function') {
+        window.loadAuditHistory();
     }
 }
 
@@ -130,7 +132,7 @@ function ensurePageRefreshButton(pageEl, pageId) {
 async function refreshCurrentPage(pageId, button) {
     if (button) button.classList.add('is-refreshing');
     try {
-        const loaders = { users: loadUsersFromServer, 'role-profiles': loadRoleProfiles, workspaces: window.loadWorkspaceMenuEditor, account: window.loadAccountSettings, limits: window.loadNetworkAudit, mcp: window.loadMcpTools };
+        const loaders = { users: loadUsersFromServer, 'role-profiles': loadRoleProfiles, workspaces: window.loadWorkspaceMenuEditor, account: window.loadAccountSettings, limits: window.loadNetworkAudit, audit: window.loadAuditHistory, mcp: window.loadMcpTools };
         if (typeof loaders[pageId] === 'function') await loaders[pageId]();
         else window.location.reload();
         if (typeof showToast === 'function' && typeof loaders[pageId] === 'function') showToast('Page refreshed.', 'success');
@@ -152,12 +154,14 @@ async function loadUsersFromServer() {
     const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
     try {
+        await loadUserRoleOptions();
         const response = await workspaceApi('/v1/users');
         const users = Array.isArray(response) ? response : (response.users || []);
         tbody.replaceChildren();
         users.forEach(user => {
             const row = document.createElement('tr');
             row.dataset.userId = user.id || '';
+            row.dataset.roles = JSON.stringify(user.roles || []);
             const roles = (user.roles || []).join(', ') || '—';
             row.innerHTML = `<td style="font-weight:600"></td><td></td><td><span class="badge"></span></td><td style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted)"></td><td></td>`;
             row.children[0].textContent = user.username || '';
@@ -199,11 +203,16 @@ function renderWorkspaceMenu(menu) {
     document.querySelectorAll('#sidebarNavContainer > .nav-section').forEach(section => { section.hidden = true; });
     // `menu` is a server-resolved view model.  The browser does not validate
     // URLs, guess routes, or decide which configured entries are usable.
+    const renderedPages = new Set();
     (menu?.menu || []).forEach(section => {
         const sectionEl = document.createElement('div'); sectionEl.className = 'nav-section workspace-nav-section';
         const heading = document.createElement('div'); heading.className = 'nav-group-label'; heading.textContent = section.label;
         sectionEl.appendChild(heading);
         (section.items || []).forEach(item => {
+            // A page belongs to one canonical workspace entry. Older database
+            // manifests may still contain the same route in another workspace.
+            const pageKey = String(item.page || item.href || '').trim();
+            if (!pageKey || renderedPages.has(pageKey)) return;
             const isExternal = item.action === 'external';
             let externalHref = null;
             if (isExternal) {
@@ -213,6 +222,7 @@ function renderWorkspaceMenu(menu) {
                 } catch (_) { /* malformed external targets are not rendered */ }
                 if (!externalHref) return;
             }
+            renderedPages.add(pageKey);
             const entry = document.createElement(isExternal ? 'a' : 'button');
             entry.className = 'nav-item workspace-nav-item';
             entry.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg>';
@@ -748,7 +758,8 @@ function createUserAccount() {
     document.getElementById('userModalEditRowIndex').value = '';
     document.getElementById('userModalUsername').value = '';
     document.getElementById('userModalEmail').value = '';
-    document.getElementById('userModalRole').value = 'AGENT_STANDARD';
+    setUserModalRoles(['AGENT_STANDARD']);
+    loadUserRoleOptions();
     document.getElementById('userModalStatus').value = 'ACTIVE';
     document.getElementById('userModalPassword').value = '';
     document.getElementById('userModalPassword').required = false;
@@ -772,12 +783,16 @@ async function editUserAccount(btn) {
     const username = cells[0]?.textContent?.trim() || '';
     const email = cells[1]?.textContent?.trim() || '';
     const roleBadge = cells[2]?.querySelector('.badge')?.textContent?.trim() || 'AGENT_STANDARD';
+    let assignedRoles = [];
+    try { assignedRoles = JSON.parse(row.dataset.roles || '[]').map(role => role.name || role); } catch (_) { assignedRoles = []; }
+    if (!assignedRoles.length) assignedRoles = roleBadge.split(',').map(role => role.trim()).filter(Boolean);
     
     document.getElementById('userModalTitle').textContent = `Edit User: ${username}`;
     document.getElementById('userModalEditRowIndex').value = Array.from(row.parentNode.children).indexOf(row);
     document.getElementById('userModalUsername').value = username;
     document.getElementById('userModalEmail').value = email;
-    document.getElementById('userModalRole').value = roleBadge;
+    await loadUserRoleOptions();
+    setUserModalRoles(assignedRoles);
     document.getElementById('userModalStatus').value = 'ACTIVE';
     document.getElementById('userModalPassword').value = '';
     clearUserModalMessage();
@@ -787,6 +802,7 @@ async function editUserAccount(btn) {
         try {
             const detail = await workspaceApi(`/v1/users/${encodeURIComponent(row.dataset.userId)}`);
             const user = detail.user || {};
+            setUserModalRoles((detail.roles || []).map(role => role.name || role));
             document.getElementById('userModalStatus').value = user.status === 'active' ? 'ACTIVE' : 'SUSPENDED';
             if (meta) { meta.innerHTML = ''; [['Account ID', user.id], ['Created', user.created_at ? new Date(user.created_at).toLocaleString() : '—'], ['Last login', user.last_login || 'Never'], ['State', user.status || 'active']].forEach(([label, value]) => { const item = document.createElement('div'); item.innerHTML = `<strong style="display:block;color:var(--fg);font-size:10px;text-transform:uppercase;letter-spacing:.06em;">${label}</strong><span>${value || '—'}</span>`; meta.appendChild(item); }); }
         } catch (_) { if (meta) meta.textContent = 'Account details unavailable.'; }
@@ -795,6 +811,73 @@ async function editUserAccount(btn) {
     const modal = document.getElementById('userAccountModal');
     if (modal) modal.classList.add('active');
 }
+
+function setUserModalRoles(roles) {
+    const select = document.getElementById('userModalRole');
+    if (!select) return;
+    const selected = new Set((roles || []).map(role => String(role).toUpperCase()));
+    // Keep the editor lossless when the server has a role not present in an
+    // older hard-coded option list (for example ADMINISTRATOR).
+    selected.forEach(role => {
+        if (!Array.from(select.options).some(option => option.value.toUpperCase() === role)) {
+            select.appendChild(new Option(`${role} (Assigned role)`, role));
+        }
+    });
+    Array.from(select.options).forEach(option => { option.selected = selected.has(option.value.toUpperCase()); });
+    renderUserRolePicker();
+}
+
+async function loadUserRoleOptions() {
+    const select = document.getElementById('userModalRole');
+    if (!select || select.dataset.rolesLoaded === 'true' || select.dataset.rolesLoading === 'true') return;
+    select.dataset.rolesLoading = 'true';
+    const options = document.getElementById('userModalRoleOptions');
+    if (options) { options.replaceChildren(); const loading = document.createElement('small'); loading.className = 'role-picker-empty'; loading.textContent = 'Loading roles...'; options.appendChild(loading); }
+    const selectedBeforeLoad = new Set(Array.from(select.selectedOptions).map(option => option.value.toUpperCase()));
+    try {
+        const result = await workspaceApi('/v1/roles');
+        const roles = (Array.isArray(result) ? result : result.roles || [])
+            .map(role => ({ name: role.name || role, description: role.description || '' }))
+            .filter(role => role.name);
+        select.replaceChildren(...roles.map(role => {
+            const option = new Option(role.name, role.name);
+            option.selected = selectedBeforeLoad.has(role.name.toUpperCase());
+            return option;
+        }));
+        select.dataset.rolesLoaded = 'true';
+        renderUserRolePicker();
+    } catch (error) {
+        console.warn('Unable to load roles for user editor:', error);
+        if (options) { options.replaceChildren(); const failure = document.createElement('button'); failure.type = 'button'; failure.className = 'role-picker-retry'; failure.textContent = 'Unable to load roles — retry'; failure.onclick = () => loadUserRoleOptions(); options.appendChild(failure); }
+    } finally {
+        delete select.dataset.rolesLoading;
+    }
+}
+
+function renderUserRolePicker() {
+    const select = document.getElementById('userModalRole');
+    const picker = document.getElementById('userModalRolePicker');
+    const options = document.getElementById('userModalRoleOptions');
+    const search = document.getElementById('userModalRoleSearch');
+    const summary = document.getElementById('userModalRoleSummary');
+    if (!select || !picker || !options) return;
+    options.replaceChildren();
+    const selected = Array.from(select.selectedOptions).map(option => option.value);
+    const query = (search?.value || '').trim().toUpperCase();
+    Array.from(select.options).forEach(option => {
+        if (query && !option.value.toUpperCase().includes(query)) return;
+        const label = document.createElement('label'); label.className = `role-picker-option${option.selected ? ' selected' : ''}`;
+        const input = document.createElement('input'); input.type = 'checkbox'; input.checked = option.selected; input.value = option.value;
+        input.addEventListener('change', () => { option.selected = input.checked; renderUserRolePicker(); });
+        label.append(input, document.createTextNode(option.value)); options.appendChild(label);
+    });
+    if (!options.children.length) { const empty = document.createElement('small'); empty.className = 'role-picker-empty'; empty.textContent = 'No matching roles'; options.appendChild(empty); }
+    if (summary) summary.textContent = selected.length ? `${selected.length} role${selected.length === 1 ? '' : 's'} assigned: ${selected.join(', ')}` : 'Choose one or more roles.';
+}
+
+document.addEventListener('input', event => {
+    if (event.target?.id === 'userModalRoleSearch') renderUserRolePicker();
+});
 
 function closeUserModal() {
     const modal = document.getElementById('userAccountModal');
@@ -819,7 +902,7 @@ function saveUserAccountFromModal(event) {
     const rowIndex = document.getElementById('userModalEditRowIndex').value;
     const username = document.getElementById('userModalUsername').value.trim();
     const email = document.getElementById('userModalEmail').value.trim();
-    const role = document.getElementById('userModalRole').value;
+    const roleNames = Array.from(document.getElementById('userModalRole').selectedOptions).map(option => option.value);
     const status = document.getElementById('userModalStatus').value;
     const password = document.getElementById('userModalPassword').value;
     const passwordReset = document.getElementById('userModalPassword').dataset.reset === 'true';
@@ -831,7 +914,8 @@ function saveUserAccountFromModal(event) {
     const userId = row?.dataset.userId;
     if (!row && !password) { showUserModalMessage('A password is required for a new user.'); return; }
     if (passwordReset && password.length < 8) { showUserModalMessage('Enter a new password with at least 8 characters.'); return; }
-    workspaceApi(row ? `/v1/users/${encodeURIComponent(userId)}` : '/v1/users', { method: row ? 'PUT' : 'POST', body: JSON.stringify({ username, email, password, status: status.toLowerCase(), role_name: role }) })
+    if (!roleNames.length) { showUserModalMessage('Select at least one RBAC role.'); return; }
+    workspaceApi(row ? `/v1/users/${encodeURIComponent(userId)}` : '/v1/users', { method: row ? 'PUT' : 'POST', body: JSON.stringify({ username, email, password, status: status.toLowerCase(), role_name: roleNames[0], role_names: roleNames }) })
       .then(() => { loadUsersFromServer(); showUserModalMessage(row ? 'User updated successfully.' : 'User created successfully.', 'success'); })
       .catch(error => { showUserModalMessage(`Unable to save user: ${error.message}`); });
 }
@@ -896,6 +980,7 @@ function saveRoleFromModal(event) {
             opt.value = roleCode;
             opt.textContent = `${roleCode} (${name})`;
             sel.appendChild(opt);
+            if (selectId === 'userModalRole') renderUserRolePicker();
         }
     });
 

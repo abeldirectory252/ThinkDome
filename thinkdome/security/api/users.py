@@ -40,6 +40,7 @@ class CreateUserRequest(BaseModel):
     first_name: str = Field(default="")
     last_name: str = Field(default="")
     role_name: Optional[str] = None
+    role_names: Optional[List[str]] = None
 
 
 class UpdateUserStatusRequest(BaseModel):
@@ -51,6 +52,7 @@ class UpdateUserRequest(BaseModel):
     password: str = ""
     status: str = "active"
     role_name: Optional[str] = None
+    role_names: Optional[List[str]] = None
 
 class ResetPasswordRequest(BaseModel):
     password: str = Field(min_length=8)
@@ -85,8 +87,10 @@ async def create_user(
             last_name=req.last_name,
             actor=actor
         )
-        if req.role_name:
-            role = role_repo.get_by_name(req.role_name)
+        requested_roles = req.role_names if req.role_names is not None else ([req.role_name] if req.role_name else [])
+        normalized_roles = {name.strip().upper() for name in requested_roles if name and name.strip()}
+        for role_name in normalized_roles:
+            role = role_repo.get_by_name(role_name)
             if role:
                 user_service.assign_role_to_user(user.id, role.id, actor=actor)
         return {"status": "success", "user": _public_user(user)}
@@ -126,13 +130,19 @@ async def update_user(user_id: str, req: UpdateUserRequest, current_user: dict =
     actor = current_user.get("username", "admin")
     try:
         user = user_service.update_user(user_id, username=req.username, email=req.email, password=req.password, status=req.status, actor=actor)
-        if req.role_name:
-            role = role_repo.get_by_name(req.role_name)
-            if role:
-                for assigned in role_repo.get_user_roles(user_id):
-                    if assigned.id != role.id:
-                        role_repo.remove_role_from_user(user_id, assigned.id)
-                user_service.assign_role_to_user(user_id, role.id, actor=actor)
+        requested_roles = req.role_names if req.role_names is not None else ([req.role_name] if req.role_name else None)
+        if requested_roles is not None:
+            normalized_roles = {name.strip().upper() for name in requested_roles if name and name.strip()}
+            roles = [role_repo.get_by_name(name) for name in normalized_roles]
+            if len(roles) != len(normalized_roles) or not roles:
+                raise ValueError("At least one valid role must be assigned.")
+            desired_ids = {role.id for role in roles}
+            for assigned in role_repo.get_user_roles(user_id):
+                if assigned.id not in desired_ids:
+                    role_repo.remove_role_from_user(user_id, assigned.id)
+            for role in roles:
+                if role.id not in {assigned.id for assigned in role_repo.get_user_roles(user_id)}:
+                    user_service.assign_role_to_user(user_id, role.id, actor=actor)
         return {"status": "success", "user": _public_user(user)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
