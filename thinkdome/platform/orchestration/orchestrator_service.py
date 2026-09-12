@@ -74,6 +74,14 @@ class _CallableHookAdapter:
 # ── Role-Based Access Control (RBAC) Scopes Matrix ──
 ROLE_SCOPES = {
     "LLM": {"code:run", "memory:read", "memory:write", "web:host"},
+    # Standard agents may manage files inside their own isolated workspace,
+    # communicate through configured connectors, and search the web, but must
+    # still remain separate from ERP/audit administration.
+    "AGENT_STANDARD": {
+        "code:run", "file:read", "file:write", "file:destructive",
+        "web:host", "web:search", "comms:send", "network:all",
+        "shell:run", "memory:read", "memory:write"
+    },
     "WEB": {
         "code:run", "file:read", "file:write", "web:host",
         "memory:read", "memory:write"

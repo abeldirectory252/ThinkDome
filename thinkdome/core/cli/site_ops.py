@@ -68,7 +68,9 @@ def backup_site(site_name: str) -> Path:
 
     # 1. Database SQL dump (gzipped)
     sql_gz_path = backup_dir / "database.sql.gz"
-    conn = sqlite3.connect(str(db))
+    conn = sqlite3.connect(str(db), timeout=15.0)
+    # Ensure the dump sees a transactionally consistent WAL snapshot.
+    conn.execute("PRAGMA wal_checkpoint(FULL)")
     with gzip.open(str(sql_gz_path), "wt", encoding="utf-8") as gz:
         for line in conn.iterdump():
             gz.write(line + "\n")

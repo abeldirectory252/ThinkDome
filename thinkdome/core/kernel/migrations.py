@@ -11,6 +11,7 @@ import importlib
 import logging
 import threading
 import shutil
+import sqlite3
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -101,9 +102,20 @@ class MigrationRunner:
         backup_dir = self.kernel.site_dir / "private" / "backups" / "migrations"
         backup_dir.mkdir(parents=True, exist_ok=True)
         target = backup_dir / f"{source.stem}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.db"
+        # A SQLite database must not be backed up with a raw file copy while
+        # WAL mode is active.  The main file can be internally inconsistent
+        # with its WAL even after a checkpoint, and restoring such a copy can
+        # corrupt b-trees.  Use SQLite's online backup API instead.
         self.kernel.db.execute(text("PRAGMA wal_checkpoint(FULL)"))
         self.kernel.db.commit()
-        shutil.copy2(source, target)
+        source_conn = sqlite3.connect(str(source), timeout=15.0)
+        target_conn = sqlite3.connect(str(target), timeout=15.0)
+        try:
+            source_conn.backup(target_conn)
+            target_conn.commit()
+        finally:
+            target_conn.close()
+            source_conn.close()
         try:
             retention = int(os.environ.get("THINKDOME_MIGRATION_BACKUP_RETENTION", "10"))
         except ValueError:
