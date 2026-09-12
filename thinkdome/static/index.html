@@ -50,7 +50,7 @@
 
       <div id="loginAlert" class="alert alert-error" style="display:none;margin-bottom:14px;"></div>
 
-      <form onsubmit="enterApp(event)">
+      <form autocomplete="off" onsubmit="enterApp(event)">
         <div class="field">
           <label for="username">Username</label>
           <div class="input-shell">
@@ -67,7 +67,8 @@
         <div class="field">
           <label for="password">Password</label>
           <div class="input-shell">
-            <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+            <input id="password" type="password" placeholder="••••••••" autocomplete="new-password" readonly
+              onfocus="this.removeAttribute('readonly')" />
             <button type="button" class="toggle-password-btn" onclick="togglePasswordVisibility()" title="Toggle Password Visibility" aria-label="Toggle Password Visibility">
               <svg id="pwdEyeIcon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
@@ -3385,6 +3386,13 @@
   <script src="/assets/js/ui_builder.js?v=3"></script>
   <script src="/assets/js/workspace_manager.js?v=10"></script>
   <script src="/assets/js/app.js?v=74"></script>
+  <script>
+    // Do not allow a saved password to be restored into the login form.
+    window.addEventListener('pageshow', function () {
+      const password = document.getElementById('password');
+      if (password) password.value = '';
+    });
+  </script>
 </body>
 
 

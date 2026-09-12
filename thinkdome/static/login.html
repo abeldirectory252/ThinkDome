@@ -48,11 +48,11 @@
         <button class="tab" id="tabRegister" onclick="setAuthTab('register')">CREATE ACCOUNT</button>
       </div>
 
-      <form onsubmit="enterApp(event)">
+      <form autocomplete="off" onsubmit="enterApp(event)">
         <div class="field">
           <label for="username">Username</label>
           <div class="input-shell">
-            <input id="username" type="text" value="admin" autocomplete="username" />
+            <input id="username" type="text" placeholder="Enter username..." autocomplete="off" />
             <span class="field-icon">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -65,7 +65,8 @@
         <div class="field">
           <label for="password">Password</label>
           <div class="input-shell">
-            <input id="password" type="password" value="password" autocomplete="current-password" />
+            <input id="password" type="password" placeholder="••••••••" autocomplete="new-password" readonly
+              onfocus="this.removeAttribute('readonly')" />
             <span class="field-icon">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -115,6 +116,12 @@
   <script src="assets/js/editor.js?v=9"></script>
   <script src="assets/js/terminal.js?v=9"></script>
   <script src="assets/js/app.js?v=9"></script>
+  <script>
+    window.addEventListener('pageshow', function () {
+      const password = document.getElementById('password');
+      if (password) password.value = '';
+    });
+  </script>
 </body>
 
 </html>
