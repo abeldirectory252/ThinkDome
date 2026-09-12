@@ -347,10 +347,7 @@ def create_app() -> FastAPI:
     from fastapi.staticfiles import StaticFiles
     from pathlib import Path
     static_dir = Path(__file__).resolve().parent.parent / "static"
-    compiled_console_dir = static_dir / "console"
 
-    if (compiled_console_dir / "assets").exists():
-        app.mount("/console/assets", StaticFiles(directory=str(compiled_console_dir / "assets")), name="console_assets")
     if (static_dir / "assets").exists():
         app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
 
@@ -361,18 +358,14 @@ def create_app() -> FastAPI:
     @app.get("/console/{full_path:path}")
     async def serve_dashboard(full_path: str = ""):
         from fastapi.responses import HTMLResponse
-        if full_path or (compiled_console_dir / "index.html").exists():
-            console_index = compiled_console_dir / "index.html"
-            if console_index.exists():
-                return HTMLResponse(content=console_index.read_text(encoding="utf-8"))
         index_path = static_dir / "index.html"
         return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
 
     @app.get("/login.html")
     async def serve_login():
         from fastapi.responses import HTMLResponse
-        login_path = static_dir / "login.html"
-        return HTMLResponse(content=login_path.read_text(encoding="utf-8"))
+        index_path = static_dir / "index.html"
+        return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
 
     @app.get("/orchestrator_schema.json")
     async def serve_schema():

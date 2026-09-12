@@ -110,10 +110,7 @@ app.include_router(method_router)
 
 # ── Mount Static Frontend Files ───────────────────────────────────────────────
 static_dir = Path(__file__).resolve().parents[2] / "static"
-compiled_console_dir = static_dir / "console"
 
-if (compiled_console_dir / "assets").exists():
-    app.mount("/console/assets", StaticFiles(directory=str(compiled_console_dir / "assets")), name="console_assets")
 if (static_dir / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
 
@@ -129,8 +126,8 @@ async def serve_dashboard(full_path: str = ""):
 
 @app.get("/login.html")
 async def serve_login():
-    login_path = static_dir / "login.html"
-    return HTMLResponse(content=login_path.read_text(encoding="utf-8"))
+    index_path = static_dir / "index.html"
+    return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
 
 
 @app.get("/styles.css")
@@ -285,6 +282,15 @@ async def startup_event() -> None:
     # 3. Initialize original DatabaseService (bound dynamically to Kernel SQLite)
     app.state.db_service = DatabaseService(settings)
     await app.state.db_service.initialize()
+    # The framework entrypoint must initialize the same RBAC schema and
+    # bootstrap accounts as the application-factory entrypoint. Without this,
+    # the console renders normally but every seeded administrator login fails.
+    from thinkdome.security.rbac.schema import initialize_rbac_schema
+    initialize_rbac_schema(app.state.db_service)
+    from thinkdome.core.ui.models import initialize_ui_schema
+    initialize_ui_schema()
+    from thinkdome.security.auth.seed import seed_superadmin_and_dynamic_ui
+    seed_superadmin_and_dynamic_ui("think.local")
     from thinkdome.platform.storage.workspaces.schema import initialize_workspace_schema
     initialize_workspace_schema()
 
