@@ -169,6 +169,7 @@ async function fetchDashboardData() {
         if (sandboxesRes.data) {
             const fetchedSbx = {};
             sandboxesRes.data.filter(sb => canViewSandbox(sb)).forEach(sb => {
+                const normalizedStatus = String(sb.status || '').toLowerCase();
                 const ramVal = sb.memory_mb >= 1024 ? `${(sb.memory_mb/1024).toFixed(0)} GB` : `${sb.memory_mb} MB`;
                 fetchedSbx[sb.name] = {
                     id: sb.sandbox_id,
@@ -177,11 +178,12 @@ async function fetchDashboardData() {
                     cores: sb.cpu_cores,
                     ram: ramVal,
                     region: sb.region || 'us-east-1',
-                    uptime: sb.status === 'running' ? '1h' : '—',
+                    uptime: ['active', 'running'].includes(normalizedStatus) ? '1h' : '—',
                     spend: 0,
                     rate: sb.cost_per_hour || 0.08,
-                    ramUsage: sb.status === 'running' ? 45 : 0,
-                    status: sb.status,
+                    ramUsage: ['active', 'running'].includes(normalizedStatus) ? 45 : 0,
+                    status: ['active', 'running'].includes(normalizedStatus) ? 'running' : normalizedStatus,
+                    networkEnabled: Boolean(sb.network_enabled),
                     executions: '0',
                     subtotal: 0
                 };

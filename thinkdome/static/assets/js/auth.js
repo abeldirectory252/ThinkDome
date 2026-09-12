@@ -134,8 +134,11 @@ async function enterApp(e) {
                 // Single page configuration: toggle views in place
                 if (loginView) loginView.style.display = 'none';
                 appView.style.display = 'flex';
-                
+
                 if (typeof refreshWorkspaceMenu === 'function') refreshWorkspaceMenu();
+                // Same-page login does not rerun DOMContentLoaded. Refresh all
+                // authenticated data views now so loading placeholders resolve.
+                if (typeof renderAllViews === 'function') renderAllViews();
             } else {
                 // Multi-page page redirect to main dashboard
                 window.location.href = 'index.html';

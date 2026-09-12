@@ -137,7 +137,10 @@ async def orchestrate_tool(
     if sandbox_id:
         # Search among eligible active sandboxes
         for sb in eligible_sandboxes:
-            if sb.get("sandbox_id") == sandbox_id:
+            # Sandbox ORM records use ``id``; API serializers expose the same
+            # value as ``sandbox_id``. Accept both so terminal requests do not
+            # fail after a valid node was already authorized.
+            if str(sb.get("sandbox_id") or sb.get("id") or "") == str(sandbox_id):
                 selected_sandbox = sb
                 break
         if not selected_sandbox:
@@ -154,6 +157,8 @@ async def orchestrate_tool(
     else:
         # Fallback to the most recently created active sandbox
         selected_sandbox = eligible_sandboxes[-1]
+
+    selected_sandbox["sandbox_id"] = selected_sandbox.get("sandbox_id") or selected_sandbox.get("id")
 
     sandbox_limits = {
         "memory_mb": selected_sandbox.get("memory_mb"),

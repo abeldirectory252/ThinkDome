@@ -249,7 +249,9 @@ class PythonDockerExecutor(BaseExecutor):
             return "none", environment
         if role not in self.NETWORK_AUTHORIZED_ROLES:
             logger.warning("Network request denied for restricted role '%s'", role)
-            return "none", environment
+            raise PermissionError(
+                f"Network access denied for restricted role '{role}'."
+            )
         policy = self._get_network_policy()
         attachment = policy.attachment(True)
         logger.info("🌐 Network access granted for %s token via egress proxy network", role)
@@ -836,7 +838,10 @@ class PythonDockerExecutor(BaseExecutor):
 
             async def _run_all():
                 try:
-                    await wait_container()
+                    wait_result = await wait_container()
+                    exit_code = wait_result.get("StatusCode", 0) if isinstance(wait_result, dict) else 0
+                    if exit_code not in (0, None):
+                        await queue.put(("error", f"Process exited with code {exit_code}.\n"))
                 except Exception as wait_error:
                     if not _is_wait_timeout(wait_error):
                         raise
@@ -869,6 +874,12 @@ class PythonDockerExecutor(BaseExecutor):
             logger.error("Streaming Docker API error [%s]: %s", error_code, e, exc_info=True)
             yield "error", json.dumps({"code": error_code, "message": message})
             yield "stderr", message
+        except PermissionError as e:
+            # Policy denials are expected user errors, not infrastructure
+            # failures. Preserve the actionable reason for the SSE client.
+            message = "This sandbox cannot access the internet. Ask an administrator to enable network access, then try again."
+            logger.warning(message)
+            yield "error", message
         except Exception as e:
             logger.error(f"Streaming execution error: {e}", exc_info=True)
             yield "stderr", "Sandbox Execution Error: Unable to launch execution environment."

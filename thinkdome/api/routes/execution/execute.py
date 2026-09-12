@@ -70,4 +70,11 @@ async def execute_stream(
         "username": str(user.get("workspace_id", user.get("username", ""))).lower(),
         "caller_role": str(user.get("role", "AGENT_STANDARD")),
     })
-    return EventSourceResponse(svc.execute_stream(identity_request))
+    return EventSourceResponse(
+        svc.execute_stream(identity_request),
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

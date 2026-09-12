@@ -86,9 +86,10 @@ async function fetchSandboxesData() {
             const fetchedSbx = {};
             data.filter(sb => canViewSandbox(sb)).forEach(sb => {
                 const ramVal = sb.memory_mb >= 1024 ? `${(sb.memory_mb/1024).toFixed(0)} GB` : `${sb.memory_mb} MB`;
-                const displayStatus = sb.expired || String(sb.status).toLowerCase() === 'expired'
+                const normalizedStatus = String(sb.status || '').toLowerCase();
+                const displayStatus = sb.expired || normalizedStatus === 'expired'
                     ? 'expired'
-                    : ((sb.status === 'active' || sb.status === 'running') ? 'running' : 'stopped');
+                    : ((normalizedStatus === 'active' || normalizedStatus === 'running') ? 'running' : 'stopped');
                 fetchedSbx[sb.name] = {
                     id: sb.sandbox_id,
                     name: sb.name,
@@ -101,6 +102,7 @@ async function fetchSandboxesData() {
                     rate: sb.cost_per_hour || 0.08,
                     ramUsage: displayStatus === 'running' ? 45 : 0,
                     status: displayStatus,
+                    networkEnabled: Boolean(sb.network_enabled),
                     expired: Boolean(sb.expired),
                     expirationMessage: sb.expiration_message || '',
                     executions: '0',

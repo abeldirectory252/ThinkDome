@@ -254,7 +254,7 @@ async function executeTerminalCmd(cmd) {
         if (!window.API || !token || !sandboxId) {
             throw new Error("Offline or Sandbox disconnected");
         }
-        if (!sb || sb.status !== 'running') {
+        if (!sb || !['active', 'running'].includes(String(sb.status || '').toLowerCase())) {
             throw new Error("Active sandbox node is not running. Start the node before running terminal commands.");
         }
 
@@ -553,7 +553,36 @@ for src in sources:
 
   Any other command will be executed as a shell command.</span>`;
         }
+        else if (cmd === 'ipconfig' || cmd === 'ifconfig') {
+            const networkInfoCode = `import subprocess, sys, socket
+try:
+    commands = [['ip', 'addr'], ['ifconfig']]
+    for candidate in commands:
+        try:
+            process = subprocess.Popen(candidate, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in iter(process.stdout.readline, ''):
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            process.wait()
+            if process.returncode == 0:
+                break
+        except FileNotFoundError:
+            continue
+    else:
+        print('Network interface tools are unavailable in this sandbox.')
+        print('Hostname:', socket.gethostname())
+except Exception as e:
+    print('Unable to inspect network interfaces:', e, file=sys.stderr)
+    sys.exit(1)`;
+            // Interface inspection is a short diagnostic command. Use the
+            // normal response path because some sandbox stream backends omit
+            // short-lived subprocess output even though execution succeeds.
+            await runCodeOnce(networkInfoCode, token, sandboxId, outLine, `Network interface information displayed for ${cmd}`);
+        }
         else if (cmd.startsWith('ping ')) {
+            if (!sb.networkEnabled) {
+                throw new Error('This sandbox cannot access the internet. Ask an administrator to enable network access, then try again.');
+            }
             const shellCode = `import subprocess, sys, platform, shutil, socket, time
 try:
     cmd = ${JSON.stringify(cmd)}
@@ -589,7 +618,7 @@ try:
 except Exception as e:
     print(f"Error: {e}", file=sys.stderr)
     sys.exit(1)`;
-            await runCodeStreaming(shellCode, token, sandboxId, outLine, `Ping command executed: ${cmd}`);
+            await runCodeStreaming(shellCode, token, sandboxId, outLine, `Ping command executed: ${cmd}`, true);
         }
         else {
             // ── Generic shell command: run via subprocess in the sandbox ──
@@ -632,7 +661,7 @@ except Exception as e:
         }
 
     } catch (err) {
-        outLine.innerHTML = `<span class="cmd-out" style="color:var(--danger)">⚠️ Error executing command: ${err.message || err}</span>`;
+        outLine.innerHTML = `<span class="cmd-out" style="color:var(--danger)">${err.message || err}</span>`;
     } finally {
         // ── Unlock terminal: show prompt row, re-enable input ──
         _terminalBusy = false;
@@ -811,7 +840,7 @@ function _escapeHtml(text) {
         .replace(/'/g, "&#039;");
 }
 
-async function executeStreamHelper(code, language, sandboxId, token, onChunk, onDone, onError) {
+async function executeStreamHelper(code, language, sandboxId, token, onChunk, onDone, onError, allowNetwork = false) {
     _activeAbortController = new AbortController();
     try {
         const username = localStorage.getItem('thinkdome_username') || 'anonymous';
@@ -831,7 +860,7 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
                 caller_role: callerRole,
                 // Terminal commands are isolated by default. Network access
                 // must be enabled by an explicit, separately authorized flow.
-                allow_network: false,
+                allow_network: allowNetwork,
                 security_profile: "HIGH_SECURITY",
                 timeout_ms: 25000
             })
@@ -845,13 +874,14 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let completed = false;
 
         while (true) {
             const { value, done } = await reader.read();
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
+            const lines = buffer.split(/\r?\n/);
             buffer = lines.pop();
 
             for (const line of lines) {
@@ -860,7 +890,10 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
                         const payload = JSON.parse(line.substring(6));
                         if (payload.event === "stdout" || payload.event === "stderr") {
                             onChunk(payload.data);
-                        } else if (payload.event === "done") {
+                        } else if (payload.event === "error") {
+                            onError(new Error(typeof payload.data === 'string' ? payload.data : JSON.stringify(payload.data)));
+                        } else if (payload.event === "done" && !completed) {
+                            completed = true;
                             onDone(payload);
                         }
                     } catch (e) {
@@ -869,7 +902,20 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
                 }
             }
         }
-        onDone({ event: "done" });
+        if (buffer.startsWith("data: ")) {
+            try {
+                const payload = JSON.parse(buffer.substring(6));
+                if (payload.event === "stdout" || payload.event === "stderr") onChunk(payload.data);
+                else if (payload.event === "error") onError(new Error(typeof payload.data === 'string' ? payload.data : JSON.stringify(payload.data)));
+                else if (payload.event === "done" && !completed) {
+                    completed = true;
+                    onDone(payload);
+                }
+            } catch (e) {
+                console.error("Failed to parse final SSE event:", buffer, e);
+            }
+        }
+        if (!completed) onDone({ event: "done", exit_code: 0 });
     } catch (err) {
         if (err.name === 'AbortError') {
             onError(new Error("Command terminated by user (Ctrl+C)."));
@@ -881,27 +927,44 @@ async function executeStreamHelper(code, language, sandboxId, token, onChunk, on
     }
 }
 
-async function runCodeStreaming(code, token, sandboxId, outLine, onDoneLog = null) {
+async function runCodeStreaming(code, token, sandboxId, outLine, onDoneLog = null, allowNetwork = false) {
     outLine.innerHTML = '<span class="cmd-out" style="white-space:pre-wrap; font-family:inherit;"></span>';
     const span = outLine.firstChild;
+    let receivedOutput = false;
+    let streamFailed = false;
     await executeStreamHelper(code, "python", sandboxId, token,
         (chunk) => {
+            receivedOutput = true;
             span.textContent += chunk;
             const terminal = document.getElementById('terminalConsoleBody');
             if (terminal) terminal.scrollTop = terminal.scrollHeight;
         },
         (done) => {
-            if (onDoneLog) addLogLine('SYS', onDoneLog);
+            if (done?.exit_code && done.exit_code !== 0 && !streamFailed) {
+                const errSpan = document.createElement('span');
+                errSpan.className = 'cmd-out';
+                errSpan.style.color = 'var(--danger)';
+                errSpan.textContent = `\nCommand failed (exit code ${done.exit_code}).`;
+                outLine.appendChild(errSpan);
+                if (onDoneLog) addLogLine('ERR', `${onDoneLog} failed (exit code ${done.exit_code})`);
+            } else if (onDoneLog) {
+                addLogLine('SYS', onDoneLog);
+            }
+            if (!receivedOutput && (!done?.exit_code || done.exit_code === 0)) {
+                span.textContent = 'Command completed with no output.';
+                span.style.color = 'var(--fg-subtle)';
+            }
         },
         (err) => {
+            streamFailed = true;
             const errSpan = document.createElement('span');
             errSpan.className = 'cmd-out';
             errSpan.style.color = 'var(--danger)';
-            errSpan.textContent = `\n⚠️ Streaming error: ${err.message || err}`;
+            errSpan.textContent = `\n${err.message || err}`;
             outLine.appendChild(errSpan);
             const terminal = document.getElementById('terminalConsoleBody');
             if (terminal) terminal.scrollTop = terminal.scrollHeight;
-        }
+        }, allowNetwork
     );
 }
 

@@ -382,6 +382,8 @@ class SubprocessExecutor(BaseExecutor):
                     break
                 yield item
             await bg_task
+            if proc.returncode not in (None, 0):
+                yield ("error", f"Process exited with code {proc.returncode}.\n")
 
         finally:
             if 'proc' in locals() and proc:
