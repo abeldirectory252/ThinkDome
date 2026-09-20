@@ -37,32 +37,79 @@ Key capabilities include:
 
 ## 🏗️ How ThinkDome Works
 
-### 1. Architecture Flow
+### 1. End-to-End Sandbox Execution Lifecycle
 
 ```mermaid
-flowchart LR
-    A["👤 Client / Agent\n(SDK / CLI / Web UI)"] --> B["⚡ ThinkDome Gateway\n(Auth & Security Boundary)"]
-    B --> C["🧠 Sandbox Engine\n(Lifecycle & Quota Control)"]
-    C --> D["🛡️ Isolated Runtime\n(Docker / MicroVM / Subprocess)"]
-    D --> E["📂 FileBox & Audit Log\n(Virtual Storage & History)"]
+sequenceDiagram
+    autonumber
+    actor Client as 👤 Client / Developer
+    participant Gateway as ⚡ API Gateway
+    participant Auth as 🛡️ Auth & RBAC
+    participant Orchestrator as 🧠 Orchestrator
+    participant FileBox as 📂 FileBox Storage
+    participant Runtime as 🐳 Sandbox Runtime
+    participant Egress as 🌐 Egress Gate
+    participant Audit as 📊 Audit & Database
+
+    Note over Client,Gateway: 1. Request & Authentication
+    Client->>Gateway: POST /api/sandbox/run (Code, Limits, Policy)
+    Gateway->>Auth: Validate JWT / API Key & Permissions
+    Auth-->>Gateway: 200 OK (Authorized)
+
+    Note over Gateway,FileBox: 2. Admission & Workspace Setup
+    Gateway->>Orchestrator: Request Execution Lease
+    Orchestrator->>Orchestrator: Check Host RAM & Quota
+    Orchestrator->>FileBox: Prepare Virtual Workspace
+    FileBox-->>Orchestrator: Workspace Mounted (/workspace)
+
+    Note over Orchestrator,Egress: 3. Isolated Execution & Egress Control
+    Orchestrator->>Runtime: Spawn Container (Seccomp + Limits)
+    Runtime->>Runtime: Execute Code in Isolation
+    opt Network Access
+        Runtime->>Egress: Outbound Request
+        alt Domain in Allowlist
+            Egress-->>Runtime: Forward Traffic
+        else Default-Deny
+            Egress-->>Runtime: Drop Connection (403)
+        end
+    end
+
+    Note over Orchestrator,Audit: 4. Teardown & Audit Logging
+    Runtime-->>Orchestrator: Return Stdout, Stderr & RAM Usage
+    Orchestrator->>Runtime: Teardown & Clean Container
+    Orchestrator->>FileBox: Persist Output Files
+    Orchestrator->>Audit: Record Execution History & Metrics
+    Orchestrator-->>Gateway: Execution Result
+    Gateway-->>Client: 200 OK (JSON Output & Metrics)
 ```
 
-### 2. Execution Pipeline
+### 2. Autonomous AI Agent & MCP Tool Orchestration
 
 ```mermaid
-flowchart LR
-    Step1["1. Submit Code\n& Egress Policy"] --> Step2["2. Validate Quota\n& Apply Seccomp"]
-    Step2 --> Step3["3. Run in Isolation\n(Strict Egress Filter)"]
-    Step3 --> Step4["4. Return Output\n& Record Audit"]
-```
+sequenceDiagram
+    autonumber
+    actor Agent as 🤖 AI Agent (LangGraph)
+    participant MCP as 🔌 MCP Server
+    participant Gateway as ⚡ API Gateway
+    participant Orchestrator as 🧠 Orchestrator
+    participant FileBox as 📂 FileBox Storage
+    participant Runtime as 🐳 Isolated Sandbox
 
-### 3. Agent & MCP Tool Flow
+    Note over Agent,MCP: 1. Model Context Protocol Tool Invocation
+    Agent->>MCP: Call Tool: thinkdome_execute(code="...")
+    MCP->>Gateway: POST /api/mcp/execute (Tool Payload)
+    Gateway->>Orchestrator: Dispatch Tool Execution
 
-```mermaid
-flowchart LR
-    Agent["🤖 AI Agent\n(LangGraph)"] -->|Tool Call| MCP["🔌 MCP Server\n(ThinkDome)"]
-    MCP -->|Execute| Sandbox["🐳 Isolated Sandbox\n(Python / FileBox)"]
-    Sandbox -->|Result| Agent
+    Note over Orchestrator,Runtime: 2. Sandboxed Tool Execution
+    Orchestrator->>FileBox: Mount Agent Context & Memory
+    Orchestrator->>Runtime: Run Tool in Isolated Environment
+    Runtime-->>Orchestrator: Tool Result & Structured Output
+
+    Note over Orchestrator,Agent: 3. State Update & Result Return
+    Orchestrator->>FileBox: Update Agent Memory & Artifacts
+    Orchestrator-->>Gateway: Execution Completed
+    Gateway-->>MCP: Format JSON-RPC Response
+    MCP-->>Agent: Return Tool Result to LLM
 ```
 
 ---
