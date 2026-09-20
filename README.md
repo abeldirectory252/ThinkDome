@@ -10,7 +10,7 @@
 [![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abeldirectory252/ThinkDome/blob/main/ThinkDome_Colab_Quickstart.ipynb)
 
 <p align="center">
-  <img src="https://github.com/abeldirectory252/ThinkDome/blob/main/docs/thinkdome.png" alt="ThinkDome Sandbox" width="700">
+  <img src="docs/thinkdome.png" alt="ThinkDome Sandbox" width="700">
 </p>
 
 </div>
@@ -19,591 +19,293 @@
 
 ## 📌 Overview
 
-**ThinkDome** is a secure, isolated code execution sandbox and tool orchestration platform designed for **autonomous AI agents, applications, and multi-tenant workloads**.
+**ThinkDome** is a multi-backend code execution sandbox, security boundary, and agent orchestration platform designed for **autonomous AI agents, LLM applications, and multi-tenant workloads**.
 
-It provides multiple execution backends with different levels of isolation, allowing applications to run untrusted or dynamically generated code inside controlled environments.
+It provides multiple execution backends ranging from fast process sandboxes to hardware-virtualized MicroVMs and user-space kernels (`gVisor`), allowing applications to safely run untrusted or dynamically generated code inside strictly controlled environments.
 
-ThinkDome supports:
-
-* 🐍 Python SDK for programmatic sandbox execution
-* 💻 Command-line interface
-* 🌐 API server and web dashboard
-* 🐳 Docker container isolation
-* 🔥 Firecracker and MicroVM execution
-* 🛡️ gVisor user-space kernel isolation
-* 📦 Kata Containers support
-* ⚡ Fast subprocess-based execution for development
-* 🌐 Default-deny network policies and egress control
-* 📊 Network audit logging and analytics
-* 🏢 Multi-tenant site management tools
+Key capabilities include:
+* 🐍 **Python SDK** for programmatic sandbox execution and agent tool calling
+* 💻 **Dual CLI Tools** (`thinkdome` for sandboxes, `think` for site & multi-tenancy administration)
+* 🌐 **Modern Web Dashboard** with real-time dynamic UI builder and interactive terminal
+* 🛡️ **Defense-in-Depth Security**: Seccomp syscall filtering, Linux capability dropping, and read-only roots
+* 🌐 **Strict Egress Policies**: Default-deny network model with explicit domain allowlisting
+* 📂 **FileBox Virtual Filesystem**: Isolated per-user / per-sandbox file persistence
+* 🤖 **Model Context Protocol (MCP)**: Native tools for LLM agent integration (LangGraph, AutoGen, Telegram)
+* 🏢 **Multi-Tenant Site Management**: Tenant database isolation, backup/restore workflows, and migrations
 
 ---
 
-## ⚡ Quick Start
+## 🏗️ How ThinkDome Works
 
-### Install from GitHub
+### 1. System Architecture Overview
 
-Install ThinkDome directly from GitHub:
+```mermaid
+graph TB
+    subgraph Clients["🌐 Client & Agent Layer"]
+        SDK["🐍 Python SDK<br/>(thinkdome.Sandbox)"]
+        CLI["💻 CLI Interface<br/>(think / thinkdome)"]
+        WebUI["🖥️ Modern Web UI<br/>(Dynamic Desk & Dashboard)"]
+        Agent["🤖 AI Agent / LLM<br/>(LangGraph, MCP Clients)"]
+    end
 
+    subgraph Gateway["⚡ API Gateway & Security Boundary"]
+        FastAPI["FastAPI HTTP / WebSocket Server"]
+        Auth["JWT & Session Auth Middleware"]
+        RBAC["RBAC Engine<br/>(Roles & Quota Checks)"]
+        Egress["🌐 Network Egress Gate<br/>(Default-Deny + Allowlist)"]
+    end
+
+    subgraph Core["🧠 Core Kernel & Orchestrator"]
+        Dispatcher["RPC Dispatcher & Router"]
+        Lifecycle["Lease Manager & TTL Expiration"]
+        Admission["Admission Controller<br/>(Host RAM & Capacity Check)"]
+        FileBoxSvc["📂 FileBox Service<br/>(Isolated Virtual FS)"]
+        Audit["📊 Audit Logger<br/>(ORM-backed History)"]
+    end
+
+    subgraph Backends["🛡️ Execution Sandbox Backends"]
+        Subprocess["⚡ Subprocess<br/>(Development & Quick Test)"]
+        Docker["🐳 Docker Container<br/>(cgroups v2 + Seccomp)"]
+        gVisor["🛡️ gVisor runsc<br/>(User-Space Kernel)"]
+        Kata["📦 Kata Containers<br/>(Lightweight Pod VM)"]
+        MicroVM["🔥 MicroVM / Firecracker<br/>(Hardware KVM Virtualization)"]
+    end
+
+    subgraph Data["💾 Storage & Cache Layer"]
+        SiteDB["SQLite / Tenant DB<br/>(Authoritative ORM)"]
+        RedisCache["Redis Cache<br/>(Sessions & Checkpoints)"]
+    end
+
+    Clients --> FastAPI
+    FastAPI --> Auth --> RBAC --> Dispatcher
+    Dispatcher --> Admission
+    Admission --> Lifecycle
+    Lifecycle --> Backends
+    Backends --> Egress
+    Dispatcher --> FileBoxSvc
+    Dispatcher --> Audit
+    Audit --> SiteDB
+    Lifecycle --> RedisCache
+
+    style Clients fill:#0f172a,stroke:#38bdf8,color:#f8fafc
+    style Gateway fill:#0f172a,stroke:#a855f7,color:#f8fafc
+    style Core fill:#0f172a,stroke:#10b981,color:#f8fafc
+    style Backends fill:#0f172a,stroke:#f97316,color:#f8fafc
+    style Data fill:#0f172a,stroke:#06b6d4,color:#f8fafc
+```
+
+---
+
+### 2. Sandbox Execution Lifecycle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Client / AI Agent
+    participant API as FastAPI Gateway
+    participant Adm as Admission & Quota
+    participant Engine as Sandbox Engine
+    participant Sec as Security Boundary
+    participant Box as Backend (Docker/MicroVM)
+    participant Log as Audit & Storage
+
+    Client->>API: POST /api/sandbox/run (Code, Backend, Limits, EgressRules)
+    API->>Adm: Validate Authentication & Host Memory Quota
+    Adm-->>API: Quota Approved
+    API->>Engine: Allocate Ephemeral Workspace
+    Engine->>Sec: Apply Seccomp Profile & Default-Deny Egress
+    Engine->>Box: Spawn Container / MicroVM
+    Box->>Box: Execute User Code in Isolation
+    alt Network Request Made
+        Box->>Sec: Outbound Network Packet
+        Sec->>Sec: Match Against Domain Allowlist
+        alt Domain Allowed
+            Sec-->>Box: Forward Packet
+        else Domain Denied
+            Sec-->>Box: Drop Packet & Log Violation
+        end
+    end
+    Box-->>Engine: Capture stdout, stderr, exit_code & peak RAM
+    Engine->>Box: Teardown Container / Recycle Pool
+    Engine->>Log: Persist Execution Metadata & MCP Audit Record
+    Engine-->>API: Format Execution Result
+    API-->>Client: Return JSON / Stream WebSocket Output
+```
+
+---
+
+### 3. AI Agent Tool & MCP Orchestration Flow
+
+```mermaid
+flowchart LR
+    Agent["🤖 Autonomous Agent<br/>(LangGraph / AutoGen)"]
+    MCP["🔌 MCP Protocol<br/>(JSON-RPC Interface)"]
+    ThinkDome["🛡️ ThinkDome Platform"]
+    
+    subgraph Tools["Registered MCP Tools"]
+        T1["thinkdome_execute<br/>(Isolated Python Sandbox)"]
+        T2["filebox_io<br/>(Virtual FS Read/Write)"]
+        T3["telegram_notify<br/>(Alerts & Messages)"]
+    end
+    
+    Agent -->|Tool Call| MCP
+    MCP -->|Invoke| ThinkDome
+    ThinkDome --> Tools
+    Tools -->|Execute in Sandbox| Result["Structured Output & Audit"]
+    Result --> Agent
+```
+
+---
+
+## ⚡ Execution Backends
+
+| Backend | Technology | Isolation Level | Typical Use Case |
+| :--- | :--- | :--- | :--- |
+| **`microvm`** | Firecracker / Cloud Hypervisor | Hardware KVM Virtualization | Maximum isolation for multi-tenant production |
+| **`gvisor`** | gVisor (`runsc`) | User-space Kernel Isolation | Untrusted code execution & zero-day defense |
+| **`kata`** | Kata Containers | Lightweight VM Isolation | Strong isolation with OCI container compatibility |
+| **`docker`** | Docker + cgroups v2 + seccomp | Linux OS Container Isolation | General purpose agent workloads & custom packages |
+| **`subprocess`** | Subprocess Sandbox | Lightweight Process Isolation | Fast local development, rapid test suites |
+
+---
+
+## 🚀 Quick Start
+
+### 1. Installation
+
+Install directly from GitHub:
 ```bash
 pip install git+https://github.com/abeldirectory252/ThinkDome.git
 ```
 
-You can use this in **Google Colab**, **Kaggle**, or any supported Python environment.
+Or clone for local development:
+```bash
+git clone https://github.com/abeldirectory252/ThinkDome.git
+cd ThinkDome
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
+```
 
-### Verify Your Environment
+### 2. Verify Your Environment
 
-Run the system readiness check:
-
+Run the automated diagnostic tool to check Docker, KVM, and system bounds:
 ```bash
 thinkdome check
 ```
 
-### Run Your First Sandbox
+### 3. Run Code with the CLI
 
+Execute Python code in an isolated sandbox with a single command:
 ```bash
+# Lightweight subprocess execution
 thinkdome run 'print("Hello from ThinkDome!")' --backend subprocess
+
+# Containerized Docker execution with resource limits
+thinkdome run 'import sys; print("Python:", sys.version)' \
+  --backend docker \
+  --memory 512M \
+  --timeout 30
 ```
 
----
-
-## ⚡ Try in Google Colab
-
-Open the interactive quickstart notebook:
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abeldirectory252/ThinkDome/blob/main/ThinkDome_Colab_Quickstart.ipynb)
-
----
-
-## ✨ Features
-
-* **Multiple execution backends** for different security and performance requirements
-* **Ephemeral sandboxes** with isolated workspaces
-* **Python SDK** for agent and application integration
-* **CLI tools** for local and production environments
-* **API server and web dashboard**
-* **Default-deny network policies**
-* **Explicit domain allowlisting**
-* **Network egress auditing**
-* **Resource limits** for CPU, memory, and processes
-* **Read-only root filesystem support**
-* **Linux capability dropping**
-* **Seccomp syscall filtering**
-* **Multi-tenant site management**
-* **Backup and restore utilities**
-* **Administrator and user management tools**
-
----
-
-# 🚀 CLI Quickstart
-
-### Run Code with Different Backends
-
-#### Subprocess
-
-Fast process isolation for local development and testing:
+### 4. Launch the Web Console & API Server
 
 ```bash
-thinkdome run 'print("Hello from Subprocess!")' --backend subprocess
+think serve --host 0.0.0.0 --port 8000
 ```
-
-#### Docker
-
-Standard container isolation:
-
-```bash
-thinkdome run 'print("Hello from Docker!")' --backend docker
-```
-
-#### MicroVM
-
-Hardware-virtualized isolation:
-
-```bash
-thinkdome run 'print("Hello from MicroVM!")' --backend microvm
-```
-
-#### gVisor
-
-User-space kernel isolation:
-
-```bash
-thinkdome run 'print("Hello from gVisor!")' --backend gvisor
-```
-
----
-
-# 🖥️ Start the API Server
-
-Start the ThinkDome API server and web console:
-
-```bash
-thinkdome serve --host 0.0.0.0 --port 8000
-```
-
-Then open:
-
-```text
-http://localhost:8000
-```
-
----
-
-# ⚡ Execution Backends
-
-ThinkDome supports multiple isolation technologies depending on your security and performance requirements.
-
-| Backend          | Technology                     | Isolation Level             | Use Case                                      |
-| ---------------- | ------------------------------ | --------------------------- | --------------------------------------------- |
-| **`microvm`**    | Firecracker / Cloud Hypervisor | Hardware Virtualization     | Maximum isolation for multi-tenant workloads  |
-| **`gvisor`**     | gVisor (`runsc`)               | User-space Kernel Isolation | Untrusted code execution                      |
-| **`kata`**       | Kata Containers                | Lightweight VM Isolation    | Strong isolation with container compatibility |
-| **`docker`**     | Docker + cgroups + seccomp     | OS Container Isolation      | Standard container workloads                  |
-| **`subprocess`** | Bubblewrap / Subprocess        | Process Isolation           | Fast local development and testing            |
-
-> Performance characteristics such as startup time depend on the host, image size, runtime configuration, and workload.
+Open **`http://localhost:8000`** in your browser to access the dynamic dashboard, interactive terminal, and FileBox explorer.
 
 ---
 
 ## 🐍 Python SDK
 
-### Basic Example
+Use ThinkDome directly inside your Python applications and AI agents:
 
 ```python
 from thinkdome import Sandbox
 
-with Sandbox(backend="subprocess") as dome:
-    result = dome.run('print("Hello from ThinkDome!")')
-
-    print(result.success)
-    print(result.output)
-```
-
-### Docker Backend
-
-```python
-from thinkdome import Sandbox
-
-with Sandbox(backend="docker") as dome:
-    result = dome.run('print("Hello from Docker!")')
-    print(result.output)
-```
-
-### MicroVM Backend
-
-```python
-from thinkdome import Sandbox
-
-with Sandbox(backend="microvm") as dome:
-    result = dome.run(
-        'import platform; print(platform.uname())'
-    )
-
-    print(result.output)
-```
-
-### gVisor Backend
-
-```python
-from thinkdome import Sandbox
-
-with Sandbox(backend="gvisor") as dome:
-    result = dome.run('print("Hello from gVisor!")')
-    print(result.output)
-```
-
----
-
-# 📁 Ephemeral Sandbox Workflow
-
-Run code inside an isolated temporary workspace:
-
-```python
-from thinkdome import Sandbox
-
-with Sandbox(backend="subprocess") as dome:
-
-    # Write files into the sandbox workspace
-    dome.write_file(
-        "data.csv",
-        "name,value\nAlice,10\nBob,20\n"
-    )
-
-    # Execute code
+# Run inside locked-down Docker container
+with Sandbox(backend="docker", memory_limit="512M", timeout=15) as dome:
+    # Write a dataset into the isolated sandbox workspace
+    dome.write_file("data.csv", "name,score\nAlice,95\nBob,88\n")
+    
+    # Run code that reads the data
     result = dome.run("""
 import pandas as pd
-
 df = pd.read_csv("data.csv")
-print("Total Sum:", df["value"].sum())
+print("Average score:", df["score"].mean())
 """)
-
+    
     print("Success:", result.success)
-    print("Stdout:", result.output.strip())
-    print("Files:", dome.list_files())
+    print("Output:", result.output.strip())
 ```
 
----
-
-# 🌐 Network Control and Egress Policies
-
-ThinkDome uses a **strict default-deny network model**.
-
-### Security Model
-
-* **Default-Deny**: Outbound network access is blocked unless explicitly allowed.
-* **Domain Allowlisting**: Allow access only to approved domains and ports.
-* **Egress Control**: Network traffic can be routed through controlled egress policies.
-* **Audit Logging**: Allowed and denied network requests can be recorded.
-* **Ingress Protection**: Incoming requests can be protected with authentication and signature validation.
-* **Resource Monitoring**: Network activity can be exposed through APIs and dashboards.
-
-### Example
+### Strict Network Egress Control
 
 ```python
 from thinkdome import Sandbox
 from thinkdome.sandbox.network import EgressRule
 
+# Default-deny: only allow specific domains
 with Sandbox(
+    backend="docker",
     allow_network=True,
     egress_rules=[
-        EgressRule(
-            domain="api.github.com",
-            action="allow",
-            ports=[443],
-        ),
-        EgressRule(
-            domain="pypi.org",
-            action="allow",
-            ports=[443],
-        ),
-    ],
+        EgressRule(domain="api.github.com", action="allow", ports=[443]),
+        EgressRule(domain="huggingface.co", action="allow", ports=[443]),
+    ]
 ) as dome:
-
     result = dome.run("""
 import urllib.request
-
-response = urllib.request.urlopen(
-    "https://api.github.com"
-)
-
-print(response.status)
+res = urllib.request.urlopen("https://api.github.com")
+print("Status:", res.status)
 """)
-
     print(result.output)
 ```
 
 ---
 
-# 🛡️ MicroVM and Secure Runtime Setup
+## 🧰 Multi-Tenant Site Administration (`think`)
 
-For hardware-virtualized MicroVM execution, ThinkDome requires a supported hypervisor and guest operating system assets.
-
-## 1. Install a Hypervisor
-
-Example using Cloud Hypervisor:
+ThinkDome features an enterprise site management CLI for multi-tenant deployments:
 
 ```bash
-mkdir -p ~/.local/bin
+# Create a timestamped backup of database and files
+think --site my-tenant backup
 
-curl -L \
-  https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v40.0/cloud-hypervisor \
-  -o ~/.local/bin/cloud-hypervisor
+# Restore a tenant database from backup
+think --site my-tenant restore /path/to/backup.sql.gz
 
-chmod +x ~/.local/bin/cloud-hypervisor
-```
+# Manage site administrator credentials
+think --site my-tenant set-admin-password
 
-Ensure the directory is available in your `PATH`.
+# Run database migrations
+think migrate
 
----
-
-## 2. Configure KVM Access
-
-Verify that KVM is available:
-
-```bash
-ls -l /dev/kvm
-```
-
-For non-root access, add your user to the `kvm` group:
-
-```bash
-sudo usermod -aG kvm $USER
-```
-
-Log out and back in for the group change to take effect.
-
----
-
-## 3. Configure Guest Assets
-
-Configure the guest kernel and root filesystem.
-
-Example locations:
-
-```text
-Kernel: /var/lib/thinkdome/vmlinux
-Rootfs: /var/lib/thinkdome/rootfs.ext4
-```
-
-These can also be configured with environment variables:
-
-```bash
-export MICROVM_KERNEL_PATH=/var/lib/thinkdome/vmlinux
-export MICROVM_ROOTFS_PATH=/var/lib/thinkdome/rootfs.ext4
+# Launch interactive Python console with site context
+think --site my-tenant console
 ```
 
 ---
 
-# ⚙️ Execution Modes
+## 📖 Documentation Hub
 
-## Mode A: Development with Automatic Fallback
+Explore the complete ThinkDome documentation in the [`/docs`](docs/README.md) directory:
 
-Useful when KVM or network privileges are unavailable:
-
-```bash
-EXECUTOR_BACKEND_USE_FALLBACK=True \
-thinkdome serve
-```
-
----
-
-## Mode B: Docker Runtime
-
-Use Docker-based isolation:
-
-```bash
-EXECUTOR_BACKEND=docker \
-thinkdome serve
-```
+| Document | Description |
+| :--- | :--- |
+| **[Documentation Hub](docs/README.md)** | Sitemap, architecture overview, and index |
+| **[Architecture Guide](docs/architecture/ARCHITECTURE.md)** | Deep-dive into internal layers, RPC dispatcher, and Mermaid diagrams |
+| **[Getting Started Guide](docs/guides/GETTING_STARTED.md)** | Step-by-step setup, configuration, CLI reference, and troubleshooting |
+| **[API Reference](docs/api/API_REFERENCE.md)** | REST endpoints, WebSocket streaming, MCP tool schemas, and SDK reference |
+| **[Commit History & Changelog](docs/changelog/COMMIT_HISTORY.md)** | Full 94-commit chronological history and release notes |
+| **[Docker Isolation](docs/isolation/docker.md)** | Deep dive into Docker security configurations and cgroups |
+| **[Hypervisor Setup Guide](docs/example/hypervisor_setup_guide.md)** | Guide for KVM, Firecracker, and MicroVM deployments |
+| **[LangGraph Integration](docs/integrations/langgraph.md)** | State checkpoints, agent memory, and sandbox coordination |
 
 ---
 
-## Mode C: Native Host MicroVM
-
-For environments configured for native MicroVM networking:
-
-```bash
-sudo thinkdome serve
-```
-
-Production deployments should follow the principle of least privilege and grant only the capabilities required by the configured backend.
-
----
-
-# 🌐 API Server Configuration
-
-Configure ThinkDome using environment variables:
-
-```bash
-export HOST="127.0.0.1"
-export PORT="8000"
-
-export EXECUTOR_BACKEND="microvm"
-export EXECUTOR_BACKEND_USE_FALLBACK="True"
-
-thinkdome serve --host 127.0.0.1 --port 8000
-```
-
-You can also run the module directly:
-
-```bash
-python -m thinkdome.cli serve \
-  --host 127.0.0.1 \
-  --port 8000
-```
-
----
-
-# 💻 Run Code via CLI
-
-```bash
-thinkdome run \
-  'print("Hello from CLI!")' \
-  --backend subprocess
-```
-
-Using MicroVM:
-
-```bash
-thinkdome run \
-  'print("Hello from MicroVM!")' \
-  --backend microvm
-```
-
----
-
-# 🧰 Site Management CLI
-
-ThinkDome includes the `think` CLI for multi-tenant site administration.
-
-Supported operations include:
-
-* Site backups
-* Database restoration
-* Public and private file restoration
-* Administrator password management
-* User password management
-* Superadmin creation
-* Interactive Python site console
-
----
-
-## 💾 Site Backup
-
-Create a timestamped backup:
-
-```bash
-think --site think.local backup
-```
-
-Example backup location:
-
-```text
-sites/think.local/private/backups/
-```
-
-View available backups:
-
-```bash
-ls -lh sites/think.local/private/backups/
-```
-
----
-
-## ♻️ Site Restore
-
-Restore from a database dump:
-
-```bash
-think --site think.local restore /path/to/database.sql.gz
-```
-
-Restore the database and files:
-
-```bash
-think --site think.local restore \
-  /path/to/database.sql.gz \
-  --with-public-files /path/to/files.tar \
-  --with-private-files /path/to/private-files.tar
-```
-
----
-
-## 🔐 Password Management
-
-Reset the Administrator password:
-
-```bash
-think --site think.local set-admin-password
-```
-
-Reset a user's password:
-
-```bash
-think --site think.local set-password user@example.com
-```
-
-For production environments, prefer secure interactive prompts or secret management systems rather than placing passwords directly in shell history.
-
----
-
-## 👑 Create a Superadmin
-
-Create the Administrator account interactively:
-
-```bash
-think --site think.local create-superadmin
-```
-
----
-
-## 🐍 Interactive Site Console
-
-Open a Python shell with site context:
-
-```bash
-think --site think.local console
-```
-
-Example:
-
-```python
-users = User.query().all()
-
-admin = User.query() \
-    .filter(username="administrator") \
-    .first()
-
-rows = sql(
-    "SELECT username, email FROM rbac_users"
-)
-```
-
----
-
-# 🛡️ Defense-in-Depth Containment
-
-ThinkDome can combine multiple layers of isolation depending on the selected backend and deployment configuration:
-
-1. **MicroVM Isolation**
-   Hardware-virtualized boundaries using supported MicroVM technologies.
-
-2. **gVisor Isolation**
-   User-space kernel isolation for containerized workloads.
-
-3. **Non-Root Execution**
-   Sandboxes can run under unprivileged users.
-
-4. **Read-Only Filesystems**
-   Persistent filesystem access can be restricted while allowing temporary workspaces.
-
-5. **Ephemeral Workspaces**
-   Temporary sandbox files can be removed after execution.
-
-6. **Seccomp Filtering**
-   Restrict access to selected Linux system calls.
-
-7. **Resource Limits**
-   CPU, memory, and process limits can help prevent resource exhaustion.
-
-8. **Capability Dropping**
-   Unnecessary Linux capabilities can be removed.
-
-9. **Network Egress Control**
-   Outbound traffic can be blocked by default and explicitly allowlisted.
-
-> **Important:** Security guarantees depend on the selected backend and your actual host configuration. `subprocess` isolation is not equivalent to a properly configured MicroVM or hardware virtualization boundary. Choose the backend according to your threat model.
-
----
-
-# 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome!
-
-1. Fork the repository
-2. Create a feature branch:
-
-```bash
-git checkout -b feature/AmazingFeature
-```
-
-3. Commit your changes:
-
-```bash
-git commit -m "feat: add AmazingFeature"
-```
-
-4. Push your branch:
-
-```bash
-git push origin feature/AmazingFeature
-```
-
-5. Open a Pull Request
-
----
-
-# 💬 Community and Support
+## 💬 Community & Support
 
 * **Author:** Abel Yohannes
 * **GitHub:** [@abelyo252](https://github.com/abeldirectory252/)
@@ -611,6 +313,6 @@ git push origin feature/AmazingFeature
 
 ---
 
-# 📜 License
+## 📜 License
 
-Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for more information.
