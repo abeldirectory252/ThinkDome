@@ -37,122 +37,32 @@ Key capabilities include:
 
 ## 🏗️ How ThinkDome Works
 
-### 1. System Architecture Overview
-
-```mermaid
-graph TB
-    subgraph Clients["🌐 Client & Agent Layer"]
-        SDK["🐍 Python SDK<br/>(thinkdome.Sandbox)"]
-        CLI["💻 CLI Interface<br/>(think / thinkdome)"]
-        WebUI["🖥️ Modern Web UI<br/>(Dynamic Desk & Dashboard)"]
-        Agent["🤖 AI Agent / LLM<br/>(LangGraph, MCP Clients)"]
-    end
-
-    subgraph Gateway["⚡ API Gateway & Security Boundary"]
-        FastAPI["FastAPI HTTP / WebSocket Server"]
-        Auth["JWT & Session Auth Middleware"]
-        RBAC["RBAC Engine<br/>(Roles & Quota Checks)"]
-        Egress["🌐 Network Egress Gate<br/>(Default-Deny + Allowlist)"]
-    end
-
-    subgraph Core["🧠 Core Kernel & Orchestrator"]
-        Dispatcher["RPC Dispatcher & Router"]
-        Lifecycle["Lease Manager & TTL Expiration"]
-        Admission["Admission Controller<br/>(Host RAM & Capacity Check)"]
-        FileBoxSvc["📂 FileBox Service<br/>(Isolated Virtual FS)"]
-        Audit["📊 Audit Logger<br/>(ORM-backed History)"]
-    end
-
-    subgraph Backends["🛡️ Execution Sandbox Backends"]
-        Subprocess["⚡ Subprocess<br/>(Development & Quick Test)"]
-        Docker["🐳 Docker Container<br/>(cgroups v2 + Seccomp)"]
-        gVisor["🛡️ gVisor runsc<br/>(User-Space Kernel)"]
-        Kata["📦 Kata Containers<br/>(Lightweight Pod VM)"]
-        MicroVM["🔥 MicroVM / Firecracker<br/>(Hardware KVM Virtualization)"]
-    end
-
-    subgraph Data["💾 Storage & Cache Layer"]
-        SiteDB["SQLite / Tenant DB<br/>(Authoritative ORM)"]
-        RedisCache["Redis Cache<br/>(Sessions & Checkpoints)"]
-    end
-
-    Clients --> FastAPI
-    FastAPI --> Auth --> RBAC --> Dispatcher
-    Dispatcher --> Admission
-    Admission --> Lifecycle
-    Lifecycle --> Backends
-    Backends --> Egress
-    Dispatcher --> FileBoxSvc
-    Dispatcher --> Audit
-    Audit --> SiteDB
-    Lifecycle --> RedisCache
-
-    style Clients fill:#0f172a,stroke:#38bdf8,color:#f8fafc
-    style Gateway fill:#0f172a,stroke:#a855f7,color:#f8fafc
-    style Core fill:#0f172a,stroke:#10b981,color:#f8fafc
-    style Backends fill:#0f172a,stroke:#f97316,color:#f8fafc
-    style Data fill:#0f172a,stroke:#06b6d4,color:#f8fafc
-```
-
----
-
-### 2. Sandbox Execution Lifecycle
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Client / AI Agent
-    participant API as FastAPI Gateway
-    participant Adm as Admission & Quota
-    participant Engine as Sandbox Engine
-    participant Sec as Security Boundary
-    participant Box as Backend (Docker/MicroVM)
-    participant Log as Audit & Storage
-
-    Client->>API: POST /api/sandbox/run (Code, Backend, Limits, EgressRules)
-    API->>Adm: Validate Authentication & Host Memory Quota
-    Adm-->>API: Quota Approved
-    API->>Engine: Allocate Ephemeral Workspace
-    Engine->>Sec: Apply Seccomp Profile & Default-Deny Egress
-    Engine->>Box: Spawn Container / MicroVM
-    Box->>Box: Execute User Code in Isolation
-    alt Network Request Made
-        Box->>Sec: Outbound Network Packet
-        Sec->>Sec: Match Against Domain Allowlist
-        alt Domain Allowed
-            Sec-->>Box: Forward Packet
-        else Domain Denied
-            Sec-->>Box: Drop Packet & Log Violation
-        end
-    end
-    Box-->>Engine: Capture stdout, stderr, exit_code & peak RAM
-    Engine->>Box: Teardown Container / Recycle Pool
-    Engine->>Log: Persist Execution Metadata & MCP Audit Record
-    Engine-->>API: Format Execution Result
-    API-->>Client: Return JSON / Stream WebSocket Output
-```
-
----
-
-### 3. AI Agent Tool & MCP Orchestration Flow
+### 1. Architecture Flow
 
 ```mermaid
 flowchart LR
-    Agent["🤖 Autonomous Agent<br/>(LangGraph / AutoGen)"]
-    MCP["🔌 MCP Protocol<br/>(JSON-RPC Interface)"]
-    ThinkDome["🛡️ ThinkDome Platform"]
-    
-    subgraph Tools["Registered MCP Tools"]
-        T1["thinkdome_execute<br/>(Isolated Python Sandbox)"]
-        T2["filebox_io<br/>(Virtual FS Read/Write)"]
-        T3["telegram_notify<br/>(Alerts & Messages)"]
-    end
-    
-    Agent -->|Tool Call| MCP
-    MCP -->|Invoke| ThinkDome
-    ThinkDome --> Tools
-    Tools -->|Execute in Sandbox| Result["Structured Output & Audit"]
-    Result --> Agent
+    A["👤 Client / Agent\n(SDK / CLI / Web UI)"] --> B["⚡ ThinkDome Gateway\n(Auth & Security Boundary)"]
+    B --> C["🧠 Sandbox Engine\n(Lifecycle & Quota Control)"]
+    C --> D["🛡️ Isolated Runtime\n(Docker / MicroVM / Subprocess)"]
+    D --> E["📂 FileBox & Audit Log\n(Virtual Storage & History)"]
+```
+
+### 2. Execution Pipeline
+
+```mermaid
+flowchart LR
+    Step1["1. Submit Code\n& Egress Policy"] --> Step2["2. Validate Quota\n& Apply Seccomp"]
+    Step2 --> Step3["3. Run in Isolation\n(Strict Egress Filter)"]
+    Step3 --> Step4["4. Return Output\n& Record Audit"]
+```
+
+### 3. Agent & MCP Tool Flow
+
+```mermaid
+flowchart LR
+    Agent["🤖 AI Agent\n(LangGraph)"] -->|Tool Call| MCP["🔌 MCP Server\n(ThinkDome)"]
+    MCP -->|Execute| Sandbox["🐳 Isolated Sandbox\n(Python / FileBox)"]
+    Sandbox -->|Result| Agent
 ```
 
 ---
