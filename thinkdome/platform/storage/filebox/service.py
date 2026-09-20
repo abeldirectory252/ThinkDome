@@ -19,6 +19,11 @@ from thinkdome.platform.storage.workspace_crypto import workspace_cipher
 from .container import BoxContainer
 
 DEFAULT_FOLDERS = ("workspace", "uploads", "artifacts", "cache", "tmp", "logs")
+# Semantic folders that form the AI agent's persistent filesystem.
+# These are created alongside the standard workspace folders inside every
+# user's encrypted FileBox volume.
+SEMANTIC_FOLDERS = ("memory", "skills", "knowledge", "state", "config", "identity")
+ALL_FOLDERS = DEFAULT_FOLDERS + SEMANTIC_FOLDERS
 DEFAULT_QUOTA_BYTES = 10 * 1024 * 1024 * 1024
 _NAMESPACE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 logger = logging.getLogger(__name__)

@@ -79,6 +79,40 @@ def main() -> None:
     pw_parser.add_argument("username", nargs="?", default="admin", help="Username to reset")
     pw_parser.add_argument("--password", "-p", help="New password")
 
+    # filebox command
+    fb_parser = subparsers.add_parser("filebox", help="Manage AI Agent Filebox persistent filesystems")
+    fb_sub = fb_parser.add_subparsers(dest="filebox_action", help="Filebox action")
+
+    init_p = fb_sub.add_parser("init", help="Bootstrap a fresh Filebox layout")
+    init_p.add_argument("--root", help="Filebox root directory")
+    init_p.add_argument("--agent-id", default="agent-001", help="Agent identifier")
+    init_p.add_argument("--force", action="store_true", help="Force overwrite manifest")
+
+    stat_p = fb_sub.add_parser("status", help="Show Filebox status and statistics")
+    stat_p.add_argument("--root", help="Filebox root directory")
+
+    ver_p = fb_sub.add_parser("verify", help="Validate Filebox structure and permissions")
+    ver_p.add_argument("--root", help="Filebox root directory")
+
+    idx_p = fb_sub.add_parser("index", help="Build or rebuild SQLite FTS5 search index")
+    idx_p.add_argument("--root", help="Filebox root directory")
+    idx_p.add_argument("--force", action="store_true", help="Force full rebuild")
+
+    tree_p = fb_sub.add_parser("tree", help="Display recursive tree view")
+    tree_p.add_argument("--root", help="Filebox root directory")
+    tree_p.add_argument("--depth", type=int, default=3, help="Max depth (default: 3)")
+
+    search_p = fb_sub.add_parser("search", help="Search content in Filebox")
+    search_p.add_argument("query", help="Text search query")
+    search_p.add_argument("--root", help="Filebox root directory")
+
+    mig_p = fb_sub.add_parser("migrate", help="Migrate legacy directory or storage into Filebox")
+    mig_p.add_argument("--source", help="Source directory (e.g. /sandbox or legacy folder)")
+    mig_p.add_argument("--target", help="Target Filebox root directory")
+    mig_p.add_argument("--tenant", default="default", help="Tenant ID for platform storage migration")
+    mig_p.add_argument("--user", default=None, help="User/owner ID")
+    mig_p.add_argument("--dry-run", action="store_true", help="Simulate without writing")
+
     args = parser.parse_args()
 
     if args.command == "serve":
@@ -103,6 +137,8 @@ def main() -> None:
         _check(args)
     elif args.command in ("setup", "setup-microvm"):
         _setup(args)
+    elif args.command == "filebox":
+        _filebox(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -448,6 +484,161 @@ def _setup(args) -> None:
         sys.exit(1)
 
 
+def _filebox(args) -> None:
+    """Manage AI agent Filebox persistent filesystem."""
+    import os
+    import sys
+    from thinkdome.core.config import get_settings, get_workspace_root
+    from thinkdome.filebox import bootstrap, Filebox, FileboxMigrator
+
+    if not getattr(args, "filebox_action", None):
+        print("Usage: thinkdome filebox <init|status|verify|index|tree|search|migrate> [options]")
+        sys.exit(1)
+
+    action = args.filebox_action
+    root_str = getattr(args, "root", None)
+    if not root_str:
+        if os.environ.get("FILEBOX_ROOT"):
+            root_path = Path(os.environ["FILEBOX_ROOT"])
+        else:
+            storage_dir = Path(get_settings().FILE_STORAGE_DIR)
+            if not storage_dir.is_absolute():
+                storage_dir = get_workspace_root() / storage_dir
+            tenant = getattr(args, "tenant", "default") or "default"
+            agent_id = getattr(args, "agent_id", None) or getattr(args, "user", None) or "agent-001"
+            root_path = storage_dir / "filebox_data" / tenant / agent_id
+    else:
+        root_path = Path(root_str).resolve()
+
+    if action == "init":
+        agent_id = getattr(args, "agent_id", "agent-001")
+        force = getattr(args, "force", False)
+        print(f"Bootstrapping Filebox at: {root_path}")
+        fb = bootstrap.init(root_path, agent_id=agent_id, force=force)
+        print(f"✓ Initialized Filebox (agent: {fb.agent_id}, version: {fb.version})")
+        print(f"  Root: {root_path}")
+
+    elif action == "status":
+        if not root_path.exists():
+            print(f"✘ Filebox not found at: {root_path}")
+            sys.exit(1)
+        fb = Filebox(root_path)
+        v = bootstrap.verify(root_path)
+        files = list(root_path.rglob("*"))
+        file_count = sum(1 for f in files if f.is_file())
+        dir_count = sum(1 for f in files if f.is_dir())
+        total_size = sum(f.stat().st_size for f in files if f.is_file())
+
+        print("=" * 60)
+        print(" 📦 ThinkDome Filebox Status")
+        print("=" * 60)
+        print(f"  Root:         {root_path}")
+        print(f"  Valid:        {'✓ Yes' if v['valid'] else '✘ Issues detected'}")
+        print(f"  Directories:  {dir_count}")
+        print(f"  Files:        {file_count}")
+        print(f"  Total Size:   {total_size:,} bytes ({total_size / (1024*1024):.2f} MB)")
+        print(f"  FTS Index:    {'✓ Ready' if fb.search_engine.is_index_ready() else 'Not built (run `thinkdome filebox index`)'}")
+        if v["issues"]:
+            print("\n  Issues:")
+            for issue in v["issues"]:
+                print(f"    - {issue}")
+
+    elif action == "verify":
+        if not root_path.exists():
+            print(f"✘ Filebox not found at: {root_path}")
+            sys.exit(1)
+        v = bootstrap.verify(root_path)
+        if v["valid"]:
+            print(f"✓ Filebox structure and manifest valid at {root_path}")
+        else:
+            print(f"✘ Filebox verification failed at {root_path}:")
+            for issue in v["issues"]:
+                print(f"  - {issue}")
+            sys.exit(1)
+
+    elif action == "index":
+        if not root_path.exists():
+            print(f"✘ Filebox not found at: {root_path}")
+            sys.exit(1)
+        fb = Filebox(root_path)
+        force = getattr(args, "force", False)
+        print(f"Building SQLite FTS5 search index for {root_path} (force={force})...")
+        res = fb.build_index(force=force)
+        print(f"✓ Index complete: {res['indexed']} indexed, {res['updated']} updated, {res['deleted']} deleted (total: {res['total']})")
+
+    elif action == "tree":
+        if not root_path.exists():
+            print(f"✘ Filebox not found at: {root_path}")
+            sys.exit(1)
+        fb = Filebox(root_path)
+        depth = getattr(args, "depth", 3)
+        tree_node = fb.tree("", depth=depth)
+
+        def print_tree(node, prefix=""):
+            icon = "📁 " if node.type == "directory" else "📄 "
+            size_str = f" ({node.size} bytes)" if node.type == "file" else ""
+            print(f"{prefix}{icon}{node.name}{size_str}")
+            if node.children:
+                for idx, child in enumerate(node.children):
+                    is_last = (idx == len(node.children) - 1)
+                    sub_prefix = prefix + ("    " if is_last else "│   ")
+                    print_tree(child, sub_prefix)
+
+        print(f"Tree for {root_path} (depth={depth}):")
+        print_tree(tree_node)
+
+    elif action == "search":
+        if not root_path.exists():
+            print(f"✘ Filebox not found at: {root_path}")
+            sys.exit(1)
+        fb = Filebox(root_path)
+        query = args.query
+        results = fb.search(query)
+        print(f"Search results for '{query}' in {root_path} ({len(results)} found):")
+        for r in results:
+            cat = f"[{r.get('category')}] " if r.get("category") else ""
+            print(f"\n  • {cat}{r['path']}")
+            if "snippet" in r:
+                print(f"    {r['snippet']}")
+            elif "matches" in r:
+                for m in r["matches"][:3]:
+                    print(f"    Line {m['line']}: {m['text']}")
+
+    elif action == "migrate":
+        migrator = FileboxMigrator()
+        source_dir = getattr(args, "source", None)
+        target_dir = getattr(args, "target", None) or str(root_path)
+        dry_run = getattr(args, "dry_run", False)
+
+        print(f"Running Filebox migration (dry_run={dry_run})...")
+        if source_dir:
+            print(f"Source: {source_dir} -> Target: {target_dir}")
+            report = migrator.migrate_directory(source_dir, target_dir, dry_run=dry_run)
+            _print_migration_report(report)
+        else:
+            tenant = getattr(args, "tenant", "default")
+            user = getattr(args, "user", None)
+            print(f"Migrating legacy platform storage: tenant={tenant}, user={user or 'all'}")
+            reports = migrator.migrate_legacy_storage(tenant_id=tenant, owner_id=user, dry_run=dry_run)
+            if not reports:
+                print("No legacy storage volumes found to migrate.")
+            for rep in reports:
+                _print_migration_report(rep)
+
+
+def _print_migration_report(report) -> None:
+    print("-" * 60)
+    print(f" Migration Report: {report.status.upper()}")
+    print(f" Source:            {report.source}")
+    print(f" Target:            {report.target}")
+    print(f" Files copied:      {len(report.files_copied)}")
+    print(f" Files transformed: {len(report.files_transformed)}")
+    print(f" Warnings:          {len(report.warnings)}")
+    print(f" Errors:            {len(report.errors)}")
+    for w in report.warnings:
+        print(f"   ! {w}")
+    for e in report.errors:
+        print(f"   ✘ {e}")
 
 
 if __name__ == "__main__":
