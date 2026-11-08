@@ -25,11 +25,47 @@ function setAuthTab(mode) {
     authMode = mode;
     const loginTab = document.getElementById('tabLogin');
     const registerTab = document.getElementById('tabRegister');
-    const roleField = document.getElementById('roleField');
+    const registrationDrawer = document.getElementById('authRegistrationDrawer');
+    const passwordHint = document.getElementById('passwordHint');
+    const extraProfile = document.getElementById('authExtraProfile');
+    const toggleBtn = document.getElementById('btnToggleExtraProfile');
+    const chevron = document.getElementById('extraProfileToggleChevron');
 
     if (loginTab) loginTab.classList.toggle('active', mode === 'login');
     if (registerTab) registerTab.classList.toggle('active', mode === 'register');
-    if (roleField) roleField.style.display = mode === 'register' ? 'block' : 'none';
+
+    if (registrationDrawer) {
+        registrationDrawer.classList.toggle('open', mode === 'register');
+    } else {
+        const registrationFields = ['emailField', 'firstNameField', 'lastNameField'];
+        registrationFields.forEach(id => {
+            const field = document.getElementById(id);
+            if (field) field.style.display = mode === 'register' ? 'block' : 'none';
+        });
+    }
+
+    if (passwordHint) {
+        passwordHint.style.display = mode === 'register' ? 'block' : 'none';
+    }
+
+    // When switching back to login, smoothly slide closed all extra fields ("cover it up")
+    if (mode === 'login') {
+        if (extraProfile) {
+            extraProfile.classList.remove('open');
+        }
+        if (toggleBtn) {
+            toggleBtn.classList.remove('open');
+            toggleBtn.setAttribute('aria-expanded', 'false');
+        }
+        if (chevron) {
+            chevron.style.transform = 'rotate(0deg)';
+        }
+        const wrap = document.querySelector('.login-wrap');
+        if (wrap) wrap.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const password = document.getElementById('password');
+    if (password) password.autocomplete = mode === 'register' ? 'new-password' : 'current-password';
 
     const btn = document.querySelector('.submit-btn');
     if (btn) {
@@ -53,24 +89,50 @@ function setAuthTab(mode) {
     }
 }
 
+// Toggle slidable profile details accordion
+function toggleExtraProfile() {
+    const extraProfile = document.getElementById('authExtraProfile');
+    const toggleBtn = document.getElementById('btnToggleExtraProfile');
+    const chevron = document.getElementById('extraProfileToggleChevron');
+    if (!extraProfile) return;
+
+    const isOpen = extraProfile.classList.toggle('open');
+    if (toggleBtn) {
+        toggleBtn.classList.toggle('open', isOpen);
+        toggleBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+    if (chevron) {
+        chevron.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+
+    if (isOpen) {
+        // Smoothly ensure newly revealed fields slide into viewport smoothly
+        setTimeout(() => {
+            const wrap = document.querySelector('.login-wrap');
+            if (wrap) {
+                wrap.scrollBy({ top: 120, behavior: 'smooth' });
+            }
+        }, 120);
+    }
+}
+
 // 2. Access app submission handler
 async function enterApp(e) {
     if (e) e.preventDefault();
 
     const usernameInput = document.getElementById('username');
     const passwordInput = document.getElementById('password');
-    const roleInput = document.getElementById('userRole');
     if (!usernameInput || !passwordInput) return;
 
     const username = usernameInput.value.trim();
-    const password = passwordInput.value.trim();
-    const selectedRole = roleInput ? roleInput.value : 'AGENT_STANDARD';
+    const password = passwordInput.value;
 
     const loginAlert = document.getElementById('loginAlert');
     if (loginAlert) loginAlert.style.display = 'none';
 
     if (!username || !password) {
         if (loginAlert) {
+            loginAlert.className = 'alert alert-error';
             loginAlert.textContent = "Please enter both username and password to authenticate.";
             loginAlert.style.display = 'block';
         }
@@ -90,19 +152,48 @@ async function enterApp(e) {
         }
 
         if (authMode === 'register') {
-            const { data, error } = await window.API.register(username, password, selectedRole);
+            const getVal = (id) => {
+                const el = document.getElementById(id);
+                return (el && el.value) ? el.value.trim() : '';
+            };
+            const email = getVal('email');
+            const firstName = getVal('firstName');
+            const lastName = getVal('lastName');
+            const phone = getVal('phone');
+            const organization = getVal('organization');
+            const department = getVal('department');
+            const designation = getVal('designation');
+
+            if (!email || !firstName || !lastName) {
+                throw new Error("Email, First name, and Last name are required for registration.");
+            }
+
+            const { data, error } = await window.API.register({
+                username,
+                password,
+                email,
+                first_name: firstName,
+                last_name: lastName,
+                phone,
+                organization,
+                department,
+                department_id: department || undefined,
+                designation,
+            });
             if (error) {
                 throw new Error(error);
             }
-            localStorage.setItem('thinkdome_user_role', selectedRole);
             if (loginAlert) {
                 loginAlert.className = 'alert alert-success';
-                loginAlert.textContent = `Account registered with role '${selectedRole}'! You can now log in.`;
+                loginAlert.textContent = 'Sandbox account created with standard agent access. You can now log in.';
                 loginAlert.style.display = 'block';
             } else {
-                alert(`Account registered with role '${selectedRole}'! You can now log in.`);
+                alert('Sandbox account created. You can now log in.');
             }
+            // Smoothly slide closed all registration fields and switch to login tab
             setAuthTab('login');
+            passwordInput.value = '';
+            passwordInput.focus();
         } else {
             const { data, error } = await window.API.login(username, password);
             if (error) {
@@ -148,7 +239,7 @@ async function enterApp(e) {
         // Keep authentication failures on the same themed modal surface.
         // The API client de-duplicates an already-open validation modal.
         const message = err.message || "Authentication failed. Please try again.";
-        if (message !== "SERVER_ERROR" && window.API?.showValidationErrorPopup) {
+        if (message !== "SERVER_ERROR" && window.API && typeof window.API.showValidationErrorPopup === 'function') {
             window.API.showValidationErrorPopup(message);
         }
     } finally {
@@ -218,3 +309,11 @@ function reloadSession() {
     // Re-read the current authenticated session and refresh dashboard state.
     window.location.reload();
 }
+
+// Explicit window bindings for inline HTML onclick/onsubmit handlers
+window.setAuthTab = setAuthTab;
+window.toggleExtraProfile = toggleExtraProfile;
+window.togglePasswordVisibility = togglePasswordVisibility;
+window.enterApp = enterApp;
+window.logout = logout;
+window.reloadSession = reloadSession;

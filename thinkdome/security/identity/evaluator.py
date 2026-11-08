@@ -34,14 +34,8 @@ class PermissionEvaluator:
 
         effective_perms: Set[str] = set()
 
-        # ── Level 1: Super Admin check ───────────────────────────────────────
+        # Resolve every role's grants from persisted workspace assignments.
         user_roles = self.role_repo.get_user_roles(user_id)
-        role_names = {r.name.upper() for r in user_roles}
-        from thinkdome.security.identity.core import is_admin_role
-        if any(is_admin_role(role_name) for role_name in role_names):
-            effective_perms.add("*")
-            permission_cache.set(user_id, effective_perms)
-            return effective_perms
 
         # ── Level 2: Direct User Permissions (Explicit Grants / Denials) ─────
         direct_perms = self.perm_repo.get_direct_user_permissions(user_id)
@@ -97,14 +91,12 @@ class PermissionEvaluator:
             return True
 
         target = f"{module}:{resource}:{action}".lower()
-        if target in effective:
-            return True
-
-        # Wildcard patterns e.g. 'erp:finance:*' or 'file:*'
-        resource_wildcard = f"{module}:{resource}:*".lower()
-        module_wildcard = f"{module}:*:*".lower()
-
-        return resource_wildcard in effective or module_wildcard in effective
+        target_parts = target.split(":")
+        return any(
+            len(grant_parts := grant.lower().split(":")) == 3
+            and all(allowed == "*" or allowed == requested for allowed, requested in zip(grant_parts, target_parts))
+            for grant in effective
+        )
 
     def has_role(self, user_id: str, role_name: str) -> bool:
         """Check if user is directly or hierarchically assigned a role by name."""

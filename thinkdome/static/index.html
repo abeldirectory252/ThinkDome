@@ -45,12 +45,62 @@
 
       <div class="tabs">
         <button class="tab active" id="tabLogin" onclick="setAuthTab('login')">LOGIN</button>
-        <button class="tab" id="tabRegister" onclick="setAuthTab('register')">REGISTER ADMIN</button>
+        <button class="tab" id="tabRegister" onclick="setAuthTab('register')">CREATE ACCOUNT</button>
       </div>
 
       <div id="loginAlert" class="alert alert-error" style="display:none;margin-bottom:14px;"></div>
 
       <form autocomplete="off" onsubmit="enterApp(event)">
+        <!-- Sliding Registration Drawer -->
+        <div class="auth-registration-drawer" id="authRegistrationDrawer">
+          <div class="field" id="emailField">
+            <label for="email">Email address <span style="color:var(--accent); font-weight:bold;">*</span></label>
+            <div class="input-shell"><input id="email" type="email" autocomplete="email" placeholder="you@example.com" /></div>
+          </div>
+          <div class="auth-form-row">
+            <div class="field" id="firstNameField">
+              <label for="firstName">First name <span style="color:var(--accent); font-weight:bold;">*</span></label>
+              <div class="input-shell"><input id="firstName" type="text" autocomplete="given-name" placeholder="First name" /></div>
+            </div>
+            <div class="field" id="lastNameField">
+              <label for="lastName">Last name <span style="color:var(--accent); font-weight:bold;">*</span></label>
+              <div class="input-shell"><input id="lastName" type="text" autocomplete="family-name" placeholder="Last name" /></div>
+            </div>
+          </div>
+
+          <!-- Accordion Toggle Button for sliding open / covering up extra details -->
+          <button type="button" class="auth-accordion-btn" id="btnToggleExtraProfile" onclick="toggleExtraProfile()" aria-expanded="false">
+            <span id="extraProfileToggleLabel">✦ Additional Profile Details (Optional)</span>
+            <svg id="extraProfileToggleChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m6 9 6 6 6-6"/>
+            </svg>
+          </button>
+
+          <!-- Sliding Accordion Container for Extra Profile Details -->
+          <div class="auth-extra-profile" id="authExtraProfile">
+            <div class="auth-form-row">
+              <div class="field" id="phoneField">
+                <label for="phone">Phone</label>
+                <div class="input-shell"><input id="phone" type="tel" autocomplete="tel" placeholder="+1 (555) 012-3456" /></div>
+              </div>
+              <div class="field" id="orgField">
+                <label for="organization">Organization</label>
+                <div class="input-shell"><input id="organization" type="text" placeholder="Acme Corp" /></div>
+              </div>
+            </div>
+            <div class="auth-form-row">
+              <div class="field" id="deptField">
+                <label for="department">Department</label>
+                <div class="input-shell"><input id="department" type="text" placeholder="Engineering" /></div>
+              </div>
+              <div class="field" id="designationField">
+                <label for="designation">Designation</label>
+                <div class="input-shell"><input id="designation" type="text" placeholder="Security Engineer" /></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="field">
           <label for="username">Username</label>
           <div class="input-shell">
@@ -77,19 +127,7 @@
             </button>
           </div>
         </div>
-        <div class="field" id="roleField" style="display: none;">
-          <label for="userRole">Assigned Enterprise Role</label>
-          <div class="input-shell">
-            <select id="userRole" style="width: 100%; background: var(--surface-raised); color: var(--fg); border: none; outline: none; padding: 10px; font-family: inherit; border-radius: var(--radius-sm);">
-              <option value="AGENT_STANDARD">Standard Agent &amp; Developer</option>
-              <option value="SUPER_ADMIN">System Super Admin</option>
-              <option value="ENTERPRISE_ADMIN">Enterprise Administrator</option>
-              <option value="FINANCE_MANAGER">Finance Manager</option>
-              <option value="AUDITOR">Compliance Auditor</option>
-              <option value="LLM">LLM Pipeline</option>
-            </select>
-          </div>
-        </div>
+        <p id="passwordHint" class="login-note" style="display:none">Use at least 12 characters. New accounts receive standard agent access; an administrator can grant more permissions later.</p>
         <button class="submit-btn" type="submit">
           Access Sandbox Workspace
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
@@ -202,6 +240,23 @@
                 <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>
               </svg>
               <span>Workspaces</span>
+            </button>
+            <button class="nav-item" data-page="filemanager" onclick="navTo('filemanager')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
+                <path d="M2 10h20"/>
+              </svg>
+              <span>Model &amp; Design</span>
+              <span class="badge" style="margin-left:auto;font-size:10px;padding:1px 6px;background:var(--success-subtle);color:var(--success);border-radius:10px;">AI Studio</span>
+            </button>
+            <button class="nav-item" data-page="filebox" onclick="navTo('filebox')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+                <path d="m3.3 7 8.7 5 8.7-5"/>
+                <path d="M12 22V12"/>
+              </svg>
+              <span>Filebox Viewer</span>
+              <span class="badge" style="margin-left:auto;font-size:10px;padding:1px 6px;background:var(--accent-subtle);color:var(--accent);border-radius:10px;">Viewer</span>
             </button>
           </div>
 
@@ -540,6 +595,12 @@
           </div>
         </section>
 
+        <!-- DEDICATED FILE MANAGEMENT WORKSTATION -->
+        <section class="page hidden" id="page-filemanager"></section>
+
+        <!-- FILEBOX: AI AGENT PERSISTENT FILESYSTEM & STORAGE -->
+        <section class="page hidden" id="page-filebox"></section>
+
         <!-- 3. WORKSPACE DESK & MODERN SIDE-BY-SIDE CARDS PLATFORM -->
         <section class="page hidden" id="page-workspaces">
           <div class="workspace-compact-head">
@@ -613,13 +674,17 @@
             <div id="wmPageCard3" class="wm-card-page" style="display:none;">
               <div class="wm-mapper-toolbar">
                 <div class="wm-sub-tabs">
-                  <button id="wmMapperTabPages" class="wm-tab-btn active" onclick="setMapperTab('pages')">📄 Pages</button>
+                  <button id="wmMapperTabRbacProtocol" class="wm-tab-btn active" onclick="setMapperTab('rbac_protocol')">🛡️ Dynamic RBAC Protocol</button>
+                  <button id="wmMapperTabPages" class="wm-tab-btn" onclick="setMapperTab('pages')">📄 Pages</button>
                   <button id="wmMapperTabModules" class="wm-tab-btn" onclick="setMapperTab('modules')">▦ Modules</button>
                   <button id="wmMapperTabProcesses" class="wm-tab-btn" onclick="setMapperTab('processes')">⚡ Processes</button>
                   <button id="wmMapperTabPermissions" class="wm-tab-btn" onclick="setMapperTab('permissions')">🔐 Role Permissions</button>
                   <button id="wmMapperTabUiParts" class="wm-tab-btn" onclick="setMapperTab('ui_parts')">🧩 UI Parts</button>
                 </div>
-                <div class="wm-filter-group">
+                <div class="wm-filter-group" style="display: flex; gap: 8px; align-items: center;">
+                  <select id="wmMapperWorkspaceSelect" class="form-select" onchange="setMapperWorkspace(this.value)" title="Workspace Scope">
+                    <option value="">Scope: Global Platform</option>
+                  </select>
                   <select id="wmMapperRoleSelect" class="form-select" onchange="setMapperRole(this.value)"></select>
                 </div>
               </div>
@@ -1330,16 +1395,10 @@
                 <label for="keyName">Display Name</label>
                 <input type="text" id="keyName" placeholder="e.g. AAA Agent Pipeline" required />
               </div>
-              <div class="form-group">
-                <label for="keyType">Token Type</label>
-                <select id="keyType">
-                  <option value="LLM">LLM Token (td_llm_)</option>
-                  <option value="WEB">Website User Token (td_web_)</option>
-                  <option value="SDK">Python SDK Token (td_sdk_)</option>
-                  <option value="CURL">cURL Token (td_curl_)</option>
-                  <option value="ORCH">Orchestrator Token (td_orch_)</option>
-                  <option value="IDE">IDE Token (td_ide_)</option>
-                </select>
+              <div class="form-group" style="grid-column:1/-1">
+                <label>Workspace permissions for this key</label>
+                <div id="keyPermissions" class="permission-picker">Loading workspace permissions…</div>
+                <small>To grant an individual orchestrator tool, create a workspace permission with module “orchestrator”, resource set to the tool name, and action “custom”. Then select it here.</small>
               </div>
               <button class="btn btn-primary" type="submit">Create API Key</button>
             </form>
@@ -1352,7 +1411,7 @@
                 <tr>
                   <th>Name</th>
                   <th>Token Prefix</th>
-                  <th>Type</th>
+                  <th>Granted Permissions</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -1600,6 +1659,15 @@
                 Run
               </button>
 
+              <button class="btn btn-ghost btn-sm" id="btn-save-file" onclick="saveActiveEditorFile()" title="Save Document (Ctrl+S)" style="gap:5px; font-weight:600;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                  <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                <span id="btn-save-file-label">Save</span>
+              </button>
+
               <div class="seg" id="idePaneSelectorSeg">
                 <button class="active" onclick="idePaneMode('editor',this)">Editor</button>
                 <button onclick="idePaneMode('tooluse',this)">Tool JSON</button>
@@ -1616,6 +1684,7 @@
 
               <select id="ideProjectSelect" onchange="switchProject(this.value)" class="target-select"
                 style="font-weight:600;">
+                <option value="filebox" selected>📦 Agent Filebox (Persistent)</option>
                 <option value="demo">📁 Demo Sandbox Agent</option>
                 <option value="data">📁 Data Science &amp; Plotting</option>
                 <option value="ml">📁 LLM Evaluation Worker</option>
@@ -1716,6 +1785,13 @@
                         <polyline points="20 10 14 10 14 4"></polyline>
                         <line x1="14" y1="10" x2="21" y2="3"></line>
                         <line x1="3" y1="21" x2="10" y2="14"></line>
+                      </svg>
+                    </button>
+                    <button onclick="refreshFileExplorer(event)" title="Refresh Files">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                       </svg>
                     </button>
                   </div>
@@ -3372,6 +3448,8 @@
   <script src="/assets/js/thinkdome.js?v=5"></script>
   <script src="/assets/js/ui_builder.js?v=3"></script>
   <script src="/assets/js/workspace_manager.js?v=11"></script>
+  <script src="/assets/js/filebox.js?v=1"></script>
+  <script src="/assets/js/filemanager.js?v=1"></script>
   <script src="/assets/js/app.js?v=80"></script>
   <script>
     // Do not allow a saved password to be restored into the login form.

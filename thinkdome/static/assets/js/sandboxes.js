@@ -52,13 +52,16 @@ function selectedSandboxMemoryMb() {
 function validateSandboxMemorySelection() {
     const hint = document.getElementById('sbxHostMemoryHint');
     const selected = selectedSandboxMemoryMb();
-    const exceeds = Number.isFinite(selected) && sandboxHostAdmissibleMb !== null && selected > sandboxHostAdmissibleMb;
+    const exceeds = Number.isFinite(selected) && sandboxHostAdmissibleMb !== null && sandboxHostAdmissibleMb > 0 && selected > sandboxHostAdmissibleMb;
     const submit = document.getElementById('sbxProvisionSubmit');
     if (submit) submit.disabled = exceeds;
     if (hint && sandboxHostAdmissibleMb !== null) {
+        const capacityLabel = sandboxHostAdmissibleMb >= 1024
+            ? `${(sandboxHostAdmissibleMb / 1024).toFixed(1)} GB (${sandboxHostAdmissibleMb} MB)`
+            : `${sandboxHostAdmissibleMb} MB`;
         hint.textContent = exceeds
-            ? `You can't select this. Available for user is ${sandboxHostAdmissibleMb} MB.`
-            : `Available for user is ${sandboxHostAdmissibleMb} MB.`;
+            ? `You can't select this. Available host capacity for user is ${capacityLabel}.`
+            : `Available host capacity: ${capacityLabel}.`;
         hint.style.color = exceeds ? 'var(--danger)' : 'var(--fg-subtle)';
     }
     return !exceeds;
@@ -147,7 +150,7 @@ function renderSandboxNodesTableHTMLOnly() {
     container.innerHTML = Object.keys(state.sandboxes).map(key => {
         const sb = state.sandboxes[key];
         let statClass = 'success';
-        if (sb.status === 'stopped' || sb.status === 'halted') statClass = 'error';
+        if (sb.status === 'stopped' || sb.status === 'halted' || sb.status === 'expired') statClass = 'error';
         else if (sb.status === 'hibernating') statClass = 'warn';
 
         const statTag = `<span class="status-tag ${statClass}">${sb.status.toUpperCase()}</span>`;
@@ -196,7 +199,7 @@ function renderSandboxCardsHTMLOnly() {
         let statusBadgeClass = 'b-muted';
         if (sb.status === 'running') {
             statusBadgeClass = 'b-success';
-        } else if (sb.status === 'halted') {
+        } else if (sb.status === 'halted' || sb.status === 'expired') {
             statusBadgeClass = 'b-danger';
         } else if (sb.status === 'hibernating') {
             statusBadgeClass = 'b-warning';
@@ -739,24 +742,23 @@ function registerNewSandboxNode() {
         if (cachedCapacity) {
             try {
                 const cached = JSON.parse(cachedCapacity);
-                if (Date.now() - cached.updated_at < 30000 && Number.isFinite(cached.admissible_mb)) {
+                if (Date.now() - cached.updated_at < 30000 && Number.isFinite(cached.admissible_mb) && cached.admissible_mb > 0) {
                     sandboxHostAdmissibleMb = cached.admissible_mb;
                     validateSandboxMemorySelection();
+                } else {
+                    sessionStorage.removeItem('thinkdome_host_capacity');
                 }
             } catch (_) { sessionStorage.removeItem('thinkdome_host_capacity'); }
         }
         const token = localStorage.getItem('thinkdome_token');
         if (window.API?.getSandboxCapacity && token) {
             window.API.getSandboxCapacity(token).then(({data}) => {
-                const hint = document.getElementById('sbxHostMemoryHint');
-                if (hint && data) {
-                    sandboxHostAdmissibleMb = Number(data.admissible_mb) || 0;
+                if (data && Number.isFinite(data.admissible_mb)) {
+                    sandboxHostAdmissibleMb = Number(data.admissible_mb);
                     sessionStorage.setItem('thinkdome_host_capacity', JSON.stringify({
                         admissible_mb: sandboxHostAdmissibleMb,
                         updated_at: Date.now(),
                     }));
-                    const available = Math.max(0, Math.floor(sandboxHostAdmissibleMb / 1024));
-                    hint.textContent = `Available for user is ${sandboxHostAdmissibleMb} MB.`;
                     validateSandboxMemorySelection();
                 }
             }).catch(() => {

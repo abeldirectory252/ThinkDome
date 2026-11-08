@@ -2,11 +2,107 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import re
+import json
+from typing import Any, Dict, List, Optional, Callable
 from thinkdome.core.ui.components import ComponentRegistry
 
 
 SUPPORTED_ITEM_TYPES = {"page", "resource", "report", "url", "group"}
+
+
+class EntityValidationRule:
+    """A declarative rule for validating UI entity configuration objects."""
+
+    def __init__(
+        self,
+        name: str,
+        validator_func: Callable[[Dict[str, Any], Optional[str]], Optional[str]],
+        error_code: str = "VALIDATION_FAILED",
+    ) -> None:
+        self.name = name
+        self.validator_func = validator_func
+        self.error_code = error_code
+
+    def evaluate(self, config: Dict[str, Any], expected_type: Optional[str] = None) -> Optional[str]:
+        return self.validator_func(config, expected_type)
+
+
+class EntityValidatorPipeline:
+    """Pluggable pipeline replacing procedural ladders with declarative entity rules."""
+
+    def __init__(self) -> None:
+        self._rules: List[EntityValidationRule] = []
+        self._register_default_rules()
+
+    def register_rule(self, rule: EntityValidationRule) -> None:
+        self._rules.append(rule)
+
+    def _register_default_rules(self) -> None:
+        self.register_rule(EntityValidationRule(
+            "object_type",
+            lambda cfg, exp: "UI entity configuration must be an object" if not isinstance(cfg, dict) else None
+        ))
+        self.register_rule(EntityValidationRule(
+            "name_presence_and_length",
+            lambda cfg, exp: (
+                "UI entity name must be a non-empty string of at most 255 characters"
+                if not isinstance(cfg.get("name"), str) or not cfg.get("name", "").strip() or len(cfg.get("name", "")) > 255
+                else None
+            )
+        ))
+        self.register_rule(EntityValidationRule(
+            "name_no_control_characters",
+            lambda cfg, exp: (
+                "UI entity name contains control characters"
+                if isinstance(cfg.get("name"), str) and re.search(r"[\x00-\x1f\x7f]", cfg.get("name", ""))
+                else None
+            )
+        ))
+        self.register_rule(EntityValidationRule(
+            "expected_entity_type",
+            lambda cfg, exp: (
+                f"UI entity type must be {exp}"
+                if exp and cfg.get("entity_type", exp) != exp
+                else None
+            )
+        ))
+        self.register_rule(EntityValidationRule(
+            "allowed_roles_schema",
+            lambda cfg, exp: self._check_roles(cfg)
+        ))
+        self.register_rule(EntityValidationRule(
+            "payload_json_size",
+            lambda cfg, exp: self._check_payload(cfg)
+        ))
+
+    @staticmethod
+    def _check_roles(cfg: Dict[str, Any]) -> Optional[str]:
+        roles = cfg.get("allowed_roles", cfg.get("roles", []))
+        if isinstance(roles, str) or not isinstance(roles, (list, tuple, set)):
+            return "allowed_roles must be a list of role names"
+        if len(roles) > 100 or any(not isinstance(role, str) or not role.strip() or len(role) > 100 for role in roles):
+            return "allowed_roles contains an invalid or excessive role list"
+        return None
+
+    @staticmethod
+    def _check_payload(cfg: Dict[str, Any]) -> Optional[str]:
+        try:
+            if len(json.dumps(cfg, ensure_ascii=False)) > 1_000_000:
+                return "UI entity configuration exceeds the 1 MB limit"
+        except (TypeError, ValueError):
+            return "UI entity configuration must contain JSON-compatible values"
+        return None
+
+    def validate(self, config: Dict[str, Any], expected_type: Optional[str] = None) -> None:
+        """Run all registered rules against config; raises ValueError with rule message if invalid."""
+        for rule in self._rules:
+            error_message = rule.evaluate(config, expected_type)
+            if error_message:
+                raise ValueError(error_message)
+
+
+_GLOBAL_ENTITY_PIPELINE = EntityValidatorPipeline()
 
 
 def _validate_roles(resource: Dict[str, Any], path: str, errors: List[Dict[str, str]]) -> None:
@@ -22,6 +118,11 @@ def _validate_roles(resource: Dict[str, Any], path: str, errors: List[Dict[str, 
 
 class UIValidator:
     """Validates top-level and partial ThinkDome UI configurations."""
+
+    @classmethod
+    def validate_entity(cls, config: Dict[str, Any], expected_type: Optional[str] = None) -> None:
+        """Validate single UI entity configuration using the pluggable declarative pipeline."""
+        _GLOBAL_ENTITY_PIPELINE.validate(config, expected_type)
 
     @classmethod
     def validate(cls, config: Dict[str, Any]) -> List[Dict[str, str]]:

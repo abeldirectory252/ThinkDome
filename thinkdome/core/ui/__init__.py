@@ -136,6 +136,38 @@ def get_registry_summary() -> Dict[str, Any]:
     return _ui_manager.get_registry_summary()
 
 
+def allocate_privilege(document_type: str, role: str, permissions: Any, level: int = 0, user_id: Optional[str] = None, workspace_id: Optional[str] = None, is_denial: bool = False) -> Dict[str, Any]:
+    return _ui_manager.allocate_privilege(document_type, role, permissions, level=level, user_id=user_id, workspace_id=workspace_id, is_denial=is_denial)
+
+
+def grant_privilege(document_type: str, role: str, permissions: Any, level: int = 0, user_id: Optional[str] = None) -> Dict[str, Any]:
+    return _ui_manager.grant_privilege(document_type, role, permissions, level=level, user_id=user_id)
+
+
+def deny_privilege(document_type: str, role: str, permissions: Any, level: int = 0, user_id: Optional[str] = None) -> Dict[str, Any]:
+    return _ui_manager.deny_privilege(document_type, role, permissions, level=level, user_id=user_id)
+
+
+def customize_exemption(target_name_or_doc_type: str, exempt: bool = True) -> bool:
+    return _ui_manager.customize_exemption(target_name_or_doc_type, exempt=exempt)
+
+
+def override_privilege(workspace_id: str, document_type: str, role: str, permissions: Any, is_denial: bool = False, is_custom_exempt: bool = False, level: int = 0, user_id: Optional[str] = None, actor: str = "workspace_manager") -> Dict[str, Any]:
+    return _ui_manager.override_privilege(workspace_id, document_type, role, permissions, is_denial=is_denial, is_custom_exempt=is_custom_exempt, level=level, user_id=user_id, actor=actor)
+
+
+def bulk_override_privileges(workspace_id: str, overrides: List[Dict[str, Any]], actor: str = "workspace_manager") -> List[Dict[str, Any]]:
+    return _ui_manager.bulk_override_privileges(workspace_id, overrides, actor=actor)
+
+
+def reset_privileges_to_defaults(workspace_id: str, document_type: Optional[str] = None, actor: str = "workspace_manager") -> int:
+    return _ui_manager.reset_privileges_to_defaults(workspace_id, document_type=document_type, actor=actor)
+
+
+def get_privilege_overrides(workspace_id: str) -> List[Dict[str, Any]]:
+    return _ui_manager.get_privilege_overrides(workspace_id)
+
+
 __all__ = [
     "workspace",
     "page",
@@ -166,6 +198,14 @@ __all__ = [
     "register_entity",
     "bulk_update_roles",
     "get_registry_summary",
+    "allocate_privilege",
+    "grant_privilege",
+    "deny_privilege",
+    "customize_exemption",
+    "override_privilege",
+    "bulk_override_privileges",
+    "reset_privileges_to_defaults",
+    "get_privilege_overrides",
     "user_preferences",
     "components",
 ]

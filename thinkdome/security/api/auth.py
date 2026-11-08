@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import re
 from typing import Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status, Header
 from pydantic import BaseModel, Field
@@ -28,8 +29,23 @@ class UserCredentials(BaseModel):
         max_length=50,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,49}$",
     )
-    password: str = Field(..., min_length=6, max_length=100)
-    role: Optional[str] = Field(default="AGENT_STANDARD")
+    password: str = Field(..., min_length=8, max_length=100)
+
+class RegistrationRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,49}$")
+    email: str = Field(..., min_length=5, max_length=254)
+    password: str = Field(..., min_length=12, max_length=100)
+    first_name: str = Field(..., min_length=1, max_length=80)
+    last_name: str = Field(..., min_length=1, max_length=80)
+    phone: Optional[str] = Field(default="", max_length=30)
+    department: Optional[str] = Field(default="", max_length=100)
+    department_id: Optional[str] = Field(default=None, max_length=100)
+    designation: Optional[str] = Field(default="", max_length=100)
+    organization: Optional[str] = Field(default="", max_length=100)
+    avatar_url: Optional[str] = Field(default="", max_length=500)
+    bio: Optional[str] = Field(default="", max_length=1000)
+    timezone: Optional[str] = Field(default="UTC", max_length=50)
+    locale: Optional[str] = Field(default="en-US", max_length=20)
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -37,7 +53,7 @@ class LoginResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     username: str
-    role: str = "AGENT_STANDARD"
+    role: Optional[str] = None
     user: Optional[dict] = None
     expires_in: int = 900
 
@@ -48,26 +64,51 @@ class RefreshRequest(BaseModel):
 
 @router.post("/auth/register", status_code=201)
 async def register(
-    credentials: UserCredentials,
-    request: Request,
-    auth_svc: AuthService = Depends(get_auth_service)
+    credentials: RegistrationRequest,
 ):
-    """Register a new sandbox user."""
+    """Register a new sandbox user with full profile fields and dynamic role allocation."""
     # Public self-registration can only create the least-privileged role.
     # Never trust a client-supplied role here; privileged accounts must be
     # provisioned through the admin RBAC API.
-    success = auth_svc.register(
-        credentials.username, 
-        credentials.password,
-        role="AGENT_STANDARD",
-        actor_ip=request.client.host if request.client else "unknown"
-    )
-    if not success:
+    email = credentials.email.strip().lower()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists or is invalid."
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Enter a valid email address."
         )
-    return {"status": "success", "message": "User registered successfully."}
+    if not credentials.first_name.strip() or not credentials.last_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="First and last name are required."
+        )
+    try:
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        from thinkdome.security.rbac.models import Role
+        new_user = user_service.create_user(
+            username=credentials.username,
+            email=email,
+            password=credentials.password,
+            first_name=credentials.first_name.strip(),
+            last_name=credentials.last_name.strip(),
+            phone=credentials.phone or "",
+            department_id=credentials.department_id or (credentials.department if credentials.department else None),
+            designation=credentials.designation or "",
+            avatar_url=credentials.avatar_url or "",
+            organization=credentials.organization or "",
+            bio=credentials.bio or "",
+            timezone=credentials.timezone or "UTC",
+            locale=credentials.locale or "en-US",
+            actor="self-registration",
+        )
+        standard_role_name = dynamic_role_protocol.get_default_role()
+        standard_role = RoleRepository().get_by_name(standard_role_name)
+        if not standard_role:
+            standard_role = Role(name=standard_role_name, description=f"{standard_role_name} member role", is_active=True)
+            standard_role.save()
+        user_service.assign_role_to_user(new_user.id, standard_role.id, actor="self-registration")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"status": "success", "message": "Account created. You can now log in with your sandbox credentials."}
 
 @router.post("/auth/login", response_model=LoginResponse)
 async def login(
@@ -103,8 +144,10 @@ async def login(
                     password=credentials.password,
                     actor="legacy-auth-migration",
                 )
+                from thinkdome.security.rbac.protocol import dynamic_role_protocol
                 role_repo = RoleRepository()
-                standard_role = role_repo.get_by_name("AGENT_STANDARD")
+                standard_role_name = dynamic_role_protocol.get_default_role()
+                standard_role = role_repo.get_by_name(standard_role_name)
                 if standard_role:
                     user_service.assign_role_to_user(
                         migrated_user.id,

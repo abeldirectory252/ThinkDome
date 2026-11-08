@@ -23,13 +23,13 @@ from thinkdome.core.kernel.kernel import Kernel
 from thinkdome.platform.database.service import DatabaseService
 from thinkdome.sandbox.core.service import ExecutionService
 from thinkdome.platform.orchestration.search.service import SearchService
-from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService, ROLE_SCOPES
+from thinkdome.platform.orchestration.orchestrator_service import OrchestratorService
 from thinkdome.platform.orchestration.request_log import RequestLogService
 from thinkdome.platform.orchestration.tools import registry
 from thinkdome.security.identity.core import UserIdentity, select_effective_role
 from thinkdome.apps.sandbox.models import Sandbox
 
-from thinkdome.security.identity.core import is_admin_role
+from thinkdome.security.identity.core import RolePolicyEngine, UserIdentity
 _MCP_SENSITIVE_KEYS = {
     "password", "passwd", "secret", "token", "api_key", "apikey", "authorization",
     "credential", "credentials", "private_key", "access_key", "refresh_token",
@@ -75,9 +75,26 @@ def get_mcp_server(
         username = str(identity.username)
         if identity.roles:
             caller_role = select_effective_role(identity.roles, default="AGENT_STANDARD", username=username)
+    policy_identity = identity or UserIdentity(username=username, roles={caller_role})
 
     server = Server("ThinkDome Sandbox MCP Server")
     request_log = RequestLogService(get_settings(), db_service)
+
+    if not hasattr(server, "list_tools"):
+        def _mock_list_tools():
+            def decorator(fn):
+                setattr(server, "_list_tools_handler", fn)
+                return fn
+            return decorator
+        server.list_tools = _mock_list_tools
+
+    if not hasattr(server, "call_tool"):
+        def _mock_call_tool():
+            def decorator(fn):
+                setattr(server, "_call_tool_handler", fn)
+                return fn
+            return decorator
+        server.call_tool = _mock_call_tool
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
@@ -93,22 +110,24 @@ def get_mcp_server(
         except Exception as ae:
             logger.error(f"Failed to log list_tools audit: {ae}")
 
+        # Do not advertise tools the authenticated caller cannot invoke.
         active_tools = registry.get_active_tools(site_name)
-        role_scopes = ROLE_SCOPES.get(str(caller_role).upper(), ROLE_SCOPES["LLM"])
         from thinkdome.core.ui.service import UIManager
-        from thinkdome.security.identity.core import is_admin_role
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
         policies = UIManager().get_mcp_tool_metadata()
-        role_upper = str(caller_role).upper()
         active_tools = [
             tool for tool in active_tools
             if policies.get(tool.name, {}).get("is_active", True)
-            and (is_admin_role(role_upper) or not policies.get(tool.name, {}).get("allowed_roles")
-                 or role_upper in {str(value).upper() for value in policies.get(tool.name, {}).get("allowed_roles", [])})
-        ]
-        # Do not advertise tools the authenticated caller cannot invoke.
-        active_tools = [
-            tool for tool in active_tools
-            if not tool.required_scope or tool.required_scope in role_scopes
+            and (
+                dynamic_role_protocol.has_document_permission(
+                    roles=policy_identity.roles,
+                    document_type="MCPTool",
+                    action="access_mcp",
+                    doc_name=tool.name,
+                    user_id=username,
+                )
+                or RolePolicyEngine.has_permission(policy_identity, f"orchestrator:{tool.name}:custom")
+            )
         ]
         mcp_tools = []
         for t in active_tools:
@@ -131,6 +150,19 @@ def get_mcp_server(
         logger.info("Invoking tool call '%s' as user '%s' (%s) with arguments: %s", name, username, caller_role, safe_arguments)
         start_time = time.time()
 
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        if not (
+            dynamic_role_protocol.has_document_permission(
+                roles=policy_identity.roles,
+                document_type="MCPTool",
+                action="access_mcp",
+                doc_name=name,
+                user_id=username,
+            )
+            or RolePolicyEngine.has_permission(policy_identity, f"orchestrator:{name}:custom")
+        ):
+            return [types.TextContent(type="text", text=f"Access denied: Role '{caller_role}' lacks access_mcp privilege for tool '{name}'")]
+
         tool_use = {
             "type": "tool_use",
             "id": f"toolu_{uuid.uuid4().hex}",
@@ -142,10 +174,15 @@ def get_mcp_server(
         requested_sandbox_id = (arguments or {}).get("sandbox_id")
         user_sandboxes = []
 
-        all_query = Sandbox.query().filter(status="active").all() or Sandbox.query().filter(status="Running").all()
-        all_dicts = [sb.to_dict() for sb in all_query]
-        if not all_dicts and hasattr(db_service, "list_sandboxes"):
-            all_dicts = db_service.list_sandboxes()
+        all_dicts = []
+        if hasattr(db_service, "list_sandboxes"):
+            try:
+                all_dicts = db_service.list_sandboxes()
+            except Exception:
+                all_dicts = []
+        if not all_dicts:
+            all_query = Sandbox.query().filter(status="active").all() or Sandbox.query().filter(status="Running").all()
+            all_dicts = [sb.to_dict() for sb in all_query]
 
         from thinkdome.security.identity.core import UserIdentity, is_sandbox_accessible
 
@@ -214,6 +251,7 @@ def get_mcp_server(
                 sandbox_limits=sandbox_limits,
                 username=username,
                 sandbox_id=sandbox_id,
+                permissions=sorted(policy_identity.permissions),
             )
             content = res.get("content", "")
             duration_ms = (time.time() - start_time) * 1000

@@ -549,7 +549,6 @@
         {
           name: "sandboxes",
           title: "Sandboxes Studio",
-          allowed_roles: ["AGENT_STANDARD", "SUPER_ADMIN"],
           layout: [
             { type: "heading", text: "AI Sandboxes Studio & MicroVM Containers", level: 1 },
             { type: "stat", label: "Isolation Policy", value: "Docker / Strict Network Deny" }
@@ -558,7 +557,6 @@
         {
           name: "console",
           title: "Console & IDE Environment",
-          allowed_roles: ["AGENT_STANDARD", "SUPER_ADMIN"],
           layout: [
             { type: "heading", text: "Interactive Console & Code Execution", level: 1 }
           ]
@@ -585,13 +583,11 @@
         {
           name: "users",
           title: "User Identity Accounts",
-          allowed_roles: ["SUPER_ADMIN"],
           layout: [{ type: "heading", text: "RBAC User Accounts & Key Credentials", level: 1 }]
         },
         {
           name: "audit",
           title: "Security Audit Center",
-          allowed_roles: ["SUPER_ADMIN"],
           layout: [{ type: "heading", text: "Tenant Security Audit Logs", level: 1 }]
         }
       ]
@@ -614,7 +610,6 @@
         {
           name: "billing",
           title: "Billing & Resource Consumption",
-          allowed_roles: ["FINANCE_MANAGER", "SUPER_ADMIN"],
           layout: [{ type: "heading", text: "Resource Spending & Monthly Credit Usage", level: 1 }]
         }
       ]

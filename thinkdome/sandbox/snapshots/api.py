@@ -15,8 +15,8 @@ def _owner(user: dict) -> str:
 
 
 def _is_admin(user: dict) -> bool:
-    from thinkdome.security.identity.core import is_admin_role
-    return is_admin_role(user.get("role"))
+    from thinkdome.security.identity.core import UserIdentity
+    return UserIdentity.from_dict(user).is_admin()
 
 
 class CreateSnapshotRequest(BaseModel):

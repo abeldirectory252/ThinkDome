@@ -1,5 +1,5 @@
 {
-    "db_url": "sqlite:////home/sandbox/ThinkDome/sites/think.local/storage/thinkbox.db",
+    "db_url": "sqlite:///sites/think.local/storage/thinkbox.db",
     "installed_apps": [
         "sandbox",
         "agents",

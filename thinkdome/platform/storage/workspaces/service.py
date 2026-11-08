@@ -204,3 +204,45 @@ class WorkspaceService:
             shutil.rmtree(ws_dir)
         shutil.copytree(snap_dir, ws_dir)
         return True
+
+    def override_privilege(
+        self,
+        ws_id: str,
+        document_type: str,
+        role: str,
+        permissions: dict,
+        is_denial: bool = False,
+        is_custom_exempt: bool = False,
+        level: int = 0,
+        user_id: Optional[str] = None,
+        actor: str = "workspace_manager",
+    ) -> dict:
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        return dynamic_role_protocol.override_privilege(
+            workspace_id=ws_id,
+            document_type=document_type,
+            role=role,
+            permissions=permissions,
+            is_denial=is_denial,
+            is_custom_exempt=is_custom_exempt,
+            level=level,
+            user_id=user_id,
+            actor=actor,
+        )
+
+    def get_privilege_overrides(self, ws_id: str) -> list[dict]:
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        return dynamic_role_protocol.get_privilege_overrides(ws_id)
+
+    def reset_privileges_to_defaults(
+        self,
+        ws_id: str,
+        document_type: Optional[str] = None,
+        actor: str = "workspace_manager",
+    ) -> int:
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        return dynamic_role_protocol.reset_privileges_to_defaults(
+            workspace_id=ws_id,
+            document_type=document_type,
+            actor=actor,
+        )

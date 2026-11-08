@@ -4,13 +4,15 @@ These tables predate the RBAC ORM and intentionally do not have ThinkDome's
 soft-delete column.  They remain mapped here so read paths do not need SQL.
 """
 
-from thinkdome.core.orm.orm import FloatField, Model, StringField, TextField
+from thinkdome.core.orm.orm import FloatField, IntegerField, Model, StringField, TextField
 
 
 class LegacyAuditLog(Model):
     __tablename__ = "audit_logs"
+    __primary_key__ = "id"
     __omit_soft_delete__ = True
 
+    id = IntegerField(primary_key=True)
     timestamp = StringField()
     actor = StringField(required=True)
     action = StringField(required=True)
@@ -21,8 +23,10 @@ class LegacyAuditLog(Model):
 
 class RequestLog(Model):
     __tablename__ = "request_logs"
+    __primary_key__ = "id"
     __omit_soft_delete__ = True
 
+    id = IntegerField(primary_key=True)
     request_id = StringField(required=True)
     timestamp = StringField()
     display_name = StringField(required=True)

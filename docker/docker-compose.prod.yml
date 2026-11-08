@@ -16,16 +16,19 @@ version: "3.9"
 x-common-env: &common-env
   DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set with non-default production credentials}
   RABBITMQ_URL: ${RABBITMQ_URL:?RABBITMQ_URL must be set with non-default production credentials}
-  REDIS_URL: redis://redis:6379/0
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
   EXECUTOR_BACKEND: docker
   EXECUTOR_IMAGE: ${EXECUTOR_IMAGE:?EXECUTOR_IMAGE must be an immutable image reference using @sha256}
   POOL_ENABLED: "true"
   POOL_MIN_WARM: "3"
   POOL_MAX_SIZE: "50"
   FILE_STORAGE_DIR: /data/storage
-  OTEL_ENABLED: "true"
+  OTEL_ENABLED: "${OTEL_ENABLED:-false}"
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   OTEL_SERVICE_NAME: thinkdome
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be configured with at least 32 characters}
+  WORKSPACE_MASTER_KEY: ${WORKSPACE_MASTER_KEY:?WORKSPACE_MASTER_KEY must be configured with at least 32 characters}
+  DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:-production}
 
 services:
   # ── Data Stores ────────────────────────────────────────────────────────────
@@ -34,13 +37,13 @@ services:
     image: postgres@sha256:e013e867e712fec275706a6c51c966f0bb0c93cfa8f51000f85a15f9865a28cb
     restart: unless-stopped
     environment:
-      POSTGRES_DB: thinkdome
-      POSTGRES_USER: thinkdome
+      POSTGRES_DB: ${POSTGRES_DB:-thinkdome}
+      POSTGRES_USER: ${POSTGRES_USER:-thinkdome}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U thinkdome"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thinkdome}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -48,6 +51,9 @@ services:
   rabbitmq:
     image: rabbitmq@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
     restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-thinkdome}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?RABBITMQ_DEFAULT_PASS must be set}
     volumes:
       - rmqdata:/var/lib/rabbitmq
     healthcheck:
@@ -105,7 +111,7 @@ services:
           cpus: "0.5"
           memory: 512M
 
-  # ── Application ────────────────────────────────────────────────────────────
+  # ── Application Services ───────────────────────────────────────────────────
 
   thinkdome-api:
     build:
@@ -171,10 +177,11 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  # One instance per execution node. This process owns MicroVM creation and
-  # is intentionally separate from the public API. Put it on a private
-  # network/VLAN and terminate mTLS at the node listener or an adjacent mesh.
+  # ── MicroVM Node Agent (Optional profile for microvm backends) ──────────────
+
   thinkdome-node-agent:
+    profiles:
+      - microvm
     build:
       context: ..
       dockerfile: docker/thinkdome/Dockerfile
@@ -183,16 +190,13 @@ services:
     environment:
       EXECUTOR_BACKEND: microvm
       DEPLOYMENT_ENV: production
-      NODE_ID: ${NODE_ID:?NODE_ID must be set}
+      NODE_ID: ${NODE_ID:-node-1}
       NODE_REGION: ${NODE_REGION:-default}
       NODE_AGENT_HOST: 0.0.0.0
       NODE_AGENT_PORT: 8100
-      NODE_AUTH_KEY_HEX: ${NODE_AUTH_KEY_HEX:?NODE_AUTH_KEY_HEX must be set}
-      CONTROL_PLANE_INTERNAL_URL: ${CONTROL_PLANE_INTERNAL_URL:?CONTROL_PLANE_INTERNAL_URL must be set}
-      NODE_REQUIRE_MTLS: "true"
-      NODE_TLS_CERTFILE: /run/thinkdome/tls/node.crt
-      NODE_TLS_KEYFILE: /run/thinkdome/tls/node.key
-      NODE_TLS_CAFILE: /run/thinkdome/tls/ca.crt
+      NODE_AUTH_KEY_HEX: ${NODE_AUTH_KEY_HEX:-}
+      CONTROL_PLANE_INTERNAL_URL: ${CONTROL_PLANE_INTERNAL_URL:-http://thinkdome-api:8000}
+      NODE_REQUIRE_MTLS: "false"
       MICROVM_KERNEL_PATH: /var/lib/thinkdome/vmlinux
       MICROVM_ROOTFS_PATH: /var/lib/thinkdome/rootfs.ext4
       MICROVM_INITRAMFS_PATH: /var/lib/thinkdome/initramfs.cpio.gz
@@ -208,7 +212,6 @@ services:
       - no-new-privileges:true
     volumes:
       - node-state:/var/lib/thinkdome
-      - ${NODE_TLS_DIR:?NODE_TLS_DIR must be set}:/run/thinkdome/tls:ro
     ports:
       - "127.0.0.1:8100:8100"
 

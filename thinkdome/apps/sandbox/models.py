@@ -26,7 +26,7 @@ class Sandbox(Model):
     storage_quota_mb = IntegerField(default=10240)
     network_enabled = BooleanField(default=False)
     status = SelectField(
-        choices=["Created", "Provisioning", "Running", "Paused", "Stopped", "Destroyed"],
+        choices=["Created", "Provisioning", "Running", "Paused", "Stopped", "Destroyed", "Inactive"],
         default="Created",
     )
     owner = StringField(required=True)
@@ -36,6 +36,9 @@ class Sandbox(Model):
     placement_version = IntegerField(default=0)
     expires_at = FloatField(default=0.0)
     python_dependencies = StringField(default="[]")
+    is_long_lived = BooleanField(default=False)
+    ttl_seconds = IntegerField(default=180)
+    auto_deactivate = BooleanField(default=True)
 
 
 class Organization(Model):

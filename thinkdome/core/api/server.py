@@ -92,6 +92,8 @@ app.include_router(execute_router, prefix="/v1")
 app.include_router(files_router, prefix="/v1")
 app.include_router(workspaces_router, prefix="/v1")
 app.include_router(filebox_router)
+from thinkdome.filebox.api import router as filebox_browse_router
+app.include_router(filebox_browse_router)
 app.include_router(sessions_router, prefix="/v1")
 app.include_router(languages_router, prefix="/v1")
 app.include_router(admin_router, prefix="/v1/admin")

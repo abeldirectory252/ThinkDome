@@ -10,15 +10,14 @@ import thinkdome.core.ui as ui
 from thinkdome.core.handler import resolve_and_call
 from thinkdome.core.handler import SessionContext
 from thinkdome.core.dependencies import get_current_user
-from thinkdome.security.identity.core import is_admin_role
 
 router = APIRouter(prefix="/v1/ui", tags=["Dynamic UI Platform"])
 
 
 def _require_admin(user: Dict[str, Any]) -> None:
     """Apply one normalized admin policy to all UI management mutations."""
-    roles = user.get("roles") or [user.get("role", "")]
-    if not any(is_admin_role(str(role)) for role in roles):
+    from thinkdome.security.identity.core import UserIdentity
+    if not UserIdentity.from_dict(user).is_admin():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access is required")
 
 
@@ -66,9 +65,10 @@ async def get_ui_builder(user: Dict[str, Any] = Depends(get_current_user)):
     """Fetch UI builder state including developer configs, overrides, drafts, and versions."""
     _require_admin(user)
 
+    user_ident = UserIdentity.from_dict(user)
     user_ctx = {
-        "user_id": user.get("username", "admin"),
-        "roles": [user.get("role", "ADMIN")],
+        "user_id": user_ident.username or "anonymous",
+        "roles": list(user_ident.roles),
     }
 
     effective = ui.get_effective_ui(user_ctx)
@@ -94,9 +94,10 @@ async def save_ui_draft(payload: DraftPayload, user: Dict[str, Any] = Depends(ge
 async def preview_ui_draft(draft_id: str, user: Dict[str, Any] = Depends(get_current_user)):
     """Preview effective UI resulting from draft changes without publishing."""
     _require_admin(user)
+    user_ident = UserIdentity.from_dict(user)
     user_ctx = {
-        "user_id": user.get("username", "admin"),
-        "roles": [user.get("role", "ADMIN")],
+        "user_id": user_ident.username or "anonymous",
+        "roles": list(user_ident.roles),
     }
     try:
         return ui.preview(draft_id, user_ctx)
@@ -195,6 +196,113 @@ async def get_registry_summary(user: Dict[str, Any] = Depends(get_current_user))
     """Get full UI platform registry summary."""
     _require_admin(user)
     return ui.get_registry_summary()
+
+
+class PrivilegeMutationPayload(BaseModel):
+    document_type: str
+    role: str
+    permissions: Dict[str, bool]
+    level: int = 0
+    user_id: Optional[str] = None
+    workspace_id: Optional[str] = None
+
+
+class PrivilegeExemptionPayload(BaseModel):
+    target: str
+    exempt: bool = True
+
+
+class PrivilegeOverridePayload(BaseModel):
+    workspace_id: str
+    document_type: str
+    role: str
+    permissions: Dict[str, bool]
+    is_denial: bool = False
+    is_custom_exempt: bool = False
+    level: int = 0
+    user_id: Optional[str] = None
+
+
+class PrivilegeResetPayload(BaseModel):
+    workspace_id: str
+    document_type: Optional[str] = None
+
+
+@router.post("/privilege/grant")
+async def grant_privilege(payload: PrivilegeMutationPayload, user: Dict[str, Any] = Depends(get_current_user)):
+    """Privilege Granter: dynamically grant permissions to a role or user."""
+    _require_admin(user)
+    return ui.grant_privilege(
+        document_type=payload.document_type,
+        role=payload.role,
+        permissions=payload.permissions,
+        level=payload.level,
+        user_id=payload.user_id,
+    )
+
+
+@router.post("/privilege/deny")
+async def deny_privilege(payload: PrivilegeMutationPayload, user: Dict[str, Any] = Depends(get_current_user)):
+    """Privilege Denial: explicitly deny permissions (denial strictly takes precedence)."""
+    _require_admin(user)
+    return ui.deny_privilege(
+        document_type=payload.document_type,
+        role=payload.role,
+        permissions=payload.permissions,
+        level=payload.level,
+        user_id=payload.user_id,
+    )
+
+
+@router.post("/privilege/exempt")
+async def customize_exemption(payload: PrivilegeExemptionPayload, user: Dict[str, Any] = Depends(get_current_user)):
+    """User customization: intentionally exempt a function or document from privilege checking."""
+    _require_admin(user)
+    return {"status": "success", "exempted": ui.customize_exemption(payload.target, exempt=payload.exempt)}
+
+
+@router.post("/privilege/override")
+async def override_privilege(payload: PrivilegeOverridePayload, user: Dict[str, Any] = Depends(get_current_user)):
+    """Workspace Manager custom privilege override for a specific workspace."""
+    _require_admin(user)
+    return ui.override_privilege(
+        workspace_id=payload.workspace_id,
+        document_type=payload.document_type,
+        role=payload.role,
+        permissions=payload.permissions,
+        is_denial=payload.is_denial,
+        is_custom_exempt=payload.is_custom_exempt,
+        level=payload.level,
+        user_id=payload.user_id,
+        actor=user.get("username", "admin"),
+    )
+
+
+@router.post("/privilege/reset")
+async def reset_privileges(payload: PrivilegeResetPayload, user: Dict[str, Any] = Depends(get_current_user)):
+    """Reset workspace privilege overrides back to defaults."""
+    _require_admin(user)
+    count = ui.reset_privileges_to_defaults(
+        workspace_id=payload.workspace_id,
+        document_type=payload.document_type,
+        actor=user.get("username", "admin"),
+    )
+    return {"status": "success", "reset_count": count}
+
+
+@router.get("/privilege/overrides")
+async def get_privilege_overrides(workspace_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    """Fetch all privilege overrides configured for a workspace."""
+    _require_admin(user)
+    return ui.get_privilege_overrides(workspace_id)
+
+
+@router.get("/privilege/protocol-matrix")
+async def get_protocol_matrix(user: Dict[str, Any] = Depends(get_current_user)):
+    """Fetch dynamic role allocation protocol matrix for all 10 subsystems and 14 properties."""
+    _require_admin(user)
+    from thinkdome.security.rbac.protocol import dynamic_role_protocol
+    return dynamic_role_protocol.get_role_permission_matrix()
 
 
 

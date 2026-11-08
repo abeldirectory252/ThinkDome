@@ -328,3 +328,83 @@ def get_registry_summary(session=None):
     """Return full UI framework registry summary."""
     mgr = _get_manager()
     return mgr.get_registry_summary()
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def allocate_privilege(document_type, role, permissions, level=0, user_id=None, is_denial=False, session=None):
+    """Allocate dynamic privilege properties via the centralized Workspace protocol."""
+    mgr = _get_manager()
+    return mgr.allocate_privilege(document_type, role, permissions, level=level, user_id=user_id, is_denial=is_denial)
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def grant_privilege(document_type, role, permissions, level=0, user_id=None, session=None):
+    """Privilege Granter: dynamically grant permissions to a role or user."""
+    mgr = _get_manager()
+    return mgr.grant_privilege(document_type, role, permissions, level=level, user_id=user_id)
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def deny_privilege(document_type, role, permissions, level=0, user_id=None, session=None):
+    """Privilege Denial: explicitly deny permissions (denial strictly takes precedence)."""
+    mgr = _get_manager()
+    return mgr.deny_privilege(document_type, role, permissions, level=level, user_id=user_id)
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def customize_exemption(target_name_or_doc_type, exempt=True, session=None):
+    """User customization: intentionally exempt a function or document from privilege checking."""
+    mgr = _get_manager()
+    return mgr.customize_exemption(target_name_or_doc_type, exempt=exempt)
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def register_dynamic_role(name, description="", parent_role=None, session=None):
+    """Dynamically register a role into the centralized protocol."""
+    from thinkdome.security.rbac.protocol import dynamic_role_protocol
+    return dynamic_role_protocol.register_role(name, description=description, parent_role=parent_role)
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def register_dynamic_doctype(doc_type, description="", session=None):
+    """Dynamically register a document type into the centralized protocol."""
+    from thinkdome.security.rbac.protocol import dynamic_role_protocol
+    return dynamic_role_protocol.register_document_type(doc_type, description=description)
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def override_privilege(workspace_id, document_type, role, permissions, is_denial=False, is_custom_exempt=False, level=0, user_id=None, session=None):
+    """Workspace Manager custom privilege override for a specific workspace."""
+    mgr = _get_manager()
+    actor = session.get("username", "workspace_manager") if session else "workspace_manager"
+    return mgr.override_privilege(
+        workspace_id=workspace_id,
+        document_type=document_type,
+        role=role,
+        permissions=permissions,
+        is_denial=is_denial,
+        is_custom_exempt=is_custom_exempt,
+        level=level,
+        user_id=user_id,
+        actor=actor,
+    )
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def reset_privileges_to_defaults(workspace_id, document_type=None, session=None):
+    """Reset workspace privilege overrides back to defaults."""
+    mgr = _get_manager()
+    actor = session.get("username", "workspace_manager") if session else "workspace_manager"
+    return mgr.reset_privileges_to_defaults(
+        workspace_id=workspace_id,
+        document_type=document_type,
+        actor=actor,
+    )
+
+
+@thinkdome.whitelist(roles=["ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN"])
+def get_privilege_overrides(workspace_id, session=None):
+    """Fetch all privilege overrides configured for a workspace."""
+    mgr = _get_manager()
+    return mgr.get_privilege_overrides(workspace_id)
+

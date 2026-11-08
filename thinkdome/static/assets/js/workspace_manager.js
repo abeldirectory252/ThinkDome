@@ -14,11 +14,14 @@
     activeCard: 'card1', // 'card1' | 'card2' | 'card3'
     viewMode: 'tree', // 'tree' | 'group'
     activeRoleFilter: '__all__',
-    activeMapperTab: 'pages', // 'pages' | 'modules' | 'processes'
+    activeMapperTab: 'rbac_protocol', // 'rbac_protocol' | 'pages' | 'modules' | 'processes' | 'permissions' | 'ui_parts'
     activeMapperRole: 'AGENT_STANDARD',
+    activeWorkspaceScope: '', // '' for global platform default, or workspace_id
+    workspacesList: [],
     activeBossTab: 'register', // 'register' | 'designer' | 'registry' | 'versions'
     treeData: null,
     matrixData: null,
+    protocolMatrix: null,
     registryData: null,
     designerPage: null,
     editingNodeId: null,
@@ -27,14 +30,19 @@
   // Keep server-provided labels out of HTML/JavaScript contexts. The normal
   // renderer uses textContent, but a few compact table/group templates still
   // need HTML for layout; all values crossing that boundary must be escaped.
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>\"']/g, character => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;'
-    }[character]));
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   function inlineArg(value) {
-    return escapeHtml(JSON.stringify(String(value ?? '')));
+    if (value === null || value === undefined) return '';
+    return escapeHtml(JSON.stringify(String(value)));
   }
 
   function authHeaders(json = false) {
@@ -196,6 +204,7 @@
       if (workspaceResponse?.ok) {
         const workspacePayload = await workspaceResponse.json();
         const workspaces = Array.isArray(workspacePayload) ? workspacePayload : workspacePayload.workspaces || [];
+        wmState.workspacesList = workspaces.map(w => ({ id: w.workspace_id || w.id, label: w.name || w.label || w.workspace_id }));
         const roles = wmState.matrixData.roles?.length ? wmState.matrixData.roles : ['SUPER_ADMIN', 'ADMIN', 'ENTERPRISE_ADMIN', 'AGENT_STANDARD', 'GUEST'];
         const access = allowed => Object.fromEntries(roles.map(role => [role, !allowed?.length || allowed.some(value => String(value).toUpperCase() === String(role).toUpperCase())]));
         const existing = new Set((wmState.matrixData.pages || []).map(page => page.name));
@@ -231,6 +240,7 @@
         console.warn('Role permission module unavailable:', permissionError);
         wmState.matrixData.permissions = wmState.matrixData.permissions || [];
       }
+      wmState.protocolMatrix = wmState.matrixData?.protocol_matrix;
     } catch (e) {
       console.warn('Failed to fetch matrix data:', e);
       wmState.matrixData = { roles: [], pages: [], modules: [], processes: [] };
@@ -684,39 +694,63 @@
       roleSelect.value = wmState.activeMapperRole;
     }
 
+    // Populate workspace scope selector
+    const wsSelect = document.getElementById('wmMapperWorkspaceSelect');
+    if (wsSelect) {
+      const workspaces = wmState.workspacesList || [];
+      wsSelect.replaceChildren(
+        new Option('Scope: Global Platform', '', false, !wmState.activeWorkspaceScope),
+        ...workspaces.map(ws => new Option(`Scope: ${ws.label || ws.id}`, ws.id, false, ws.id === wmState.activeWorkspaceScope))
+      );
+      wsSelect.value = wmState.activeWorkspaceScope || '';
+    }
+
     renderMapperTabs();
     renderMapperMatrix(matrixContainer);
     renderMapperGrantedView(grantedContainer);
   }
 
   function renderMapperTabs() {
+    const tabRbac = document.getElementById('wmMapperTabRbacProtocol');
     const tabPages = document.getElementById('wmMapperTabPages');
     const tabModules = document.getElementById('wmMapperTabModules');
     const tabProcesses = document.getElementById('wmMapperTabProcesses');
     const tabPermissions = document.getElementById('wmMapperTabPermissions');
     const tabUiParts = document.getElementById('wmMapperTabUiParts');
 
-    if (tabPages && tabModules && tabProcesses && tabPermissions && tabUiParts) {
-      tabPages.classList.toggle('active', wmState.activeMapperTab === 'pages');
-      tabModules.classList.toggle('active', wmState.activeMapperTab === 'modules');
-      tabProcesses.classList.toggle('active', wmState.activeMapperTab === 'processes');
-      tabPermissions.classList.toggle('active', wmState.activeMapperTab === 'permissions');
-      tabUiParts.classList.toggle('active', wmState.activeMapperTab === 'ui_parts');
-    }
+    if (tabRbac) tabRbac.classList.toggle('active', wmState.activeMapperTab === 'rbac_protocol');
+    if (tabPages) tabPages.classList.toggle('active', wmState.activeMapperTab === 'pages');
+    if (tabModules) tabModules.classList.toggle('active', wmState.activeMapperTab === 'modules');
+    if (tabProcesses) tabProcesses.classList.toggle('active', wmState.activeMapperTab === 'processes');
+    if (tabPermissions) tabPermissions.classList.toggle('active', wmState.activeMapperTab === 'permissions');
+    if (tabUiParts) tabUiParts.classList.toggle('active', wmState.activeMapperTab === 'ui_parts');
   }
+
+  function setMapperWorkspace(workspaceId) {
+    wmState.activeWorkspaceScope = workspaceId || '';
+    renderCard2RoleMapper();
+  }
+  global.setMapperWorkspace = setMapperWorkspace;
 
   function setMapperTab(tabName) {
     wmState.activeMapperTab = tabName;
     renderCard2RoleMapper();
   }
+  global.setMapperTab = setMapperTab;
 
   function setMapperRole(roleName) {
     wmState.activeMapperRole = roleName;
     renderCard2RoleMapper();
   }
+  global.setMapperRole = setMapperRole;
 
   function renderMapperMatrix(container) {
     container.replaceChildren();
+
+    if (wmState.activeMapperTab === 'rbac_protocol') {
+      renderRbacProtocolMatrix(container);
+      return;
+    }
 
     const roles = wmState.matrixData?.roles || ['SUPER_ADMIN', 'ADMIN', 'AGENT_STANDARD'];
     const activeTab = wmState.activeMapperTab;
@@ -828,11 +862,40 @@
     const permissions = (wmState.matrixData?.permissions || []).filter(permission => roleHasAccess(permission, role));
     const uiParts = (wmState.matrixData?.ui_parts || []).filter(part => roleHasAccess(part, role));
 
+    // Calculate dynamic RBAC protocol grants and denials
+    const protocolMatrix = wmState.protocolMatrix || wmState.matrixData?.protocol_matrix;
+    const protocolSubsystems = protocolMatrix?.matrix || [];
+    const rbacGrants = [];
+    const rbacDenials = [];
+
+    protocolSubsystems.forEach(sub => {
+      const perms = sub.roles?.[role] || {};
+      const activeProps = Object.entries(perms).filter(([_, val]) => Boolean(val)).map(([p]) => p);
+      if (activeProps.length) {
+        rbacGrants.push({
+          name: `${sub.document_type} (${activeProps.length}/14)`,
+          title: `${sub.document_type}: ${activeProps.join(', ')}`
+        });
+      } else {
+        rbacDenials.push({
+          name: `${sub.document_type} [DENIED]`,
+          title: `All permissions denied for ${role} on ${sub.document_type}`
+        });
+      }
+    });
+
     const list = document.createElement('div');
     list.className = 'wm-granted-list';
 
-    [['📄 Granted Pages', pages], ['▦ Granted Modules', modules], ['⚡ Granted Processes', processes],
-      ['🔐 Granted Role Permissions', permissions], ['🧩 Granted UI Parts', uiParts]].forEach(([label, entries]) => {
+    [
+      ['🛡️ RBAC Grants', rbacGrants],
+      ['🚫 Strict Denials', rbacDenials],
+      ['📄 Granted Pages', pages],
+      ['▦ Granted Modules', modules],
+      ['⚡ Granted Processes', processes],
+      ['🔐 Role Permissions', permissions],
+      ['🧩 Granted UI Parts', uiParts]
+    ].forEach(([label, entries]) => {
       const section = document.createElement('div');
       section.className = 'wm-granted-section';
       const sectionTitle = document.createElement('strong');
@@ -841,14 +904,20 @@
       cloud.className = 'wm-tag-cloud';
       if (entries.length) entries.forEach(entry => {
         const tag = document.createElement('span');
-        tag.className = 'wm-tag-granted';
+        tag.className = label.includes('Denial') ? 'wm-tag-denied' : 'wm-tag-granted';
+        if (label.includes('Denial')) {
+          tag.style.background = 'rgba(239,68,68,0.15)';
+          tag.style.color = '#ef4444';
+          tag.style.borderColor = 'rgba(239,68,68,0.3)';
+        }
         tag.textContent = entry.title || entry.name;
+        tag.title = entry.title || entry.name;
         cloud.appendChild(tag);
       });
       else {
         const empty = document.createElement('em');
         empty.className = 'mono-muted';
-        empty.textContent = 'Nothing granted';
+        empty.textContent = label.includes('Denial') ? 'No active denials' : 'Nothing granted';
         cloud.appendChild(empty);
       }
       section.append(sectionTitle, cloud);
@@ -857,6 +926,261 @@
 
     container.appendChild(list);
   }
+
+  // ── Render Dynamic RBAC Protocol Control Matrix ────────────────────────────
+  function renderRbacProtocolMatrix(container) {
+    container.replaceChildren();
+
+    const protocolMatrix = wmState.protocolMatrix || wmState.matrixData?.protocol_matrix;
+    const docItems = protocolMatrix?.matrix || [];
+    const activeRole = wmState.activeMapperRole || 'AGENT_STANDARD';
+    const activeScope = wmState.activeWorkspaceScope;
+
+    const banner = document.createElement('div');
+    banner.className = 'wm-rbac-subsystem-card';
+    banner.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(16,185,129,0.08))';
+    banner.style.border = '1px solid rgba(99,102,241,0.25)';
+    banner.style.borderRadius = '8px';
+    banner.style.padding = '12px 16px';
+    banner.style.marginBottom = '14px';
+
+    const bannerHead = document.createElement('div');
+    bannerHead.style.display = 'flex';
+    bannerHead.style.justifyContent = 'space-between';
+    bannerHead.style.alignItems = 'center';
+    bannerHead.style.flexWrap = 'wrap';
+    bannerHead.style.gap = '8px';
+
+    const bannerTitle = document.createElement('div');
+    bannerTitle.innerHTML = `
+      <strong style="font-size:14px;color:var(--text-primary)">🛡️ DYNAMIC ROLE ALLOCATION PROTOCOL</strong><br>
+      <small style="color:var(--text-muted);font-size:11px;">
+        10 Core Subsystems · 14 Granular Permissions · Strict Denial Precedence Enforced · ORM &amp; Redis Backed
+      </small>
+    `;
+
+    const bannerTags = document.createElement('div');
+    bannerTags.style.display = 'flex';
+    bannerTags.style.gap = '6px';
+    bannerTags.innerHTML = `
+      <span class="badge" style="background:rgba(99,102,241,0.2);color:#818cf8;padding:4px 8px;border-radius:4px;font-size:11px;font-weight:600;">Role: <strong>${escapeHtml(activeRole)}</strong></span>
+      <span class="badge" style="background:${activeScope ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)'};color:${activeScope ? '#fbbf24' : '#34d399'};padding:4px 8px;border-radius:4px;font-size:11px;font-weight:600;">Scope: <strong>${activeScope ? escapeHtml(activeScope) : 'Global Platform'}</strong></span>
+    `;
+
+    bannerHead.append(bannerTitle, bannerTags);
+    banner.appendChild(bannerHead);
+    container.appendChild(banner);
+
+    if (!docItems.length) {
+      const empty = document.createElement('div');
+      empty.className = 'wm-empty-state';
+      empty.textContent = 'Loading or initializing dynamic RBAC protocol matrix...';
+      container.appendChild(empty);
+      return;
+    }
+
+    docItems.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'wm-rbac-subsystem-card';
+
+      const header = document.createElement('div');
+      header.className = 'wm-rbac-subsystem-header';
+
+      const titleGroup = document.createElement('div');
+      titleGroup.className = 'wm-rbac-subsystem-title';
+      const docTypeStrong = document.createElement('strong');
+      docTypeStrong.textContent = `✦ ${item.document_type}`;
+      const descSmall = document.createElement('small');
+      descSmall.textContent = item.description || `${item.document_type} Subsystem`;
+      titleGroup.append(docTypeStrong, descSmall);
+
+      // Action buttons
+      const btnGroup = document.createElement('div');
+      btnGroup.style.display = 'flex';
+      btnGroup.style.gap = '6px';
+
+      const grantAllBtn = document.createElement('button');
+      grantAllBtn.className = 'btn btn-xs btn-success';
+      grantAllBtn.textContent = '✓ Grant All';
+      grantAllBtn.title = `Grant all permissions on ${item.document_type} for ${activeRole}`;
+      grantAllBtn.onclick = () => toggleSubsystemAll(item.document_type, true);
+
+      const denyAllBtn = document.createElement('button');
+      denyAllBtn.className = 'btn btn-xs btn-danger';
+      denyAllBtn.textContent = '✕ Deny All';
+      denyAllBtn.title = `Deny permissions on ${item.document_type} for ${activeRole} (takes strict precedence)`;
+      denyAllBtn.onclick = () => toggleSubsystemAll(item.document_type, false);
+
+      const exemptBtn = document.createElement('button');
+      exemptBtn.className = 'btn btn-xs btn-ghost';
+      exemptBtn.style.color = '#a855f7';
+      exemptBtn.textContent = '✦ Exempt';
+      exemptBtn.title = `Toggle custom exemption for ${item.document_type}`;
+      exemptBtn.onclick = () => toggleSubsystemExempt(item.document_type);
+
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn btn-xs btn-ghost';
+      resetBtn.textContent = '↺ Reset';
+      resetBtn.title = `Reset ${item.document_type} overrides back to system default`;
+      resetBtn.onclick = () => resetSubsystemOverrides(item.document_type);
+
+      btnGroup.append(grantAllBtn, denyAllBtn, exemptBtn, resetBtn);
+      header.append(titleGroup, btnGroup);
+      card.appendChild(header);
+
+      // Grid of 14 properties
+      const propsGrid = document.createElement('div');
+      propsGrid.className = 'wm-rbac-props-grid';
+
+      const rolePerms = item.roles?.[activeRole] || {};
+      const properties = item.properties || [
+        'select', 'read', 'write', 'create', 'delete', 'print', 'email', 'report',
+        'import', 'export', 'set_user_permissions', 'share', 'access_mcp', 'file_related'
+      ];
+
+      properties.forEach(prop => {
+        const isGranted = Boolean(rolePerms[prop]);
+        const propItem = document.createElement('div');
+        propItem.className = 'wm-rbac-prop-item';
+
+        const label = document.createElement('span');
+        label.className = 'wm-rbac-prop-label';
+        label.textContent = prop.replace(/_/g, ' ');
+
+        const badge = document.createElement('button');
+        badge.className = `wm-grant-badge ${isGranted ? 'granted' : 'denied'}`;
+        badge.textContent = isGranted ? '✓ GRANTED' : '✕ DENIED';
+        badge.title = `Click to toggle '${prop}' for ${activeRole} on ${item.document_type}`;
+        badge.onclick = () => toggleRbacProperty(item.document_type, prop, !isGranted);
+
+        propItem.append(label, badge);
+        propsGrid.appendChild(propItem);
+      });
+
+      card.appendChild(propsGrid);
+      container.appendChild(card);
+    });
+  }
+
+  async function toggleRbacProperty(documentType, property, grant) {
+    try {
+      const role = wmState.activeMapperRole || 'AGENT_STANDARD';
+      const workspaceId = wmState.activeWorkspaceScope;
+
+      if (workspaceId) {
+        // Workspace scoped override
+        const res = await fetch('/v1/ui/privilege/override', {
+          method: 'POST',
+          headers: authHeaders(true),
+          body: JSON.stringify({
+            workspace_id: workspaceId,
+            document_type: documentType,
+            role: role,
+            permissions: { [property]: grant },
+            is_denial: !grant,
+          })
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Override failed');
+      } else {
+        // Global platform grant or deny
+        const endpoint = grant ? '/v1/ui/privilege/grant' : '/v1/ui/privilege/deny';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: authHeaders(true),
+          body: JSON.stringify({
+            document_type: documentType,
+            role: role,
+            permissions: { [property]: true },
+          })
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Privilege update failed');
+      }
+
+      await refreshRoleMapperData();
+      renderCard2RoleMapper();
+    } catch (err) {
+      alert(`Privilege operation failed: ${err.message}`);
+    }
+  }
+  global.toggleRbacProperty = toggleRbacProperty;
+
+  async function toggleSubsystemAll(documentType, grant) {
+    try {
+      const role = wmState.activeMapperRole || 'AGENT_STANDARD';
+      const workspaceId = wmState.activeWorkspaceScope;
+      const allProps = [
+        'select', 'read', 'write', 'create', 'delete', 'print', 'email', 'report',
+        'import', 'export', 'set_user_permissions', 'share', 'access_mcp', 'file_related'
+      ];
+      const permissions = Object.fromEntries(allProps.map(p => [p, grant]));
+
+      if (workspaceId) {
+        const res = await fetch('/v1/ui/privilege/override', {
+          method: 'POST',
+          headers: authHeaders(true),
+          body: JSON.stringify({
+            workspace_id: workspaceId,
+            document_type: documentType,
+            role: role,
+            permissions: permissions,
+            is_denial: !grant,
+          })
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Override failed');
+      } else {
+        const endpoint = grant ? '/v1/ui/privilege/grant' : '/v1/ui/privilege/deny';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: authHeaders(true),
+          body: JSON.stringify({
+            document_type: documentType,
+            role: role,
+            permissions: permissions,
+          })
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Batch update failed');
+      }
+
+      await refreshRoleMapperData();
+      renderCard2RoleMapper();
+    } catch (err) {
+      alert(`Subsystem update failed: ${err.message}`);
+    }
+  }
+  global.toggleSubsystemAll = toggleSubsystemAll;
+
+  async function toggleSubsystemExempt(documentType) {
+    try {
+      const res = await fetch('/v1/ui/privilege/exempt', {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ target: documentType, exempt: true })
+      });
+      if (!res.ok) throw new Error('Exemption failed');
+      await refreshRoleMapperData();
+      renderCard2RoleMapper();
+    } catch (err) {
+      alert(`Exemption failed: ${err.message}`);
+    }
+  }
+  global.toggleSubsystemExempt = toggleSubsystemExempt;
+
+  async function resetSubsystemOverrides(documentType) {
+    try {
+      const workspaceId = wmState.activeWorkspaceScope || 'default';
+      const res = await fetch('/v1/ui/privilege/reset', {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ workspace_id: workspaceId, document_type: documentType })
+      });
+      if (!res.ok) throw new Error('Reset failed');
+      await refreshRoleMapperData();
+      renderCard2RoleMapper();
+    } catch (err) {
+      alert(`Reset failed: ${err.message}`);
+    }
+  }
+  global.resetSubsystemOverrides = resetSubsystemOverrides;
 
   async function toggleRolePrivilege(category, entityName, role, grant) {
     try {

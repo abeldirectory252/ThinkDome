@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse
 
-from thinkdome.security.rbac.service import UserService, hash_password
+from thinkdome.security.rbac.service import UserService, verify_password
 from thinkdome.security.repositories.user import UserRepository
 from thinkdome.security.repositories.audit import AuditRepository
 from thinkdome.security.repositories.role import RoleRepository
@@ -38,7 +38,7 @@ async def login(req: LoginRequest, request: Request):
     client_ip = request.client.host if request.client else "127.0.0.1"
     user = user_repo.get_by_username(req.username) or user_repo.get_by_email(req.username)
 
-    if not user or user.password_hash != hash_password(req.password):
+    if not user or not verify_password(req.password, user.password_hash):
         if user:
             audit_repo.record_login(user.id, status="failed", ip_address=client_ip)
         raise HTTPException(

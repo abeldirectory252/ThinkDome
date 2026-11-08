@@ -180,6 +180,7 @@ async def orchestrate_tool(
             sandbox_limits=sandbox_limits,
             username=username,
             sandbox_id=selected_sandbox.get("sandbox_id"),
+            permissions=current_user.get("permissions", []),
         )
         
         # Log request and response details
@@ -206,16 +207,13 @@ async def list_tools(current_user: dict = Depends(get_current_user)):
     """Retrieve all registered tools and their metadata."""
     import os
     from thinkdome.platform.orchestration.tools import registry
-    from thinkdome.platform.orchestration.orchestrator_service import ROLE_SCOPES
-    roles = {str(value).upper() for value in (current_user.get("roles") or [current_user.get("role", "LLM")])}
-    role = str(current_user.get("role", "LLM")).upper()
-    allowed_scopes = set().union(*(ROLE_SCOPES.get(value, ROLE_SCOPES["LLM"]) for value in roles))
     metadata = UIManager().get_mcp_tool_metadata()
     tools = registry.list_all_tools()
-    admin = any(is_admin_role(value) for value in roles)
-    tools = [t for t in tools if admin or metadata.get(t.name, {}).get("is_active", True)]
-    tools = [t for t in tools if admin or not metadata.get(t.name, {}).get("allowed_roles") or roles.intersection({str(item).upper() for item in metadata.get(t.name, {}).get("allowed_roles", [])})]
-    tools = [t for t in tools if not t.required_scope or t.required_scope in allowed_scopes]
+    from thinkdome.security.identity.core import RolePolicyEngine, UserIdentity
+    identity = UserIdentity.from_dict(current_user)
+    admin = identity.is_admin()
+    tools = [t for t in tools if metadata.get(t.name, {}).get("is_active", True)]
+    tools = [t for t in tools if RolePolicyEngine.has_permission(identity, f"orchestrator:{t.name}:custom")]
     
     response = []
     for t in tools:
@@ -241,7 +239,7 @@ async def list_tools(current_user: dict = Depends(get_current_user)):
     for name, item in metadata.items():
         if name in runtime_names:
             continue
-        if not admin and (not item.get("is_active", True) or (item.get("allowed_roles") and not roles.intersection({str(value).upper() for value in item.get("allowed_roles", [])}))):
+        if not item.get("is_active", True) or not RolePolicyEngine.has_permission(identity, f"orchestrator:{name}:custom"):
             continue
         response.append({
             "name": name,

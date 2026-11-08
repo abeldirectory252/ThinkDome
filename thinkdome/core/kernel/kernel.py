@@ -127,6 +127,13 @@ class Kernel:
         from thinkdome.core.orm.orm import Base
         Base.metadata.create_all(self.db_engine)
 
+        # Auto-migrate: add columns declared in ORM models but absent from existing tables
+        try:
+            from thinkdome.security.rbac.schema import _add_missing_columns
+            _add_missing_columns(self.db_engine)
+        except Exception as migrate_err:
+            logger.debug("Auto-migration during kernel init skipped: %s", migrate_err)
+
     def _load_apps(self) -> None:
         """Discover and load each plugin app defined in installed_apps config."""
         installed = self.config.get("installed_apps", [])

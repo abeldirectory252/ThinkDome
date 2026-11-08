@@ -9,7 +9,7 @@ import time
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
@@ -169,10 +169,9 @@ def _principal(user: dict) -> str:
 
 
 def _is_admin(user: dict) -> bool:
-    """Use the resolved RBAC role, never a display name, for admin scope."""
-    return str(user.get("role", "")).upper() in {
-        "ADMIN", "SUPER_ADMIN", "ENTERPRISE_ADMIN", "ORCH", "IDE"
-    }
+    """Dynamically evaluate whether the user holds administrative authority via RBAC."""
+    from thinkdome.security.identity.core import is_admin_user
+    return is_admin_user(user)
 
 # In-memory filesystem backend registry (placeholder)
 _fs_backends: dict[str, dict] = {
@@ -186,7 +185,7 @@ _fs_backends: dict[str, dict] = {
 
 class CreateKeyRequest(BaseModel):
     display_name: str = Field(..., max_length=50, json_schema_extra={"example": "My LLM Client"})
-    token_type: str = Field("LLM", description="ADMIN or LLM")
+    permission_ids: List[str] = Field(..., min_length=1, description="Workspace permission catalog IDs granted to this key")
     expires_at: Optional[str] = Field(None, description="ISO 8601 string or null for no expiration")
 
 # â”€â”€ API KEY ENDPOINTS â”€â”€
@@ -207,13 +206,16 @@ async def create_key(
     _admin: dict = Depends(get_current_admin)
 ):
     """Create a new API Key (returns full token once)."""
-    return auth_svc.create_api_key(
-        display_name=req.display_name,
-        token_type=req.token_type,
-        expires_at=req.expires_at,
-        creator=_admin.get("username", "admin"),
-        actor_ip=request.client.host if request.client else "unknown"
-    )
+    try:
+        return auth_svc.create_api_key(
+            display_name=req.display_name,
+            permissions=req.permission_ids,
+            expires_at=req.expires_at,
+            creator=_admin.get("username", "admin"),
+            actor_ip=request.client.host if request.client else "unknown"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 @router.post("/keys/{key_id}/revoke")
 async def revoke_key(
@@ -244,9 +246,9 @@ async def get_logs(
     viewer: dict = Depends(get_current_audit_viewer)
 ):
     """Retrieve execution request logs, scoped for non-admin auditors."""
-    from thinkdome.security.identity.core import is_admin_role
-    role = str(viewer.get("role", "")).upper()
-    actor = None if is_admin_role(role) else viewer.get("username")
+    from thinkdome.security.identity.core import UserIdentity
+    is_admin = UserIdentity.from_dict(viewer).is_admin()
+    actor = None if is_admin else viewer.get("username")
     logs = log_svc.get_logs(limit=limit, actor=actor)
     if logs or not actor:
         return logs
@@ -300,10 +302,10 @@ async def get_audits(
 ):
     """Retrieve audit trails, scoped for non-admin auditors."""
     from thinkdome.security.rbac.models import RbacAuditLog
-    from thinkdome.security.identity.core import is_admin_role
-    role = str(viewer.get("role", "")).upper()
+    from thinkdome.security.identity.core import UserIdentity
+    is_admin = UserIdentity.from_dict(viewer).is_admin()
     query = RbacAuditLog.query()
-    if not is_admin_role(role):
+    if not is_admin:
         query = query.filter(actor=viewer.get("username"))
     logs = query.limit(limit).all()
     result = [l.to_dict() for l in logs]
@@ -311,7 +313,7 @@ async def get_audits(
     # history before the RBAC audit table became canonical.
     legacy = log_svc.get_audit_events(
         limit=limit,
-        actor=None if is_admin_role(role) else viewer.get("username"),
+        actor=None if is_admin else viewer.get("username"),
     )
     result.extend(legacy)
 
@@ -321,7 +323,7 @@ async def get_audits(
     # merely because it used the older persistence path.
     execution_logs = log_svc.get_logs(
         limit=limit,
-        actor=None if is_admin_role(role) else viewer.get("username"),
+        actor=None if is_admin else viewer.get("username"),
     )
     for execution in execution_logs:
         execution_id = execution.get("id")
@@ -369,7 +371,7 @@ async def get_audit_detail(
         raise HTTPException(status_code=404, detail="Audit entry not found.")
 
     log_model = RbacAuditLog.get(audit_id)
-    from thinkdome.security.identity.core import is_admin_role
+    from thinkdome.security.identity.core import UserIdentity
     if log_model:
         entry = log_model.to_dict()
     else:
@@ -377,7 +379,7 @@ async def get_audit_detail(
         if not legacy_entry:
             raise HTTPException(status_code=404, detail="Audit log entry not found.")
         entry = legacy_entry
-    if not is_admin_role(str(viewer.get("role", "")).upper()) and entry.get("actor") != viewer.get("username"):
+    if not UserIdentity.from_dict(viewer).is_admin() and entry.get("actor") != viewer.get("username"):
         raise HTTPException(status_code=403, detail="Forbidden: audit entry is outside your profile scope.")
     # Parse details JSON string into object
     try:
@@ -463,7 +465,8 @@ class CreateSandboxRequest(BaseModel):
     memory_mb: int = Field(256, gt=0, le=65536)
     cpu_cores: float = Field(1.0, gt=0, le=64)
     timeout_sec: int = Field(30, ge=1, le=86400)
-    ttl_seconds: int = Field(3600, ge=1, le=259200, description="Lease TTL in seconds; maximum 72 hours")
+    ttl_seconds: int = Field(180, ge=1, le=259200, description="Lease TTL in seconds; defaults to short-life 3 minutes (180s) unless manually set long")
+    is_long_lived: bool = Field(False, description="Whether sandbox is manually configured to persist long-term")
     network_enabled: bool = Field(False)
     storage_quota_mb: int = Field(10240, gt=0, le=1_048_576)
     python_dependencies: list[str] = Field(default_factory=list, max_length=50)
@@ -510,26 +513,47 @@ def _host_memory_capacity_mb() -> tuple[int, int]:
     return total, max(0, min(available, total))
 
 
-def _validate_host_memory_for_sandbox(memory_mb: int) -> None:
-    """Reject admission when reservations would consume the host safety floor."""
+def _get_active_sandbox_reserved_mb() -> int:
+    """Return the total memory reserved by active, unexpired sandboxes."""
     from thinkdome.apps.sandbox.models import Sandbox
+    now = time.time()
+    try:
+        active_sbs = [
+            sb for sb in Sandbox.query().all()
+            if sb._values.get("status") in {"active", "Running", "Created"}
+            and float(sb._values.get("expires_at") or 0) > now
+        ]
+        return sum(int(sb._values.get("memory_limit") or 0) for sb in active_sbs)
+    except Exception as exc:
+        logger.debug("Failed querying active sandboxes for reserved memory: %s", exc)
+        return 0
+
+
+def _validate_host_memory_for_sandbox(memory_mb: int) -> None:
+    """Reject admission when reservations would exceed allocatable host capacity."""
     total_mb, available_mb = _host_memory_capacity_mb()
     if not total_mb:
         return
-    now = time.time()
-    active_sbs = [
-        sb for sb in Sandbox.query().all()
-        if sb._values.get("status") in {"active", "Running", "Created"}
-        and float(sb._values.get("expires_at") or 0) > now
-    ]
-    reserved_mb = sum(int(sb._values.get("memory_limit") or 0) for sb in active_sbs)
-    safety_floor = max(32, min(128, int(total_mb * 0.10)))
-    if memory_mb > max(0, available_mb - safety_floor) or reserved_mb + memory_mb > int(total_mb * 0.90):
+    reserved_mb = _get_active_sandbox_reserved_mb()
+    max_allocatable = int(total_mb * 0.90)
+
+    # 1. Active sandbox allocations cannot exceed 90% of host RAM
+    if reserved_mb + memory_mb > max_allocatable:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"Insufficient host memory for this sandbox. Requested {memory_mb} MB; "
-                f"approximately {available_mb} MB is available and {reserved_mb} MB is reserved."
+                f"Host capacity exceeded. Requested {memory_mb} MB would exceed active reservations "
+                f"({reserved_mb} MB) past host allocatable limit of {max_allocatable} MB."
+            ),
+        )
+
+    # 2. Critical starvation check: Reject only if physical host RAM is critically starved (< 32 MB)
+    if available_mb < 32 and memory_mb > available_mb:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Insufficient physical host memory for new sandbox. Requested {memory_mb} MB; "
+                f"host has only {available_mb} MB unallocated physical memory."
             ),
         )
 
@@ -612,13 +636,16 @@ async def sandbox_capacity(
         except Exception as exc:
             logger.debug("Capacity cache read failed: %s", exc)
     total_mb, available_mb = _host_memory_capacity_mb()
-    from thinkdome.apps.sandbox.models import Sandbox
-    reserved_mb = sum(int(sb._values.get("memory_limit") or 0) for sb in Sandbox.query().all())
+    reserved_mb = _get_active_sandbox_reserved_mb()
+    max_allocatable = int(total_mb * 0.90) if total_mb else 4096
+    admissible_mb = max(0, max_allocatable - reserved_mb)
+    if available_mb < 32:
+        admissible_mb = min(admissible_mb, max(0, available_mb))
     payload = {
         "total_mb": total_mb,
         "available_mb": available_mb,
         "reserved_mb": reserved_mb,
-        "admissible_mb": max(0, min(available_mb - max(128, int(total_mb * 0.10)), int(total_mb * 0.90) - reserved_mb)),
+        "admissible_mb": admissible_mb,
     }
     if client:
         try:
@@ -648,6 +675,14 @@ async def create_sandbox(
     # $0.01 per 128MB RAM/hr + $0.02 per vCPU/hr + $0.005 for network
     cost = (req.memory_mb / 128) * 0.01 + req.cpu_cores * 0.02 + (0.005 if req.network_enabled else 0)
     
+    # Multi-user & short-life policy:
+    # Unless manually configured as long-lived, lifetime is short (in minutes).
+    is_long_lived = bool(getattr(req, "is_long_lived", False))
+    if not is_long_lived:
+        effective_ttl = min(req.ttl_seconds, 300) if req.ttl_seconds != 180 else 180
+    else:
+        effective_ttl = req.ttl_seconds
+
     from thinkdome.apps.sandbox.models import Sandbox
     sandbox = Sandbox(
         id=sandbox_id,
@@ -658,15 +693,36 @@ async def create_sandbox(
         storage_quota_mb=req.storage_quota_mb,
         network_enabled=req.network_enabled,
         status="Created",
-        expires_at=time.time() + req.ttl_seconds,
+        expires_at=time.time() + effective_ttl,
         python_dependencies=json.dumps(req.python_dependencies),
+        is_long_lived=is_long_lived,
+        ttl_seconds=effective_ttl,
+        auto_deactivate=not is_long_lived,
     )
     sandbox.save()
+
+    # Also register in lifecycle service if available on application state
+    if hasattr(request.app.state, "lifecycle_service") and request.app.state.lifecycle_service:
+        try:
+            request.app.state.lifecycle_service.register_sandbox(
+                sandbox_id=sandbox_id,
+                timeout_sec=effective_ttl,
+                owner=_principal(user),
+                purpose="user_sandbox",
+                role=str(user.get("role", "FREE")),
+                is_long_lived=is_long_lived,
+                auto_deactivate=not is_long_lived,
+            )
+        except Exception as exc:
+            logger.debug("Lifecycle registry note on sandbox creation: %s", exc)
+
     await _invalidate_sandbox_cache()
     res = _serialize_sandbox(sandbox.to_dict())
     res["sandbox_id"] = sandbox_id
     res["timeout_sec"] = req.timeout_sec
-    res["ttl_seconds"] = req.ttl_seconds
+    res["ttl_seconds"] = effective_ttl
+    res["is_long_lived"] = is_long_lived
+    res["auto_deactivate"] = not is_long_lived
     res["python_dependencies"] = req.python_dependencies
     res["expires_at"] = sandbox.to_dict().get("expires_at")
     res["cost_per_hour"] = cost
@@ -697,31 +753,113 @@ async def toggle_sandbox(
     auth_svc: AuthService = Depends(get_auth_service),
     user: dict = Depends(get_current_user)
 ):
-    """Toggle sandbox active vs stopped state."""
+    """Toggle sandbox active vs stopped state.
+
+    If an expired or stopped sandbox is toggled ON, its lease is renewed
+    and the container context is revived.
+    """
     sb = auth_svc.db_service.get_sandbox(sandbox_id)
     if not sb:
         raise HTTPException(status_code=404, detail="Sandbox not found.")
         
     # Check permissions (only owner or admin)
-    if user.get("role") != "ADMIN" and sb["owner"] != _principal(user):
+    if not _is_admin(user) and sb.get("owner") != _principal(user):
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this sandbox.")
         
-    # ORM rows may contain the internal lifecycle values (Created/Running),
-    # while older clients use the public active/stopped vocabulary.
+    now = time.time()
+    expires_at = float(sb.get("expires_at") or 0)
+    is_expired = bool(expires_at and now >= expires_at)
     running_states = {"active", "created", "provisioning", "running"}
     current_status = str(sb.get("status", "")).lower()
-    new_status = "stopped" if current_status in running_states else "active"
-    auth_svc.db_service.update_sandbox_status(sandbox_id, new_status)
+
+    # If currently running and not expired, toggle turns it OFF (stopped)
+    # If expired, halted, hibernating, or stopped, toggle turns it ON (active/revived)
+    is_currently_running = (current_status in running_states) and not is_expired
+
+    if is_currently_running:
+        new_status = "stopped"
+        db_status = "Stopped"
+        new_expires_at = None
+    else:
+        new_status = "active"
+        db_status = "Running"
+        is_long_lived = bool(sb.get("is_long_lived", False))
+        ttl = int(sb.get("ttl_seconds") or sb.get("timeout_sec") or (3600 if is_long_lived else 180))
+        from thinkdome.sandbox.core.lifecycle_service import SandboxLifecycleService
+        bounded_ttl = SandboxLifecycleService.bound_ttl_by_role(
+            ttl,
+            role=str(user.get("role", "FREE")),
+            is_long_lived=is_long_lived,
+        )
+        new_expires_at = now + bounded_ttl
+
+    auth_svc.db_service.update_sandbox_status(sandbox_id, db_status, expires_at=new_expires_at)
+
+    from thinkdome.apps.sandbox.models import Sandbox
+    from thinkdome.apps.sandbox.controller import start_sandbox, stop_sandbox
+
+    sandbox_model = Sandbox.query().filter(id=sandbox_id).first()
+    if not sandbox_model:
+        sandbox_model = Sandbox.query().filter(name=sandbox_id).first()
+
+    if sandbox_model:
+        if new_expires_at is not None:
+            sandbox_model.expires_at = new_expires_at
+        if new_status == "active":
+            try:
+                await start_sandbox(sandbox_model)
+            except Exception as exc:
+                logger.warning("Error starting container during toggle ON: %s", exc)
+        else:
+            try:
+                await stop_sandbox(sandbox_model)
+            except Exception as exc:
+                logger.warning("Error stopping container during toggle OFF: %s", exc)
+
+    if hasattr(request.app.state, "lifecycle_service") and request.app.state.lifecycle_service:
+        lifecycle_svc = request.app.state.lifecycle_service
+        from thinkdome.sandbox.core.lifecycle_service import SandboxState
+        if new_status == "active":
+            if sandbox_id in lifecycle_svc._sandboxes:
+                info = lifecycle_svc._sandboxes[sandbox_id]
+                info.state = SandboxState.RUNNING
+                info.expires_at = new_expires_at
+                info.last_active_at = now
+                info.last_state_change = now
+            else:
+                try:
+                    lifecycle_svc.register_sandbox(
+                        sandbox_id=sandbox_id,
+                        timeout_sec=int(new_expires_at - now) if new_expires_at else 180,
+                        owner=sb.get("owner", _principal(user)),
+                        purpose="user_sandbox",
+                        role=str(user.get("role", "FREE")),
+                        is_long_lived=bool(sb.get("is_long_lived", False)),
+                        auto_deactivate=not bool(sb.get("is_long_lived", False)),
+                    )
+                except Exception as exc:
+                    logger.debug("Lifecycle registry sync note on revive: %s", exc)
+        else:
+            if sandbox_id in lifecycle_svc._sandboxes:
+                info = lifecycle_svc._sandboxes[sandbox_id]
+                info.state = SandboxState.IDLE
+                info.last_state_change = now
+
     await _invalidate_sandbox_cache()
-    
+
     # Log audit event
     auth_svc.db_service.log_audit(
         actor=_principal(user),
         action="toggle_sandbox",
         ip_address=request.client.host if request.client else "unknown",
-        details={"sandbox_id": sandbox_id, "status": new_status}
+        details={"sandbox_id": sandbox_id, "status": new_status, "expires_at": new_expires_at}
     )
-    return {"status": "success", "sandbox_id": sandbox_id, "new_status": new_status}
+    return {
+        "status": "success",
+        "sandbox_id": sandbox_id,
+        "new_status": new_status,
+        "expires_at": new_expires_at,
+    }
 
 @router.delete(
     "/sandboxes/{sandbox_id}",
@@ -740,8 +878,25 @@ async def delete_sandbox(
         raise HTTPException(status_code=404, detail="Sandbox not found.")
         
     # Check permissions (only owner or admin)
-    if user.get("role") != "ADMIN" and sb["owner"] != _principal(user):
+    if not _is_admin(user) and sb.get("owner") != _principal(user):
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this sandbox.")
+
+    if hasattr(request.app.state, "lifecycle_service") and request.app.state.lifecycle_service:
+        try:
+            await request.app.state.lifecycle_service.destroy_sandbox(sandbox_id, actor=_principal(user))
+        except Exception as exc:
+            logger.debug("Lifecycle registry note on sandbox deletion: %s", exc)
+
+    from thinkdome.apps.sandbox.models import Sandbox
+    from thinkdome.apps.sandbox.controller import destroy_sandbox as ctrl_destroy_sandbox
+    sandbox_model = Sandbox.query().filter(id=sandbox_id).first()
+    if not sandbox_model:
+        sandbox_model = Sandbox.query().filter(name=sandbox_id).first()
+    if sandbox_model:
+        try:
+            await ctrl_destroy_sandbox(sandbox_model)
+        except Exception as exc:
+            logger.warning("Error destroying sandbox container: %s", exc)
         
     auth_svc.db_service.delete_sandbox(sandbox_id)
     await _invalidate_sandbox_cache()

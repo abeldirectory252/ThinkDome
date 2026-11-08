@@ -96,11 +96,26 @@ class EgressProxy:
         # Audit log
         self._audit: List[dict] = []
 
-    def add_rule(self, rule: EgressRule) -> None:
+    def add_rule(self, rule: EgressRule, caller_role: Optional[str] = None) -> None:
         """Register a domain allowlist rule."""
+        if caller_role:
+            from thinkdome.security.rbac.protocol import dynamic_role_protocol
+            if not dynamic_role_protocol.has_document_permission({caller_role.upper()}, "NetworkEgress", action="write"):
+                raise PermissionError(f"Role '{caller_role}' lacks NetworkEgress write privilege")
         self._rules.append(rule)
         self._compiled_patterns.append(re.compile(rule.domain_pattern, re.IGNORECASE))
         logger.info(f"🌐 Egress rule added: {rule.domain_pattern} — {rule.description}")
+
+    @staticmethod
+    def check_egress_privilege(caller_role: str, action: str = "write", user_id: Optional[str] = None) -> bool:
+        """Check if caller has dynamic privilege on NetworkEgress."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        return dynamic_role_protocol.has_document_permission(
+            roles={caller_role.upper()},
+            document_type="NetworkEgress",
+            action=action,
+            user_id=user_id,
+        )
 
     def remove_all_rules(self) -> None:
         """Clear all egress rules."""

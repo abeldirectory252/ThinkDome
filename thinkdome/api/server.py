@@ -145,6 +145,7 @@ async def lifespan(app: FastAPI):
     app.state.monitor_service = MonitorService(settings, docker_client)
     app.state.credential_vault = CredentialVault(settings, app.state.db_service)
     app.state.lifecycle_service = SandboxLifecycleService(docker_client=docker_client)
+    app.state.execution_service.set_lifecycle_service(app.state.lifecycle_service)
     app.state.diagnostics_service = DiagnosticsService(docker_client=docker_client)
 
     # Validate secure container runtime at startup
@@ -320,6 +321,7 @@ def create_app() -> FastAPI:
     from thinkdome.api.routes.execution.network_audit import router as network_audit_router
     from thinkdome.security.api.api_keys_router import router as api_keys_router
     from thinkdome.platform.storage.api.filebox import router as filebox_router
+    from thinkdome.filebox.api import router as filebox_browse_router
     from thinkdome.api.routes.ui import router as ui_router, rpc_router
     from thinkdome.core.api.method import router as method_router
 
@@ -328,6 +330,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/v1")
     app.include_router(api_keys_router)
     app.include_router(filebox_router)
+    app.include_router(filebox_browse_router)
     app.include_router(rbac_auth_router)
     app.include_router(rbac_users_router)
     app.include_router(role_profiles_router)
@@ -369,6 +372,7 @@ def create_app() -> FastAPI:
     @app.get("/")
     @app.get("/index.html")
     @app.get("/console")
+    @app.get("/filebox")
     @app.get("/console/{full_path:path}")
     async def serve_dashboard(full_path: str = ""):
         from fastapi.responses import HTMLResponse

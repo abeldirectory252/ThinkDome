@@ -7,7 +7,7 @@ from typing import Any, Optional
 from thinkdome.platform.orchestration.tools import BaseTool, register_tool, get_context
 from thinkdome.sandbox.core.models import ExecuteRequest
 from thinkdome.platform.orchestration.orchestrator_models import RunCodeInput, ShellExecInput
-from thinkdome.security.identity.core import is_admin_role
+from thinkdome.security.identity.core import RolePolicyEngine
 
 
 def _owner(ctx) -> str:
@@ -50,7 +50,7 @@ class RunCodeTool(BaseTool):
             ctx.credential_vault
             and owner
             and ctx.sandbox_id
-            and is_admin_role(ctx.caller_role)
+            and RolePolicyEngine.has_permission(ctx.get_identity(), "vault:credential:inject")
         ):
             vault_secrets = ctx.credential_vault.inject_into_env(owner, ctx.sandbox_id)
             env_vars.update(vault_secrets)
@@ -62,6 +62,7 @@ class RunCodeTool(BaseTool):
             security_profile=tool_input.get("security_profile", "HIGH_SECURITY"),
             env_vars=env_vars,
             caller_role=ctx.caller_role,
+            workspace_permissions=sorted(ctx.get_identity().permissions),
             allow_network=allow_network,
             memory_limit_mb=ctx.sandbox_limits.get("memory_mb") if ctx.sandbox_limits else None,
             cpu_cores=ctx.sandbox_limits.get("cpu_cores") if ctx.sandbox_limits else None,

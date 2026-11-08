@@ -71,54 +71,6 @@ class _CallableHookAdapter:
         if inspect.isawaitable(value):
             await value
 
-# ── Role-Based Access Control (RBAC) Scopes Matrix ──
-ROLE_SCOPES = {
-    "LLM": {"code:run", "memory:read", "memory:write", "web:host"},
-    # Standard agents may manage files inside their own isolated workspace,
-    # communicate through configured connectors, and search the web, but must
-    # still remain separate from ERP/audit administration.
-    "AGENT_STANDARD": {
-        "code:run", "file:read", "file:write", "file:destructive",
-        "web:host", "web:search", "comms:send", "network:all",
-        "shell:run", "memory:read", "memory:write"
-    },
-    "WEB": {
-        "code:run", "file:read", "file:write", "web:host",
-        "memory:read", "memory:write"
-    },
-    "SDK": {
-        "code:run", "file:read", "file:write", "web:host",
-        "web:search", "memory:read", "memory:write"
-    },
-    "CURL": {
-        "code:run", "file:read", "file:write", "web:host",
-        "web:search", "memory:read", "memory:write"
-    },
-    "ORCH": {
-        "code:run", "file:read", "file:write", "file:destructive",
-        "web:search", "web:host", "memory:read", "memory:write", "memory:delete",
-        "network:all", "shell:run", "comms:send", "admin:all"
-    },
-    "IDE": {
-        "code:run", "file:read", "file:write", "file:destructive",
-        "web:search", "web:host", "memory:read", "memory:write", "memory:delete",
-        "network:all", "shell:run", "comms:send", "pty:all"
-    },
-    "ADMIN": {
-        "code:run", "file:read", "file:write", "file:destructive",
-        "web:search", "web:host", "memory:read", "memory:write", "memory:delete",
-        "network:all", "shell:run", "comms:send", "pty:all", "admin:all"
-    }
-}
-
-# Administrative roles inherit the complete ADMIN tool scope.  Without these
-# aliases, a correctly authenticated SUPER_ADMIN fell through to the LLM
-# default because it was absent from the matrix.
-ROLE_SCOPES["SUPER_ADMIN"] = ROLE_SCOPES["ADMIN"]
-ROLE_SCOPES["ENTERPRISE_ADMIN"] = ROLE_SCOPES["ADMIN"]
-ROLE_SCOPES["ORCHESTRATOR"] = ROLE_SCOPES["ORCH"]
-
-
 class OrchestratorService:
     """Validates and executes tool use blocks like an LLM orchestrator."""
 
@@ -251,12 +203,18 @@ class OrchestratorService:
             raise PermissionError(f"Access denied: path '{path_str}' escapes workspace boundaries.")
         return target_path
 
-    async def execute_tool(self, tool_use: dict, caller_role: str = "LLM", sandbox_limits: Optional[dict] = None, username: Optional[str] = None, sandbox_id: Optional[str] = None) -> dict:
+    async def execute_tool(self, tool_use: dict, caller_role: str = "LLM", sandbox_limits: Optional[dict] = None, username: Optional[str] = None, sandbox_id: Optional[str] = None, permissions: Optional[list[str]] = None) -> dict:
         """Execute a tool use request and return a tool result block."""
         token = current_username.set(username)
 
         # Set up dynamic ToolContext
         user_workspace = self.get_user_workspace(username)
+        from thinkdome.security.identity.core import UserIdentity
+        tool_identity = UserIdentity(
+            username=username or "anonymous",
+            roles={str(caller_role).upper()} if caller_role else set(),
+            permissions=set(permissions or []),
+        )
         tool_ctx = ToolContext(
             username=username or "anonymous",
             sandbox_id=sandbox_id,
@@ -265,6 +223,7 @@ class OrchestratorService:
             search_service=self.search_service,
             db=None,
             caller_role=caller_role,
+            identity=tool_identity,
             sandbox_limits=sandbox_limits,
             credential_vault=self.credential_vault,
             security_scanner=self.security_scanner,
@@ -302,15 +261,11 @@ class OrchestratorService:
                 # Apply persisted MCP policy at the execution boundary too;
                 # listing filters alone are not authorization.
                 from thinkdome.core.ui.service import UIManager
-                from thinkdome.security.identity.core import is_admin_role
+                from thinkdome.security.identity.core import RolePolicyEngine, UserIdentity
                 policy = UIManager().get_mcp_tool_metadata().get(tool_name)
                 role_upper = (caller_role or "LLM").upper()
                 if policy and not policy.get("is_active", True):
                     raise PermissionError(f"Access denied: MCP tool '{tool_name}' is inactive.")
-                if policy and policy.get("allowed_roles") and not is_admin_role(role_upper):
-                    allowed_roles = {str(value).upper() for value in policy["allowed_roles"]}
-                    if role_upper not in allowed_roles:
-                        raise PermissionError(f"Access denied: MCP tool '{tool_name}' is not allowed for role '{caller_role}'.")
 
                 # Ensure non-core (app) tools are active in the current site config
                 if tool.app_name != "core":
@@ -323,34 +278,14 @@ class OrchestratorService:
                         )
 
                 # ── PRIVILEGE VERIFICATION ──
-                required_scope = tool.required_scope
-                
-                # Fetch scopes allowed for this role
-                allowed_scopes = ROLE_SCOPES.get(role_upper, ROLE_SCOPES["LLM"])
-                
-                # Verify required scope is in caller's allowed scopes
-                if required_scope and required_scope not in allowed_scopes:
-                    ADMIN_ONLY_TOOLS = {
-                        "write_file", "make_dir", "remove_file", "remove_dir",
-                        "move_file", "copy_file", "shell_exec",
-                        "send_email", "send_telegram",
-                        "telegram_get_updates", "telegram_get_chat",
-                        "telegram_send_media", "telegram_manage_chat",
-                        "send_whatsapp",
-                        "memory_delete",
-                    }
-                    ADMIN_NETWORK_TOOLS = {"http_request"}
-                    
-                    if tool_name in ADMIN_ONLY_TOOLS:
-                        raise PermissionError(f"Access denied: Tool '{tool_name}' requires ADMIN privileges.")
-                    elif tool_name in ADMIN_NETWORK_TOOLS:
-                        raise PermissionError(
-                            f"Access denied: Tool '{tool_name}' requires ADMIN privileges (network access)."
-                        )
-                    else:
-                        raise PermissionError(
-                            f"Access denied: Tool '{tool_name}' is not permitted for caller role '{caller_role}'."
-                        )
+                required_permission = f"orchestrator:{tool_name}:custom"
+                principal = UserIdentity(
+                    username=username or "anonymous",
+                    roles={role_upper} if role_upper else set(),
+                    permissions=set(permissions or []),
+                )
+                if not RolePolicyEngine.has_permission(principal, required_permission):
+                    raise PermissionError(f"Workspace permission '{required_permission}' is required.")
 
                 await self.hooks.before_execute(execution_context)
 

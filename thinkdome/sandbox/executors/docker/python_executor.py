@@ -90,6 +90,35 @@ RESOURCE_PROFILES = {
     },
 }
 
+def get_resource_profile(role: Optional[str]) -> Dict[str, Any]:
+    """Dynamically resolve execution resource limits based on low-level role capabilities and permissions."""
+    role_upper = (role or "LLM").upper()
+    if role_upper in RESOURCE_PROFILES:
+        return RESOURCE_PROFILES[role_upper]
+
+    from thinkdome.security.identity.core import is_admin_role
+    from thinkdome.security.rbac.protocol import dynamic_role_protocol
+
+    if is_admin_role(role_upper) or dynamic_role_protocol.has_document_permission("Sandbox", role_upper, "admin"):
+        return RESOURCE_PROFILES["ADMIN"]
+
+    try:
+        inherited = dynamic_role_protocol.get_inherited_roles({role_upper})
+        for candidate in ("ADMIN", "ORCH", "IDE", "WEB", "SDK", "CURL"):
+            if candidate in inherited and candidate in RESOURCE_PROFILES:
+                return RESOURCE_PROFILES[candidate]
+    except Exception:
+        pass
+
+    if dynamic_role_protocol.has_document_permission("Sandbox", role_upper, "write") or dynamic_role_protocol.has_document_permission("Console", role_upper, "write"):
+        return RESOURCE_PROFILES["ORCH"]
+    if dynamic_role_protocol.has_document_permission("NetworkEgress", role_upper, "connect"):
+        return RESOURCE_PROFILES["SDK"]
+    if dynamic_role_protocol.has_document_permission("Sandbox", role_upper, "read"):
+        return RESOURCE_PROFILES["WEB"]
+
+    return RESOURCE_PROFILES["LLM"]
+
 from thinkdome.core.config import get_workspace_root
 
 # Seccomp profile path (relative to project root)
@@ -163,13 +192,31 @@ class PythonDockerExecutor(BaseExecutor):
             self.client = docker.from_env()
             self.client.ping()
         except Exception as e:
-            if "Permission denied" in str(e) or isinstance(e, PermissionError):
+            err_str = str(e)
+            if "Permission denied" in err_str or isinstance(e, PermissionError):
                 raise RuntimeError(
-                    f"Docker socket permission denied: {e}\n"
+                    f"Docker socket permission denied: {e}\n\n"
                     f"To fix this, choose one of the following:\n"
-                    f"  1. Run with sudo: sudo ./venv/bin/python think run '...' --backend docker\n"
-                    f"  2. Add user to docker group: sudo usermod -aG docker $USER && newgrp docker\n"
+                    f"  1. Add user to docker group: sudo usermod -aG docker $USER && newgrp docker\n"
+                    f"  2. Run with sudo: sudo ./venv/bin/python think run '...' --backend docker\n"
                     f"  3. Use subprocess backend for local dev: ./venv/bin/python think run '...' --backend subprocess"
+                ) from e
+            if (
+                isinstance(e, FileNotFoundError)
+                or "No such file or directory" in err_str
+                or "Connection refused" in err_str
+                or "Error while fetching server API version" in err_str
+                or "Connection aborted" in err_str
+            ):
+                raise RuntimeError(
+                    f"Docker daemon is not available: {e}\n\n"
+                    f"⚠️ WARNING: Docker is not installed or the Docker service is not running on this host.\n"
+                    f"To install and configure Docker, run:\n"
+                    f"  1. Install Docker:      sudo apt-get update && sudo apt-get install -y docker.io\n"
+                    f"  2. Start Docker service:sudo systemctl start docker && sudo systemctl enable docker\n"
+                    f"  3. Grant user access:   sudo usermod -aG docker $USER && newgrp docker\n\n"
+                    f"Alternatively, for development/testing without Docker:\n"
+                    f"  Set EXECUTOR_BACKEND=subprocess or EXECUTOR_BACKEND_USE_FALLBACK=true in your environment."
                 ) from e
             raise RuntimeError(f"Could not connect to Docker daemon: {e}") from e
 
@@ -185,16 +232,28 @@ class PythonDockerExecutor(BaseExecutor):
             logger.info(f"Executor image '{self.image}' found")
         except docker.errors.ImageNotFound:
             logger.warning(f"Image '{self.image}' not found, attempting build...")
-            executor_dir = Path(__file__).parent / "executor"
+            candidate_dirs = [
+                Path(__file__).resolve().parents[4] / "docker" / "executor",
+                Path("docker/executor").resolve(),
+                Path(__file__).parent / "executor",
+            ]
+            executor_dir = next((d for d in candidate_dirs if d.exists()), None)
 
-            if executor_dir.exists():
+            if executor_dir and executor_dir.exists():
                 logger.info(f"Building executor image from {executor_dir}")
-                self.client.images.build(
-                    path=str(executor_dir),
-                    tag=self.image,
-                    rm=True,
-                )
-                logger.info(f"✅ Built executor image '{self.image}'")
+                try:
+                    self.client.images.build(
+                        path=str(executor_dir),
+                        tag=self.image,
+                        rm=True,
+                    )
+                    logger.info(f"✅ Built executor image '{self.image}'")
+                except Exception as build_err:
+                    logger.warning(f"Failed to auto-build image '{self.image}': {build_err}")
+                    raise RuntimeError(
+                        f"Executor image '{self.image}' not found and auto-build failed ({build_err}). "
+                        f"Run: docker build -t {self.image} docker/executor/"
+                    ) from build_err
             else:
                 raise RuntimeError(
                     f"Executor image '{self.image}' not found and cannot build. "
@@ -208,9 +267,13 @@ class PythonDockerExecutor(BaseExecutor):
         else:
             logger.warning(f"⚠️  Seccomp profile not found at {SECCOMP_PROFILE_PATH} — using Docker default")
 
-    NETWORK_AUTHORIZED_ROLES = DockerExecutionPolicy.NETWORK_AUTHORIZED_ROLES
-    RESOURCE_CUSTOMIZATION_ROLES = DockerExecutionPolicy.RESOURCE_CUSTOMIZATION_ROLES
-    # can_customize_resources = role in {"ADMIN", "ORCH", "IDE"}
+    @classmethod
+    def can_access_network(cls, role: str) -> bool:
+        return DockerExecutionPolicy.can_access_network(role)
+
+    @classmethod
+    def can_customize_resources(cls, role: str) -> bool:
+        return DockerExecutionPolicy.can_customize_resources(role)
 
     def _validate_request(self, request: ExecRequest, role: str) -> None:
         """Validate dataclass input before it can influence Docker config."""
@@ -223,7 +286,7 @@ class PythonDockerExecutor(BaseExecutor):
             raise ValueError("Execution timeout must be a positive integer in milliseconds")
         if type(request.max_output_bytes) is not int or request.max_output_bytes < 0:
             raise ValueError("Maximum output size must be a non-negative integer")
-        if role not in self.RESOURCE_CUSTOMIZATION_ROLES:
+        if not DockerExecutionPolicy.can_customize_resources(role):
             return
         if request.cpu_cores is not None and (
             isinstance(request.cpu_cores, bool)
@@ -247,7 +310,7 @@ class PythonDockerExecutor(BaseExecutor):
         if not request.allow_network:
             logger.info("🔒 Network disabled (profile=%s)", role)
             return "none", environment
-        if role not in self.NETWORK_AUTHORIZED_ROLES:
+        if not DockerExecutionPolicy.can_access_network(role):
             logger.warning("Network request denied for restricted role '%s'", role)
             raise PermissionError(
                 f"Network access denied for restricted role '{role}'."
@@ -267,10 +330,21 @@ class PythonDockerExecutor(BaseExecutor):
 
     def _resource_limits(self, request: ExecRequest, profile: dict, role: str) -> dict[str, object]:
         """Resolve bounded cgroup settings for the caller role."""
-        customizable = role in self.RESOURCE_CUSTOMIZATION_ROLES
+        customizable = DockerExecutionPolicy.can_customize_resources(role)
         custom_memory = customizable and request.memory_limit_mb is not None
         memory = f"{request.memory_limit_mb}m" if custom_memory else profile["memory"]
         cpu = request.cpu_cores if customizable and request.cpu_cores is not None else profile["cpu_quota"]
+
+        # Clamp CPU allocation to available host CPUs to prevent Docker API
+        # rejection on machines with fewer cores than the profile requests.
+        try:
+            host_info = self.client.info()
+            available_cpus = host_info.get("NCPU", 0)
+            if available_cpus > 0:
+                cpu = min(cpu, float(available_cpus))
+        except Exception:
+            pass  # If we can't query host info, proceed with the profile value
+
         return {
             "nano_cpus": int(cpu * 1e9),
             "mem_limit": memory,
@@ -288,7 +362,7 @@ class PythonDockerExecutor(BaseExecutor):
     def _build_container_config(self, request: ExecRequest) -> dict:
         """Build the full container creation config with all 6 security layers."""
         role = (request.caller_role or "LLM").upper()
-        profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
+        profile = get_resource_profile(role)
         self._validate_request(request, role)
 
         # ── Layer 4: Resource Limits (cgroups v2) ──────────────────────────────────
@@ -311,7 +385,9 @@ class PythonDockerExecutor(BaseExecutor):
         # Egress access does not require privileged port binding. Keep the
         # capability set empty for every network mode.
         cap_drop = ["ALL"]
-        cap_add = []
+        # Grant NET_RAW when network egress is enabled so that ICMP-based
+        # tools (ping, traceroute) work through the upstream network.
+        cap_add = ["NET_RAW"] if network_mode != "none" else []
 
         # ── Layer 3: Seccomp Profile ──────────────────────────────────────────────
         security_opt = ["no-new-privileges:true"]
@@ -432,7 +508,7 @@ class PythonDockerExecutor(BaseExecutor):
             cmd = self._execution_command(request)
             exec_env = DockerExecutionPolicy.sanitize_environment(request.env_vars)
             exec_env["PATH"] = DockerExecutionPolicy.SAFE_PATH
-            profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
+            profile = get_resource_profile(role)
 
             def _run_exec_sync():
                 exec_id = self.client.api.exec_create(
@@ -518,7 +594,7 @@ class PythonDockerExecutor(BaseExecutor):
         assert self.client is not None
 
         role = (request.caller_role or "LLM").upper()
-        profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
+        profile = get_resource_profile(role)
         timeout_sec = min(request.timeout_ms, profile["timeout_max_ms"]) / 1000.0
         start = time.monotonic()
 
@@ -537,6 +613,18 @@ class PythonDockerExecutor(BaseExecutor):
             if request.files:
                 tar_stream = self._create_tar(request.files)
                 container.put_archive("/workspace", tar_stream)
+
+            # When network egress is enabled, also attach the container to
+            # the upstream network so non-HTTP protocols (ICMP, DNS, etc.)
+            # have a route to the internet.  HTTP traffic still goes through
+            # the proxy via HTTP_PROXY / HTTPS_PROXY environment variables.
+            if config.get("network_mode") == DockerSandboxPolicy.PROXY_NETWORK:
+                try:
+                    upstream = self.client.networks.get(DockerSandboxPolicy.UPSTREAM_NETWORK)
+                    upstream.connect(container)
+                except Exception as net_err:
+                    logger.warning("Could not attach upstream network: %s", net_err)
+
             # Do not fall back to host or bridge networking here.  In
             # particular, an LLM request has deliberately selected "none";
             # changing that after a daemon failure would violate the sandbox
@@ -757,7 +845,7 @@ class PythonDockerExecutor(BaseExecutor):
         assert self.client is not None
 
         role = (request.caller_role or "LLM").upper()
-        profile = RESOURCE_PROFILES.get(role, RESOURCE_PROFILES["LLM"])
+        profile = get_resource_profile(role)
         timeout_sec = min(request.timeout_ms, profile["timeout_max_ms"]) / 1000.0
         start = time.monotonic()
 
@@ -783,6 +871,18 @@ class PythonDockerExecutor(BaseExecutor):
                     None,
                     lambda: container.put_archive("/workspace", tar_stream)
                 )
+
+            # When network egress is enabled, also attach the container to
+            # the upstream network so non-HTTP protocols (ICMP, DNS, etc.)
+            # have a route to the internet.
+            if config.get("network_mode") == DockerSandboxPolicy.PROXY_NETWORK:
+                def _connect_upstream():
+                    try:
+                        upstream = self.client.networks.get(DockerSandboxPolicy.UPSTREAM_NETWORK)
+                        upstream.connect(container)
+                    except Exception as net_err:
+                        logger.warning("Could not attach upstream network: %s", net_err)
+                await loop.run_in_executor(None, _connect_upstream)
 
             # Uploads must be complete before user code can run. Starting
             # first creates a TOCTOU race where code observes partial or

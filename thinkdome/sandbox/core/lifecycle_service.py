@@ -73,6 +73,8 @@ class SandboxInfo:
     expires_at: Optional[float] = None  # Unix epoch seconds, None = no expiration
     metadata: Dict[str, str] = field(default_factory=dict)
     last_state_change: float = field(default_factory=time.time)
+    is_long_lived: bool = False
+    auto_deactivate: bool = True
 
 
 class SandboxLifecycleService:
@@ -89,18 +91,32 @@ class SandboxLifecycleService:
         self._operation_locks: Dict[str, asyncio.Lock] = {}
 
     @staticmethod
-    def bound_ttl_by_role(requested_ttl_sec: Optional[int], role: str) -> int:
-        """Bound requested TTL in seconds based on caller role limits."""
+    def bound_ttl_by_role(requested_ttl_sec: Optional[int], role: str, is_long_lived: bool = False) -> int:
+        """Bound requested TTL in seconds based on caller role limits dynamically."""
         role_upper = (role or "FREE").upper()
-        default_ttl = 600  # 10 min default
         
         from thinkdome.security.identity.core import is_admin_role
-        if is_admin_role(role_upper):
-            max_ttl = 86400  # 24h
-        elif role_upper in ("AGENT", "AGENT_STANDARD", "LLM", "SDK"):
-            max_ttl = 7200   # 2h max
-        else:  # Free tier
-            max_ttl = 900    # 15m max
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        is_admin = is_admin_role(role_upper) or dynamic_role_protocol.has_document_permission("Sandbox", role_upper, "admin")
+
+        if not is_long_lived:
+            # Default short-life policy: 3 minutes (180s), capped at short-life limit (max 5m / 300s)
+            default_ttl = 180
+            max_ttl = 300
+        else:
+            default_ttl = 3600  # 1 hour default when manually requested as long-lived
+            if is_admin:
+                max_ttl = 86400  # 24h
+            elif (
+                dynamic_role_protocol.has_document_permission("Sandbox", role_upper, "write")
+                or dynamic_role_protocol.has_document_permission("Sandbox", role_upper, "create")
+                or dynamic_role_protocol.has_document_permission("Console", role_upper, "write")
+                or dynamic_role_protocol.has_document_permission("NetworkEgress", role_upper, "connect")
+                or role_upper in ("AGENT", "AGENT_STANDARD", "LLM", "SDK", "DEVELOPER")
+            ):
+                max_ttl = 7200   # 2h max
+            else:  # Free / unprivileged tier
+                max_ttl = 900    # 15m max
 
         ttl = requested_ttl_sec if requested_ttl_sec is not None else default_ttl
         return max(10, min(ttl, max_ttl))
@@ -116,10 +132,12 @@ class SandboxLifecycleService:
         owner: str = "anonymous",
         purpose: str = "general",
         role: str = "FREE",
+        is_long_lived: bool = False,
+        auto_deactivate: bool = True,
     ) -> SandboxInfo:
         """Register a newly created sandbox for lifecycle management."""
         now = time.time()
-        bounded_ttl = self.bound_ttl_by_role(timeout_sec, role)
+        bounded_ttl = self.bound_ttl_by_role(timeout_sec, role, is_long_lived=is_long_lived)
         info = SandboxInfo(
             sandbox_id=sandbox_id,
             state=SandboxState.RUNNING,
@@ -132,10 +150,12 @@ class SandboxLifecycleService:
             last_active_at=now,
             expires_at=now + bounded_ttl,
             metadata=metadata or {},
+            is_long_lived=is_long_lived,
+            auto_deactivate=auto_deactivate,
         )
         self._sandboxes[sandbox_id] = info
         self._operation_locks.setdefault(sandbox_id, asyncio.Lock())
-        logger.info(f"📦 Registered sandbox {sandbox_id} (owner={owner}, purpose={purpose}, ttl={bounded_ttl}s)")
+        logger.info(f"📦 Registered sandbox {sandbox_id} (owner={owner}, purpose={purpose}, ttl={bounded_ttl}s, long_lived={is_long_lived})")
         return info
 
     async def destroy_sandbox(self, sandbox_id: str, actor: str = "reaper") -> SandboxInfo:
@@ -174,8 +194,8 @@ class SandboxLifecycleService:
         except Exception as e:
             logger.debug(f"Docker remove failed for {container_id}: {e}")
 
-    def get_sandbox(self, sandbox_id: str) -> SandboxInfo:
-        """Get sandbox info, raising 404 if not found."""
+    def get_sandbox(self, sandbox_id: str, owner: Optional[str] = None) -> SandboxInfo:
+        """Get sandbox info, raising 404 if not found, with multi-user isolation check."""
         info = self._sandboxes.get(sandbox_id)
         if not info:
             raise HTTPException(
@@ -185,15 +205,27 @@ class SandboxLifecycleService:
                     "message": f"Sandbox '{sandbox_id}' not found.",
                 },
             )
+        if owner and owner != "admin" and info.owner != owner:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": SandboxErrorCodes.ACCESS_DENIED,
+                    "message": f"Forbidden: You do not own sandbox '{sandbox_id}'.",
+                },
+            )
         return info
 
     def list_sandboxes(
         self,
         state: Optional[str] = None,
         metadata_filter: Optional[Dict[str, str]] = None,
+        owner: Optional[str] = None,
     ) -> list[SandboxInfo]:
-        """List sandboxes with optional filtering."""
+        """List sandboxes with optional state, metadata, and user owner isolation filtering."""
         results = list(self._sandboxes.values())
+
+        if owner and owner != "admin":
+            results = [s for s in results if s.owner == owner]
 
         if state:
             results = [s for s in results if s.state.value == state]
@@ -203,6 +235,18 @@ class SandboxLifecycleService:
                 results = [s for s in results if s.metadata.get(key) == value]
 
         return results
+
+    def deactivate_sandbox(self, sandbox_id: str, short_life_seconds: int = 120) -> Optional[SandboxInfo]:
+        """Deactivate a sandbox after task completion and mark for short-life cleanup unless long-lived."""
+        info = self._sandboxes.get(sandbox_id)
+        if not info or info.is_long_lived:
+            return info
+        now = time.time()
+        info.expires_at = min(info.expires_at or (now + short_life_seconds), now + short_life_seconds)
+        info.state = SandboxState.IDLE
+        info.last_active_at = now
+        logger.info(f"⏳ Sandbox {sandbox_id} auto-deactivated post-task (short-life reaping in {short_life_seconds}s)")
+        return info
 
     def _transition_state(self, info: SandboxInfo, target: SandboxState) -> None:
         """Validate and perform a state transition."""

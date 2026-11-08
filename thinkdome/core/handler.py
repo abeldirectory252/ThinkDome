@@ -121,7 +121,12 @@ def _resolve_method(dotted_path: str) -> Callable:
 # ── Permission Enforcement ────────────────────────────────────────────────────
 
 def _enforce_permissions(fn: Callable, session: Optional[Dict[str, Any]]) -> None:
-    """Raise PermissionError if the session context lacks required authorization."""
+    """Raise PermissionError if the session context lacks required authorization.
+
+    Every function is a privilege by default, but user/developer can customize it
+    to not having it intentionally (e.g. allow_guest=True or require_privilege=False).
+    All calls pass through the centralized dynamic role allocation protocol.
+    """
     meta = getattr(fn, "_whitelist_meta", None)
     if meta is None:
         # Function was resolved but is not whitelisted
@@ -131,23 +136,48 @@ def _enforce_permissions(fn: Callable, session: Optional[Dict[str, Any]]) -> Non
         )
 
     allow_guest = meta.get("allow_guest", False)
+    require_privilege = meta.get("require_privilege", True)
     required_roles: Set[str] = meta.get("roles", set())
 
     if not session:
         # No session context: programmatic call from scripts/CLI/tests
         return
 
-    user_role = str(session.get("role", "")).upper()
+    from thinkdome.security.identity.core import is_admin_role
+    from thinkdome.security.rbac.protocol import dynamic_role_protocol
 
+    user_role = str(session.get("role", "")).upper()
+    roles = {user_role} if user_role else set()
+    for r in session.get("roles", []):
+        roles.add(str(r).upper())
+    username = session.get("username") or session.get("user_id")
+
+    # 1. Custom exemption check (intentional customization)
+    fn_path = f"{fn.__module__}.{fn.__qualname__}"
+    if not require_privilege or dynamic_role_protocol.is_exempt(fn_path) or dynamic_role_protocol.is_exempt(fn.__qualname__):
+        return
+
+    # 2. Guest access check
     if not allow_guest and user_role in ("GUEST", ""):
         raise PermissionError("Guest access is not permitted for this method")
 
-    if required_roles and user_role not in required_roles:
-        from thinkdome.security.identity.core import is_admin_role
-        if not is_admin_role(user_role):
+    # 3. Super admin bypass
+    if any(is_admin_role(r) for r in roles):
+        return
+
+    # 4. Specific required roles if specified
+    if required_roles:
+        expanded_roles = dynamic_role_protocol.get_inherited_roles(roles)
+        if not expanded_roles.intersection(required_roles):
             raise PermissionError(
                 f"Insufficient permissions. Required: {required_roles}, current role: {user_role}"
             )
+
+    # 5. Default protocol privilege check: every function is a privilege
+    if not dynamic_role_protocol.check_function_privilege(fn_path, roles=roles, user_id=username):
+        raise PermissionError(
+            f"Dynamic privilege denied for function '{fn.__qualname__}'. Required privilege on Document Type 'Function'."
+        )
 
 
 # ── Primary Call Interface ────────────────────────────────────────────────────

@@ -322,14 +322,16 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
 
     @staticmethod
     def _resolve_orm() -> bool:
-        """Use the active ThinkDome ORM when the application kernel is ready."""
+        """Use the active ThinkDome ORM when available, initializing the Kernel if needed."""
         if not _ORM_AVAILABLE:
             return False
         try:
             from thinkdome.core.kernel.kernel import Kernel
             kernel = Kernel.current()
+            if not kernel.initialized:
+                kernel.initialize()
             return bool(kernel.initialized and kernel.db is not None)
-        except (FileNotFoundError, RuntimeError, ValueError):
+        except Exception:
             return False
 
     @staticmethod
@@ -448,9 +450,6 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
             pipe.set(key, payload)
             pipe.zadd(self._redis_scope_key(thread_id, namespace), {checkpoint_id: time.time_ns()})
             pipe.execute()
-            return
-        with self._sync_lock, self._connect() as db:
-            db.execute("INSERT OR REPLACE INTO checkpoints(thread_id,checkpoint_ns,checkpoint_id,parent_id,checkpoint,metadata) VALUES(?,?,?,?,?,?)", (thread_id, namespace, checkpoint_id, parent_id, checkpoint, metadata))
 
     async def aput_writes(self, config: Mapping[str, Any], writes: list[tuple[str, Any]], task_id: str, task_path: str = "") -> None:
         thread_id, namespace, checkpoint_id = self._scope(config)
@@ -482,10 +481,6 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
             for idx, (channel, value) in enumerate(writes):
                 pipe.hset(key, f"{task_id}:{idx}", json.dumps({"task_id": task_id, "channel": channel, "value": self._encode(value).decode()}))
             pipe.execute()
-            return
-        with self._sync_lock, self._connect() as db:
-            for idx, (channel, value) in enumerate(writes):
-                db.execute("INSERT OR REPLACE INTO writes VALUES(?,?,?,?,?,?,?)", (thread_id, namespace, checkpoint_id, task_id, idx, channel, self._encode(value)))
 
     async def aget_tuple(self, config: Mapping[str, Any]) -> Any:
         thread_id, namespace, checkpoint_id = self._scope(config)
@@ -509,12 +504,12 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
         return CheckpointTuple(result_config, checkpoint, self._decode(metadata), parent_config, self._pending_writes(thread_id, namespace, checkpoint["id"]))
 
     def _get_row(self, thread_id: str, namespace: str, checkpoint_id: str | None):
+        if self._redis is not None and checkpoint_id is not None:
+            cached = self._redis.get(self._redis_checkpoint_key(thread_id, namespace, checkpoint_id))
+            if cached:
+                record = json.loads(cached.decode() if isinstance(cached, bytes) else cached)
+                return self._decode(record["checkpoint"].encode()), record["metadata"].encode(), record.get("parent_id")
         if self._orm:
-            if self._redis is not None and checkpoint_id is not None:
-                cached = self._redis.get(self._redis_checkpoint_key(thread_id, namespace, checkpoint_id))
-                if cached:
-                    record = json.loads(cached.decode() if isinstance(cached, bytes) else cached)
-                    return self._decode(record["checkpoint"].encode()), record["metadata"].encode(), record.get("parent_id")
             query = LangGraphCheckpointRecord.query().filter(thread_id=thread_id, checkpoint_ns=namespace)
             records = query.filter(checkpoint_id=checkpoint_id).all() if checkpoint_id else query.all()
             record = max(records, key=lambda item: item.created_at or 0.0, default=None)
@@ -534,35 +529,22 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
                 return None
             record = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
             return self._decode(record["checkpoint"].encode()), record["metadata"].encode(), record.get("parent_id")
-        with self._sync_lock, self._connect() as db:
-            row = db.execute("SELECT checkpoint,parent_id,metadata FROM checkpoints WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=COALESCE(?,(SELECT checkpoint_id FROM checkpoints WHERE thread_id=? AND checkpoint_ns=? ORDER BY rowid DESC LIMIT 1))", (thread_id, namespace, checkpoint_id, thread_id, namespace)).fetchone()
-        if not row:
-            return None
-        return self._decode(row[0]), row[2], row[1]
+        return None
 
     def _pending_writes(self, thread_id: str, namespace: str, checkpoint_id: str) -> list[tuple[str, str, Any]]:
+        if self._redis is not None:
+            cached = self._redis.hgetall(self._redis_write_key(thread_id, namespace, checkpoint_id))
+            if cached:
+                rows = []
+                for raw in cached.values():
+                    item = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                    rows.append((item["task_id"], item["channel"], self._decode(item["value"].encode())))
+                return sorted(rows, key=lambda item: (item[0], item[1]))
         if self._orm:
-            if self._redis is not None:
-                cached = self._redis.hgetall(self._redis_write_key(thread_id, namespace, checkpoint_id))
-                if cached:
-                    rows = []
-                    for raw in cached.values():
-                        item = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-                        rows.append((item["task_id"], item["channel"], self._decode(item["value"].encode())))
-                    return sorted(rows, key=lambda item: (item[0], item[1]))
             records = LangGraphWriteRecord.query().filter(thread_id=thread_id, checkpoint_ns=namespace, checkpoint_id=checkpoint_id).all()
             records.sort(key=lambda item: (item.task_id, item.write_index))
             return [(item.task_id, item.channel, self._decode(item.value_payload.encode())) for item in records]
-        if self._redis is not None:
-            values = self._redis.hgetall(self._redis_write_key(thread_id, namespace, checkpoint_id))
-            rows = []
-            for raw in values.values():
-                record = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-                rows.append((record["task_id"], record["channel"], self._decode(record["value"].encode())))
-            return sorted(rows, key=lambda item: (item[0], item[1]))
-        with self._sync_lock, self._connect() as db:
-            rows = db.execute("SELECT task_id, channel, value FROM writes WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=? ORDER BY task_id, idx", (thread_id, namespace, checkpoint_id)).fetchall()
-        return [(task_id, channel, self._decode(value)) for task_id, channel, value in rows]
+        return []
 
     async def alist(self, config: Mapping[str, Any] | None = None, *, filter: Mapping[str, Any] | None = None, before: Mapping[str, Any] | None = None, limit: int | None = None):
         thread_id = namespace = None
@@ -627,21 +609,7 @@ class ThinkDomeLangGraphCheckpointer(BaseCheckpointSaver):
                 if limit is not None and len(result) >= max(0, int(limit)):
                     break
             return result
-        with self._sync_lock, self._connect() as db:
-            query = "SELECT thread_id,checkpoint_ns,checkpoint_id,checkpoint,metadata FROM checkpoints"
-            args = []
-            if thread_id is not None:
-                query += " WHERE thread_id=? AND checkpoint_ns=?"
-                args.extend([thread_id, namespace])
-            if before_id is not None:
-                query += " AND " if thread_id is not None else " WHERE "
-                query += "rowid < (SELECT rowid FROM checkpoints WHERE thread_id=? AND checkpoint_ns=? AND checkpoint_id=?)"
-                args.extend([thread_id, namespace, before_id])
-            query += " ORDER BY rowid DESC"
-            if limit is not None:
-                query += " LIMIT ?"
-                args.append(max(0, int(limit)))
-            return [( {"thread_id": r[0], "checkpoint_ns": r[1], "data": r[3]}, r[4], r[2], r[5]) for r in db.execute(query.replace("checkpoint,metadata", "checkpoint,metadata,parent_id"), args).fetchall()]
+        return []
 
 
 def thinkdome_tool(

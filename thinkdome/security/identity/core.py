@@ -84,14 +84,37 @@ ROLE_ORCH = Role.ORCH.value
 ROLE_IDE = Role.IDE.value
 ROLE_WEB = Role.WEB.value
 
-ADMIN_ROLES = {Role.SUPER_ADMIN.value, Role.ENTERPRISE_ADMIN.value, Role.ADMIN.value, Role.ORCH.value, Role.IDE.value}
-ADMIN_ROLE_ALIASES = {"ORCHESTRATOR", "AGENT_ADMIN", "ADMINISTRATOR", "SUPERADMIN", "SUPER_ADMIN"}
-
-
 def is_admin_role(role: Optional[str]) -> bool:
-    """Return whether a persisted role grants administrative access."""
-    normalized = str(role or "").upper()
-    return normalized in ADMIN_ROLES or normalized in ADMIN_ROLE_ALIASES
+    """Return whether a persisted role grants administrative access dynamically via RBAC."""
+    if not role:
+        return False
+    normalized = str(role).strip().upper()
+    try:
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        default_admin = dynamic_role_protocol.get_default_admin_role().upper()
+        if normalized == default_admin or normalized.endswith("_ADMIN") or "ADMIN" in normalized:
+            return True
+        if dynamic_role_protocol.has_document_permission("Workspace", normalized, "write"):
+            return True
+        parent = dynamic_role_protocol._get_parent_role(normalized)
+        if parent and is_admin_role(parent):
+            return True
+    except Exception:
+        pass
+    try:
+        from thinkdome.security.rbac.models import Role as RoleModel
+        r = RoleModel.query().filter(name=normalized).first()
+        if r:
+            if getattr(r, "is_admin", False):
+                return True
+            parent_id = getattr(r, "parent_role_id", None)
+            if parent_id:
+                parent_r = RoleModel.get(parent_id)
+                if parent_r and is_admin_role(parent_r.name):
+                    return True
+    except Exception:
+        pass
+    return False
 # No non-admin identity is globally trusted.  Sandboxes must be owned by the
 # authenticated username/key or accessed through an explicit admin role.
 GLOBAL_SANDBOX_OWNERS: set[str] = set()
@@ -117,54 +140,44 @@ ROLE_PRIORITY = (
 
 def select_effective_role(
     roles,
-    default: str = Role.AGENT_STANDARD.value,
+    default: Optional[str] = None,
     username: Optional[str] = None,
 ) -> str:
     """Return the highest-privilege role deterministically.
 
     Authorization is derived exclusively from persisted role assignments.
     """
+    if default is None:
+        try:
+            from thinkdome.security.rbac.protocol import dynamic_role_protocol
+            default = dynamic_role_protocol.get_default_role()
+        except Exception:
+            default = Role.AGENT_STANDARD.value
+
     names = {str(role.name if hasattr(role, "name") else role).upper() for role in (roles or [])}
+    if not names:
+        return default
+
+    # 1. Any administrator role takes top precedence dynamically
+    for role_name in names:
+        if is_admin_role(role_name):
+            return role_name
+
+    # 2. Check prioritized known roles (excluding low-level guest/anonymous)
     for role_name in ROLE_PRIORITY:
+        if role_name in ("GUEST", "ANONYMOUS"):
+            continue
         if role_name in names:
             return role_name
+
+    # 3. Any non-guest custom role dynamically configured in database
+    non_guest = [r for r in names if r not in ("GUEST", "ANONYMOUS")]
+    if non_guest:
+        return non_guest[0]
+
+    if "GUEST" in names:
+        return "GUEST"
     return next(iter(names), default)
-
-# Institutional Role Hierarchy: Parent role -> set of inherited permissions/roles
-ROLE_PERMISSIONS: Dict[str, Set[str]] = {
-    Role.SUPER_ADMIN.value: {"*"},
-    Role.ENTERPRISE_ADMIN.value: {
-        "sandbox:*", "file:*", "erp:*", "system:read", "audit:read"
-    },
-    Role.ADMIN.value: {
-        "sandbox:*", "file:*", "erp:*", "audit:read"
-    },
-    Role.FINANCE_MANAGER.value: {
-        "erp:finance:*", "erp:crud:*", "erp:report:*", "erp:audit:*", "file:read"
-    },
-    Role.FINANCE_USER.value: {
-        "erp:finance:read", "erp:finance:post", "erp:crud:read", "erp:crud:create", "erp:crud:update", "file:read"
-    },
-    Role.AUDITOR.value: {
-        "erp:audit:read", "erp:finance:read", "erp:report:read", "audit:read", "file:read"
-    },
-    Role.SALES_USER.value: {
-        "erp:crud:sales_*", "erp:crud:customer_*", "erp:report:read", "file:read"
-    },
-    Role.AGENT_STANDARD.value: {
-        "sandbox:exec", "search:web", "file:read", "memory:*"
-    },
-    Role.LLM.value: {
-        "sandbox:exec", "search:web", "memory:*"
-    },
-    Role.ANONYMOUS.value: {
-        "sandbox:exec"
-    },
-    Role.GUEST.value: {
-        "file:read"
-    }
-}
-
 
 @dataclass
 class UserIdentity:
@@ -194,6 +207,29 @@ class UserIdentity:
             roles.add(str(raw_role).upper())
         if token_type:
             roles.add(str(token_type).upper())
+
+        # If data includes role_profile or role_profile_name, resolve collection of role names
+        role_profile_name = data.get("role_profile") or data.get("role_profile_name")
+        if role_profile_name:
+            try:
+                from thinkdome.security.rbac.registry import rbac_registry
+                prof = rbac_registry.get_role_profile(role_profile_name)
+                if prof:
+                    for r in prof.get("role_names", []):
+                        roles.add(str(r).upper())
+            except Exception:
+                pass
+
+        # If user has no roles or only generic role, attempt dynamic resolution for known user
+        if username and username != "anonymous" and (not roles or roles == {"ANONYMOUS"} or roles == {"AGENT_STANDARD"}):
+            try:
+                from thinkdome.security.rbac.registry import rbac_registry
+                user_dyn_roles = rbac_registry.get_user_roles(username)
+                if user_dyn_roles:
+                    roles.update(user_dyn_roles)
+            except Exception:
+                pass
+
         if not roles:
             roles.add(Role.ANONYMOUS.value)
 
@@ -217,7 +253,11 @@ class UserIdentity:
 
     def is_admin(self) -> bool:
         """Check if identity possesses administrator level authority."""
-        return bool(self.roles.intersection(ADMIN_ROLES))
+        if any(is_admin_role(r) for r in self.roles):
+            return True
+        if "*:*:*" in self.permissions or "*" in self.permissions or "system:admin:manage" in self.permissions:
+            return True
+        return False
 
     def has_role(self, role: Union[str, Role]) -> bool:
         """Check if identity is assigned a specific role directly or via admin privilege."""
@@ -230,12 +270,11 @@ class RolePolicyEngine:
 
     @staticmethod
     def get_effective_permissions(identity: UserIdentity) -> Set[str]:
-        """Compile effective permission set across assigned roles and custom permissions."""
+        """Use permission grants resolved from the centralized dynamic role allocation protocol."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
         effective: Set[str] = set(identity.permissions)
-        for role in identity.roles:
-            role_upper = role.upper()
-            if role_upper in ROLE_PERMISSIONS:
-                effective.update(ROLE_PERMISSIONS[role_upper])
+        dynamic_perms = dynamic_role_protocol.get_effective_permissions(identity.roles, user_id=identity.username)
+        effective.update(dynamic_perms)
         if identity.is_admin():
             effective.add("*")
         return effective
@@ -246,6 +285,10 @@ class RolePolicyEngine:
         if identity.is_admin():
             return True
 
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        if dynamic_role_protocol.has_permission(identity, required_permission):
+            return True
+
         effective = cls.get_effective_permissions(identity)
         if "*" in effective:
             return True
@@ -254,14 +297,18 @@ class RolePolicyEngine:
 
         for perm in effective:
             perm_lower = perm.lower()
-            if perm_lower == required_permission.lower() or perm_lower == "*":
+            if perm_lower == "*" or perm_lower == required_permission.lower():
                 return True
-
-            # Match wildcard prefix pattern like 'erp:finance:*' or 'file:*'
             if perm_lower.endswith(":*"):
                 prefix = perm_lower[:-2]
                 if required_permission.lower().startswith(prefix):
                     return True
+            permission_parts = perm_lower.split(":")
+            if len(permission_parts) == len(req_parts) and all(
+                allowed == "*" or allowed == requested
+                for allowed, requested in zip(permission_parts, req_parts)
+            ):
+                return True
 
         return False
 
@@ -284,7 +331,7 @@ class RolePolicyEngine:
         owner = sandbox.get("owner")
         if not owner:
             # Missing ownership metadata must not turn an object reference into
-            # a tenant-wide capability.  Administrators bypass above; all
+            # a tenant-wide capability. Administrators bypass above; all
             # other callers require an explicit owner to match.
             return False
 

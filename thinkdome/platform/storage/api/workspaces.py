@@ -1,4 +1,4 @@
-﻿"""Workspace management endpoints."""
+"""Workspace management endpoints."""
 
 from urllib.parse import urlparse
 
@@ -31,8 +31,8 @@ def _owner(user: dict) -> str:
 # This is the server-owned registry for SPA targets.  A browser is never
 # allowed to turn an arbitrary menu value into an internal application route.
 def _is_admin(user: dict) -> bool:
-    from thinkdome.security.identity.core import is_admin_role
-    return is_admin_role(user.get("role"))
+    from thinkdome.security.identity.core import UserIdentity
+    return UserIdentity.from_dict(user).is_admin()
 
 
 def _is_page_allowed(page, user: dict) -> bool:
@@ -209,3 +209,61 @@ async def restore_workspace(
     if not svc.restore(ws_id, owner_id=_owner(user)):
         raise HTTPException(status_code=404, detail="No snapshot found")
     return {"status": "restored", "workspace_id": ws_id}
+
+
+@router.post("/workspaces/{ws_id}/privileges/override")
+async def override_workspace_privilege(
+    ws_id: str,
+    payload: dict,
+    svc: WorkspaceService = Depends(get_workspace_service),
+    admin: dict = Depends(get_current_admin),
+):
+    """Override a privilege specifically for this workspace."""
+    doc_type = payload.get("document_type", "Page")
+    role = payload.get("role", "*")
+    permissions = payload.get("permissions", {})
+    is_denial = bool(payload.get("is_denial", False))
+    is_custom_exempt = bool(payload.get("is_custom_exempt", False))
+    level = int(payload.get("level", 0))
+    user_id = payload.get("user_id")
+
+    rule = svc.override_privilege(
+        ws_id=ws_id,
+        document_type=doc_type,
+        role=role,
+        permissions=permissions,
+        is_denial=is_denial,
+        is_custom_exempt=is_custom_exempt,
+        level=level,
+        user_id=user_id,
+        actor=admin.get("username", "admin"),
+    )
+    return {"status": "success", "rule": rule}
+
+
+@router.get("/workspaces/{ws_id}/privileges/overrides")
+async def get_workspace_privilege_overrides(
+    ws_id: str,
+    svc: WorkspaceService = Depends(get_workspace_service),
+    user: dict = Depends(get_current_user),
+):
+    """List all privilege overrides for this workspace."""
+    overrides = svc.get_privilege_overrides(ws_id)
+    return {"workspace_id": ws_id, "overrides": overrides}
+
+
+@router.post("/workspaces/{ws_id}/privileges/reset")
+async def reset_workspace_privileges(
+    ws_id: str,
+    payload: dict = None,
+    svc: WorkspaceService = Depends(get_workspace_service),
+    admin: dict = Depends(get_current_admin),
+):
+    """Reset workspace-scoped privilege overrides back to global defaults."""
+    doc_type = (payload or {}).get("document_type")
+    count = svc.reset_privileges_to_defaults(
+        ws_id=ws_id,
+        document_type=doc_type,
+        actor=admin.get("username", "admin"),
+    )
+    return {"status": "success", "reset_count": count}

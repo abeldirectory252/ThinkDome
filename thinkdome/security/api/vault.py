@@ -22,9 +22,8 @@ def _authorize_sandbox(request: Request, sandbox_id: str, user: dict) -> None:
     db = getattr(request.app.state, "db_service", None)
     if db is None:
         raise HTTPException(status_code=503, detail="Sandbox ownership service is unavailable")
-    role = str(user.get("role", "")).upper()
-    from thinkdome.security.identity.core import is_admin_role
-    if is_admin_role(role):
+    from thinkdome.security.identity.core import UserIdentity
+    if UserIdentity.from_dict(user).is_admin():
         return
     if user.get("token_type") == "sandbox_access" and user.get("sandbox_id") != sandbox_id:
         raise HTTPException(status_code=404, detail="Sandbox not found")

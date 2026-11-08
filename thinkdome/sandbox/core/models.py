@@ -72,6 +72,7 @@ class ExecuteRequest(BaseModel):
         default="LLM",
         description="Role of the caller: LLM (limited resources) or ADMIN (full resources)"
     )
+    workspace_permissions: list[str] = Field(default_factory=list, exclude=True)
     allow_network: bool = Field(
         default=False,
         description="Whether to allow network access (only effective for ADMIN callers)"
@@ -79,6 +80,7 @@ class ExecuteRequest(BaseModel):
     memory_limit_mb: Optional[int] = Field(None, gt=0, le=65_536, description="Custom memory limit in MB")
     cpu_cores: Optional[float] = Field(None, gt=0, le=64, description="Custom CPU cores limit")
     username: Optional[str] = Field(None, min_length=1, max_length=128, description="Username for user-specific workspace isolation")
+    sandbox_id: Optional[str] = Field(None, max_length=128, description="Target sandbox identifier for execution isolation")
 
     @field_validator("language")
     @classmethod

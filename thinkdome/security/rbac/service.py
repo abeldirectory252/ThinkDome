@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import os
 import json
 import logging
 from typing import Optional, List, Dict, Any
@@ -28,8 +29,22 @@ logger = logging.getLogger(__name__)
 
 
 def hash_password(password: str) -> str:
-    """Hash password securely using SHA-256 with salt."""
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """Store passwords using a salted, deliberately expensive PBKDF2 hash."""
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 600_000)
+    return f"pbkdf2_sha256$600000${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    """Verify current PBKDF2 hashes and legacy SHA-256 hashes during migration."""
+    if encoded.startswith("pbkdf2_sha256$"):
+        try:
+            _, rounds, salt_hex, expected = encoded.split("$", 3)
+            actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), int(rounds))
+            return hmac.compare_digest(actual.hex(), expected)
+        except (ValueError, TypeError):
+            return False
+    return hmac.compare_digest(hashlib.sha256(password.encode("utf-8")).hexdigest(), encoded)
 
 
 class UserService:
@@ -47,9 +62,17 @@ class UserService:
         password: str,
         first_name: str = "",
         last_name: str = "",
+        phone: str = "",
+        department_id: Optional[str] = None,
+        designation: str = "",
+        avatar_url: str = "",
+        organization: str = "",
+        bio: str = "",
+        timezone: str = "UTC",
+        locale: str = "en-US",
         actor: str = "system"
     ) -> User:
-        """Create new User account and Profile."""
+        """Create new User account and Profile with full rich profile fields."""
         username = username.strip().lower()
         email = email.strip().lower()
         if self.user_repo.get_by_username(username):
@@ -68,7 +91,15 @@ class UserService:
         profile = UserProfile(
             user_id=user.id,
             first_name=first_name,
-            last_name=last_name
+            last_name=last_name,
+            phone=phone,
+            department_id=department_id,
+            designation=designation,
+            avatar_url=avatar_url,
+            organization=organization,
+            bio=bio,
+            timezone=timezone,
+            locale=locale,
         )
         profile.save()
 
@@ -88,7 +119,7 @@ class UserService:
         if (
             not user
             or user.status != "active"
-            or not hmac.compare_digest(hash_password(password), user.password_hash)
+            or not verify_password(password, user.password_hash)
         ):
             return None
 
@@ -187,6 +218,24 @@ class UserService:
                 details={"role_id": role_id}
             )
         return res
+
+    def assign_role_profile_to_user(self, user_id: str, profile_id_or_name: str, actor: str = "system") -> bool:
+        """Assign a Role Profile (collection of Role Names) to a user."""
+        from thinkdome.security.rbac.registry import rbac_registry
+        res = rbac_registry.assign_role_profile_to_user(user_id, profile_id_or_name)
+        permission_cache.invalidate_user(user_id)
+        self.audit_repo.log_event(
+            actor=actor,
+            action="assign_role_profile",
+            target_type="RoleProfile",
+            target_id=user_id,
+            details={"profile": profile_id_or_name}
+        )
+        return res
+
+    def get_user_profile(self, user_id: str) -> Optional[UserProfile]:
+        """Fetch UserProfile entity by user_id."""
+        return UserProfile.query().filter(user_id=user_id).first()
 
 
 class RoleService:

@@ -9,6 +9,7 @@ This guide provides step-by-step instructions to run the ThinkDome server, execu
 ### A. Start the Web & REST API Server
 Run the FastAPI production server on port 8000:
 ```bash
+./venv/bin/python -m pip install -e .
 ./venv/bin/python think serve --port 8000
 ```
 - **Web UI Interface**: `http://127.0.0.1:8000/login.html` (or `http://127.0.0.1:8000/`)

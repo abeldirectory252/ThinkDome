@@ -100,3 +100,58 @@ async def test_orchestrate_no_sandbox_fails(client, api_keys, app):
     resp = await client.post("/v1/orchestrate", json=payload, headers=headers)
     assert resp.status_code == 400
     assert "No active sandbox environment found" in resp.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_revive_expired_sandbox_on_toggle(client, api_keys, app):
+    """Verify that an expired sandbox is revived, renewed, and restarted when toggled ON."""
+    import time
+    from thinkdome.security.api.admin import _invalidate_sandbox_cache
+
+    headers = {"Authorization": f"Bearer {api_keys['ADMIN']}"}
+    auth_svc = app.state.auth_service
+
+    # 1. Create sandbox
+    payload = {
+        "name": "Revive Test Env",
+        "memory_mb": 512,
+        "cpu_cores": 1.0,
+        "timeout_sec": 180,
+        "network_enabled": False
+    }
+    resp = await client.post("/v1/sandboxes", json=payload, headers=headers)
+    assert resp.status_code == 201
+    sandbox_id = resp.json()["sandbox_id"]
+
+    # 2. Force it to be expired in the past
+    past_time = time.time() - 100
+    auth_svc.db_service.update_sandbox_status(sandbox_id, "Running", expires_at=past_time)
+    await _invalidate_sandbox_cache()
+
+    # 3. Listing sandboxes should show it as Expired
+    resp = await client.get("/v1/sandboxes", headers=headers)
+    assert resp.status_code == 200
+    target = next(s for s in resp.json() if s["sandbox_id"] == sandbox_id)
+    assert target["expired"] is True
+    assert target["status"] == "Expired"
+    assert "expired" in target.get("expiration_message", "").lower()
+
+    # 4. Toggle the expired sandbox to turn it ON (revive)
+    toggle_resp = await client.post(f"/v1/sandboxes/{sandbox_id}/toggle", headers=headers)
+    assert toggle_resp.status_code == 200
+    data = toggle_resp.json()
+    assert data["status"] == "success"
+    assert data["new_status"] == "active"
+    assert data["expires_at"] > time.time()
+
+    # 5. Listing sandboxes should now show it as active, NOT expired, and without expiration message
+    resp = await client.get("/v1/sandboxes", headers=headers)
+    assert resp.status_code == 200
+    revived = next(s for s in resp.json() if s["sandbox_id"] == sandbox_id)
+    assert revived["expired"] is False
+    assert revived["status"] == "active"
+    assert not revived.get("expiration_message")
+    assert float(revived["expires_at"]) > time.time()
+
+    # Clean up
+    await client.delete(f"/v1/sandboxes/{sandbox_id}", headers=headers)

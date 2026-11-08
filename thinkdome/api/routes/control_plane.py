@@ -58,9 +58,8 @@ async def create_placement(
 ):
     """Reserve a sandbox on a live node before runtime provisioning."""
     claimed_org = current_user.get("organization_id")
-    role = str(current_user.get("role", "")).upper()
-    from thinkdome.security.identity.core import is_admin_role
-    if not claimed_org and not is_admin_role(role):
+    from thinkdome.security.identity.core import UserIdentity
+    if not claimed_org and not UserIdentity.from_dict(current_user).is_admin():
         raise HTTPException(
             status_code=403,
             detail={

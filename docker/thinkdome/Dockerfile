@@ -1,4 +1,4 @@
-FROM python:3.9.6-slim
+FROM python:3.10-slim
 
 LABEL maintainer="thinkdome"
 LABEL description="thinkdome API service"

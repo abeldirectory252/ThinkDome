@@ -120,10 +120,16 @@ class Query:
         self.filters: Dict[str, Any] = {}
         self._limit: Optional[int] = None
         self._offset: Optional[int] = None
+        self._order_by: Optional[tuple[str, str]] = None
 
     def filter(self, **kwargs) -> Query:
         """Add exact match filter criteria."""
         self.filters.update(kwargs)
+        return self
+
+    def order_by(self, field: str, direction: str = "asc") -> Query:
+        """Order records by field and direction ('asc' or 'desc')."""
+        self._order_by = (field, direction.lower())
         return self
 
     def limit(self, value: int) -> Query:
@@ -136,6 +142,47 @@ class Query:
         self._offset = value
         return self
 
+    def count(self) -> int:
+        """Return total matching records count directly via ORM aggregation."""
+        from sqlalchemy import func
+        db = _get_active_db()
+        table = self.model_class._table
+        stmt = select(func.count()).select_from(table)
+
+        if "is_deleted" in table.c and not getattr(self.model_class, "__omit_soft_delete__", False):
+            stmt = stmt.where(table.c.is_deleted == False)
+
+        for key, val in self.filters.items():
+            if key.endswith("__in") and key[:-4] in table.c:
+                values = tuple(val)
+                if not values:
+                    return 0
+                stmt = stmt.where(table.c[key[:-4]].in_(values))
+            elif key in table.c:
+                stmt = stmt.where(table.c[key] == val)
+
+        return db.execute(stmt).scalar() or 0
+
+    def delete(self, soft: bool = True) -> int:
+        """Delete records matching filter criteria directly via ORM."""
+        db = _get_active_db()
+        table = self.model_class._table
+
+        if soft and "is_deleted" in table.c and not getattr(self.model_class, "__omit_soft_delete__", False):
+            stmt = update(table).values(is_deleted=True)
+            for key, val in self.filters.items():
+                if key in table.c:
+                    stmt = stmt.where(table.c[key] == val)
+        else:
+            stmt = delete(table)
+            for key, val in self.filters.items():
+                if key in table.c:
+                    stmt = stmt.where(table.c[key] == val)
+
+        res = db.execute(stmt)
+        db.commit()
+        return getattr(res, "rowcount", 0)
+
     def all(self) -> List[Model]:
         """Fetch all records matching filters."""
         db = _get_active_db()
@@ -144,7 +191,7 @@ class Query:
         stmt = select(table)
 
         # Include soft-delete check by default if column exists
-        if "is_deleted" in table.c:
+        if "is_deleted" in table.c and not getattr(self.model_class, "__omit_soft_delete__", False):
             stmt = stmt.where(table.c.is_deleted == False)
 
         for key, val in self.filters.items():
@@ -157,6 +204,12 @@ class Query:
                 stmt = stmt.where(table.c[key[:-4]].in_(values))
             elif key in table.c:
                 stmt = stmt.where(table.c[key] == val)
+
+        if self._order_by:
+            field_name, direction = self._order_by
+            if field_name in table.c:
+                col = table.c[field_name]
+                stmt = stmt.order_by(col.desc() if direction == "desc" else col.asc())
 
         if self._limit is not None:
             stmt = stmt.limit(self._limit)
@@ -196,16 +249,30 @@ class ModelMetaclass(type):
 
         attrs["_fields"] = fields
         attrs.setdefault("__tablename__", name.lower() + "s")
-        primary_key_name = attrs.setdefault("__primary_key__", "id")
+        primary_key_name = attrs.get("__primary_key__")
+        if not primary_key_name:
+            for fname, fval in fields.items():
+                if getattr(fval, "primary_key", False):
+                    primary_key_name = fname
+                    break
+        if not primary_key_name:
+            primary_key_name = "id"
+        attrs["__primary_key__"] = primary_key_name
         attrs["_primary_key_name"] = primary_key_name
 
         # Map to SQLAlchemy Columns registered on shared Base metadata
         primary_key_type = String
         if isinstance(fields.get(primary_key_name), IntegerField):
             primary_key_type = Integer
-        columns = [Column(primary_key_name, primary_key_type, primary_key=True)]
-        if primary_key_name == "id":
-            columns[0].default = lambda: str(uuid.uuid4())
+        primary_key_default = (lambda: str(uuid.uuid4())) if (primary_key_name == "id" and primary_key_type is String) else None
+        columns = [
+            Column(
+                primary_key_name,
+                primary_key_type,
+                primary_key=True,
+                default=primary_key_default,
+            )
+        ]
         if not attrs.get("__omit_soft_delete__", False):
             columns.append(Column("is_deleted", Boolean, default=False))
 
@@ -272,7 +339,11 @@ class Model(metaclass=ModelMetaclass):
             self._values[name] = default
 
         primary_key_name = self.__class__._primary_key_name
-        self._values.setdefault(primary_key_name, str(uuid.uuid4()))
+        is_int_pk = isinstance(self._fields.get(primary_key_name), IntegerField)
+        if not is_int_pk:
+            self._values.setdefault(primary_key_name, str(uuid.uuid4()))
+        else:
+            self._values.setdefault(primary_key_name, None)
         if not self.__class__.__dict__.get("__omit_soft_delete__", False):
             self._values.setdefault("is_deleted", False)
 
@@ -280,7 +351,7 @@ class Model(metaclass=ModelMetaclass):
             self._values[k] = v
 
     @property
-    def id(self) -> str:
+    def id(self) -> Any:
         return self._values[self.__class__._primary_key_name]
 
     @classmethod
@@ -289,9 +360,10 @@ class Model(metaclass=ModelMetaclass):
         return Query(cls)
 
     @classmethod
-    def get(cls, doc_id: str) -> Optional[Model]:
+    def get(cls, doc_id: Any) -> Optional[Model]:
         """Fetch a single record by its primary key ID."""
-        return cls.query().filter(id=doc_id).first()
+        primary_key_name = cls._primary_key_name
+        return cls.query().filter(**{primary_key_name: doc_id}).first()
 
     def save(self) -> None:
         """Persist current model state (inserts or updates record in DB)."""
@@ -306,9 +378,15 @@ class Model(metaclass=ModelMetaclass):
         
         if not self._loaded:
             self._run_hook("before_create")
-            stmt = insert(table).values(**self._values)
-            db.execute(stmt)
+            insert_vals = {
+                k: v for k, v in self._values.items()
+                if not (k == self.__class__._primary_key_name and v is None)
+            }
+            stmt = insert(table).values(**insert_vals)
+            res = db.execute(stmt)
             db.commit()
+            if hasattr(res, "inserted_primary_key") and res.inserted_primary_key:
+                self._values[self.__class__._primary_key_name] = res.inserted_primary_key[0]
             self._loaded = True
             self._run_hook("after_create")
         else:

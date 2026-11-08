@@ -80,6 +80,13 @@ function navTo(pageId) {
         if (typeof editorInstance !== 'undefined' && editorInstance) {
             editorInstance.layout();
         }
+        if (typeof fetchExplorerFiles === 'function') {
+            fetchExplorerFiles().then(() => {
+                if (typeof renderFileExplorer === 'function') {
+                    renderFileExplorer();
+                }
+            });
+        }
         if (typeof focusTerminalInput === 'function') {
             focusTerminalInput();
         }
@@ -99,6 +106,10 @@ function navTo(pageId) {
         loadRoleProfiles();
     } else if (pageId === 'audit' && typeof window.loadAuditHistory === 'function') {
         window.loadAuditHistory();
+    } else if (pageId === 'filebox' && window.FileboxUI && typeof window.FileboxUI.init === 'function') {
+        window.FileboxUI.init();
+    } else if (pageId === 'filemanager' && window.FileManagerUI && typeof window.FileManagerUI.init === 'function') {
+        window.FileManagerUI.init();
     }
 }
 
@@ -223,9 +234,35 @@ function renderWorkspaceMenu(menu) {
                 if (!externalHref) return;
             }
             renderedPages.add(pageKey);
+            const getIconForPage = (pk) => {
+                switch(pk) {
+                    case 'filemanager':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M2 10h20"/></svg>';
+                    case 'filebox':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>';
+                    case 'dashboard':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>';
+                    case 'sandboxes':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>';
+                    case 'console':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>';
+                    case 'mcp':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>';
+                    case 'apikeys':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>';
+                    case 'users':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+                    case 'roles':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
+                    case 'workspaces':
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+                    default:
+                        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg>';
+                }
+            };
             const entry = document.createElement(isExternal ? 'a' : 'button');
             entry.className = 'nav-item workspace-nav-item';
-            entry.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg>';
+            entry.innerHTML = getIconForPage(pageKey);
             const text = document.createElement('span'); text.textContent = item.label; entry.appendChild(text);
             if (isExternal) {
                 entry.href = externalHref; entry.target = '_blank'; entry.rel = 'noopener noreferrer'; entry.dataset.workspaceExternal = 'true';
@@ -285,6 +322,12 @@ async function refreshWorkspaceMenu() {
         renderWorkspaceMenu(menu);
         return nav;
     } catch (error) {
+        if (String(error).includes("401") || String(error).includes("session token") || String(error).includes("expired")) {
+            if (typeof window.invalidateClientSession === "function") {
+                window.invalidateClientSession();
+                return null;
+            }
+        }
         // A failed workspace request must not leave the original application
         // shell hidden. Restore the visual navigation template and surface
         // the error without crashing the rest of the app.
@@ -343,7 +386,7 @@ async function loadWorkspaceMenuEditor() {
 
 function openWorkspaceCreateModal() { const m = document.getElementById('workspaceCreateModal'); if (m) { const body = m.querySelector('.modal-body'); if (body && !document.getElementById('workspaceStarterTemplate')) { const label = document.createElement('label'); label.className = 'field-label'; label.innerHTML = 'Starter setup<select class="form-select" id="workspaceStarterTemplate"><option value="role-aware">Role-aware workspace</option><option value="blank">Empty workspace</option></select>'; body.insertBefore(label, body.children[1]); } document.getElementById('workspaceCreateName').value = ''; document.getElementById('workspaceCreateError').style.display = 'none'; m.classList.add('active'); } }
 function closeWorkspaceCreateModal() { const m = document.getElementById('workspaceCreateModal'); if (m) m.classList.remove('active'); }
-async function submitWorkspaceCreate(event) { event.preventDefault(); const error = document.getElementById('workspaceCreateError'); try { const ws = await workspaceApi('/v1/workspaces', { method: 'POST', body: JSON.stringify({ name: document.getElementById('workspaceCreateName').value.trim(), ttl_seconds: Number(document.getElementById('workspaceCreateTtl').value) * 60, quota_mb: Number(document.getElementById('workspaceCreateQuota').value) }) }); if (document.getElementById('workspaceStarterTemplate')?.value === 'role-aware') { const pages = [{page_id:'dashboard',title:'Dashboard',allowed_roles:['AGENT_STANDARD','SUPER_ADMIN'],blocks:[{type:'heading',title:'Dashboard'}]},{page_id:'sandboxes',title:'Sandboxes',allowed_roles:['AGENT_STANDARD','SUPER_ADMIN'],blocks:[]},{page_id:'console',title:'Console & IDE',allowed_roles:['AGENT_STANDARD','SUPER_ADMIN'],blocks:[]},{page_id:'admin',title:'Administration',allowed_roles:['SUPER_ADMIN'],blocks:[{type:'heading',title:'Administration'}]}]; const sections = [{label:'User menu',items:[{label:'Dashboard',target_type:'page',target:'dashboard',icon:'grid'},{label:'Sandboxes',target_type:'page',target:'sandboxes',icon:'box'},{label:'Console & IDE',target_type:'page',target:'console',icon:'terminal'}]},{label:'Admin',items:[{label:'Administration',target_type:'page',target:'admin',icon:'settings'}]}]; await workspaceApi(`/v1/workspaces/${encodeURIComponent(ws.workspace_id)}/pages`, {method:'PUT',body:JSON.stringify({pages})}); await workspaceApi(`/v1/workspaces/${encodeURIComponent(ws.workspace_id)}/menu`, {method:'PUT',body:JSON.stringify({sections})}); } setActiveWorkspaceMenu(ws.workspace_id); closeWorkspaceCreateModal(); await loadWorkspaceMenuEditor(); } catch (e) { if (error) { error.textContent = e.message; error.style.display = 'block'; } } }
+async function submitWorkspaceCreate(event) { event.preventDefault(); const error = document.getElementById('workspaceCreateError'); try { const ws = await workspaceApi('/v1/workspaces', { method: 'POST', body: JSON.stringify({ name: document.getElementById('workspaceCreateName').value.trim(), ttl_seconds: Number(document.getElementById('workspaceCreateTtl').value) * 60, quota_mb: Number(document.getElementById('workspaceCreateQuota').value) }) }); if (document.getElementById('workspaceStarterTemplate')?.value === 'role-aware') { const pages = [{page_id:'dashboard',title:'Dashboard',allowed_roles:[],blocks:[{type:'heading',title:'Dashboard'}]},{page_id:'sandboxes',title:'Sandboxes',allowed_roles:[],blocks:[]},{page_id:'console',title:'Console & IDE',allowed_roles:[],blocks:[]},{page_id:'admin',title:'Administration',allowed_roles:[],blocks:[{type:'heading',title:'Administration'}]}]; const sections = [{label:'User menu',items:[{label:'Dashboard',target_type:'page',target:'dashboard',icon:'grid'},{label:'Sandboxes',target_type:'page',target:'sandboxes',icon:'box'},{label:'Console & IDE',target_type:'page',target:'console',icon:'terminal'}]},{label:'Admin',items:[{label:'Administration',target_type:'page',target:'admin',icon:'settings'}]}]; await workspaceApi(`/v1/workspaces/${encodeURIComponent(ws.workspace_id)}/pages`, {method:'PUT',body:JSON.stringify({pages})}); await workspaceApi(`/v1/workspaces/${encodeURIComponent(ws.workspace_id)}/menu`, {method:'PUT',body:JSON.stringify({sections})}); } setActiveWorkspaceMenu(ws.workspace_id); closeWorkspaceCreateModal(); await loadWorkspaceMenuEditor(); } catch (e) { if (error) { error.textContent = e.message; error.style.display = 'block'; } } }
 window.openWorkspaceCreateModal = openWorkspaceCreateModal;
 
 async function saveWorkspacePages() {
@@ -580,8 +623,12 @@ async function submitUserRoleAssignment() {
 /* =================== AUTO RUN LOAD ON READY =================== */
 window.addEventListener('DOMContentLoaded', async () => {
     const appView = document.getElementById('appView');
+    const token = localStorage.getItem('thinkdome_token');
     const isLoggedIn = localStorage.getItem('thinkdome_logged_in') === 'true';
-    if (appView && isLoggedIn) {
+    if (!token && isLoggedIn) {
+        localStorage.removeItem('thinkdome_logged_in');
+    }
+    if (appView && isLoggedIn && token) {
         const role = localStorage.getItem('thinkdome_user_role') || 'AGENT_STANDARD';
         const user = localStorage.getItem('thinkdome_username') || 'User';
         applyRoleBasedUINavigation(role, user);

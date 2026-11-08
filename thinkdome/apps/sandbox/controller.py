@@ -113,11 +113,11 @@ async def create_sandbox(sandbox_model: Sandbox) -> str:
     await hook_manager.run("sandbox.after_provision", sandbox_model)
 
     # Start Sandbox runtime
-    await start_sandbox(sandbox_model)
+    await start_sandbox(sandbox_model, allow_provision=False)
     return sandbox_model.id
 
 
-async def start_sandbox(sandbox_model: Sandbox) -> None:
+async def start_sandbox(sandbox_model: Sandbox, allow_provision: bool = True) -> None:
     """Activate container execution context and update model status."""
     await hook_manager.run("sandbox.before_start", sandbox_model)
 
@@ -125,9 +125,22 @@ async def start_sandbox(sandbox_model: Sandbox) -> None:
     if client:
         try:
             container = client.containers.get(f"thinkdome-{sandbox_model.id}")
-            container.start()
+            if getattr(container, "status", None) == "paused":
+                container.unpause()
+            elif getattr(container, "status", None) != "running":
+                container.start()
         except Exception as e:
-            logger.error(f"Failed to start container: {e}")
+            if allow_provision:
+                logger.warning(
+                    f"Container thinkdome-{sandbox_model.id} not found ({e}), re-provisioning fresh container..."
+                )
+                try:
+                    await create_sandbox(sandbox_model)
+                    return
+                except Exception as pe:
+                    logger.error(f"Failed to re-provision container: {pe}")
+            else:
+                logger.error(f"Failed to start container: {e}")
 
     sandbox_model.status = "Running"
     sandbox_model.save()

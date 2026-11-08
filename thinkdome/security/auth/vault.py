@@ -101,61 +101,61 @@ class CredentialVault:
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
         encrypted = self._encrypt(value)
 
-        # Upsert
-        existing = self.db_service.fetch_one(
-            "SELECT id FROM credential_vault WHERE user_id = ? AND sandbox_id = ? AND key_name = ?",
-            (user_id, sandbox_id, key_name)
-        )
+        # Upsert via ThinkDome ORM
+        from thinkdome.security.rbac.models import CredentialVaultEntry
+        existing = CredentialVaultEntry.query().filter(
+            user_id=user_id,
+            sandbox_id=sandbox_id,
+            key_name=key_name,
+        ).first()
 
         if existing:
-            self.db_service.execute(
-                "UPDATE credential_vault SET encrypted_value = ?, updated_at = ? WHERE id = ?",
-                (encrypted, now, existing["id"])
-            )
+            existing.encrypted_value = encrypted
+            existing.updated_at = now
+            existing.save()
         else:
-            self.db_service.execute(
-                """INSERT INTO credential_vault (user_id, sandbox_id, key_name, encrypted_value, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (user_id, sandbox_id, key_name, encrypted, now, now)
-            )
+            CredentialVaultEntry(
+                user_id=user_id,
+                sandbox_id=sandbox_id,
+                key_name=key_name,
+                encrypted_value=encrypted,
+                created_at=now,
+                updated_at=now,
+            ).save()
 
         # Never log the actual secret value
         logger.info(f"🔐 Vault: stored secret '{key_name}' for user={user_id}, sandbox={sandbox_id}")
 
     def list_keys(self, user_id: str, sandbox_id: str) -> List[str]:
         """List all secret key names for a user/sandbox pair (values are NOT returned)."""
-        rows = self.db_service.fetch_all(
-            "SELECT key_name FROM credential_vault WHERE user_id = ? AND sandbox_id = ?",
-            (user_id, sandbox_id)
-        )
-        return [r["key_name"] for r in rows]
+        from thinkdome.security.rbac.models import CredentialVaultEntry
+        records = CredentialVaultEntry.query().filter(user_id=user_id, sandbox_id=sandbox_id).all()
+        return [r.key_name for r in records]
 
     def delete(self, user_id: str, sandbox_id: str, key_name: str) -> bool:
         """Delete a secret from the vault."""
-        existing = self.db_service.fetch_one(
-            "SELECT id FROM credential_vault WHERE user_id = ? AND sandbox_id = ? AND key_name = ?",
-            (user_id, sandbox_id, key_name)
-        )
+        from thinkdome.security.rbac.models import CredentialVaultEntry
+        existing = CredentialVaultEntry.query().filter(
+            user_id=user_id,
+            sandbox_id=sandbox_id,
+            key_name=key_name,
+        ).first()
         if not existing:
             return False
 
-        self.db_service.execute(
-            "DELETE FROM credential_vault WHERE id = ?",
-            (existing["id"],)
-        )
+        existing.delete(soft=False)
         logger.info(f"🔐 Vault: deleted secret '{key_name}' for user={user_id}, sandbox={sandbox_id}")
         return True
 
     def delete_all_for_sandbox(self, user_id: str, sandbox_id: str) -> int:
         """Delete all secrets for a sandbox (e.g., on sandbox termination)."""
-        rows = self.db_service.fetch_all(
-            "SELECT id FROM credential_vault WHERE user_id = ? AND sandbox_id = ?",
-            (user_id, sandbox_id)
-        )
-        for r in rows:
-            self.db_service.execute("DELETE FROM credential_vault WHERE id = ?", (r["id"],))
-        logger.info(f"🔐 Vault: deleted {len(rows)} secrets for sandbox={sandbox_id}")
-        return len(rows)
+        from thinkdome.security.rbac.models import CredentialVaultEntry
+        records = CredentialVaultEntry.query().filter(user_id=user_id, sandbox_id=sandbox_id).all()
+        count = len(records)
+        for r in records:
+            r.delete(soft=False)
+        logger.info(f"🔐 Vault: deleted {count} secrets for sandbox={sandbox_id}")
+        return count
 
     def inject_into_env(self, user_id: str, sandbox_id: str) -> Dict[str, str]:
         """Retrieve and decrypt all secrets for injection into container environment.
@@ -166,17 +166,15 @@ class CredentialVault:
         Returns:
             Dict of {key_name: decrypted_value}
         """
-        rows = self.db_service.fetch_all(
-            "SELECT key_name, encrypted_value FROM credential_vault WHERE user_id = ? AND sandbox_id = ?",
-            (user_id, sandbox_id)
-        )
+        from thinkdome.security.rbac.models import CredentialVaultEntry
+        records = CredentialVaultEntry.query().filter(user_id=user_id, sandbox_id=sandbox_id).all()
 
         env = {}
-        for row in rows:
+        for r in records:
             try:
-                env[row["key_name"]] = self._decrypt(row["encrypted_value"])
+                env[r.key_name] = self._decrypt(r.encrypted_value)
             except Exception as e:
-                logger.error(f"Failed to decrypt vault entry '{row['key_name']}': {e}")
+                logger.error(f"Failed to decrypt vault entry '{r.key_name}': {e}")
 
         return env
 
@@ -304,9 +302,13 @@ class CredentialVault:
 
     def get_stats(self) -> dict:
         """Return vault statistics (no secret values exposed)."""
-        total = self.db_service.fetch_one("SELECT COUNT(*) as cnt FROM credential_vault")
+        from thinkdome.security.rbac.models import CredentialVaultEntry
+        try:
+            total_count = CredentialVaultEntry.query().count()
+        except Exception:
+            total_count = 0
         return {
-            "total_secrets": total["cnt"] if total else 0,
+            "total_secrets": total_count,
             "encryption_enabled": self._cipher is not None,
         }
 

@@ -765,7 +765,8 @@ function renderApiKeysHTMLOnly() {
     tbody.innerHTML = state.apiKeys.map((k, index) => {
         const nameVal = k.name || k.display_name;
         const tokVal = k.masked_token || k.token;
-        const typeVal = k.token_type || k.type;
+        const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+        const permissionVal = escapeHtml((k.permissions || []).join(', ') || 'No workspace permissions');
         const statusVal = k.status;
         const isRevoked = statusVal === 'REVOKED' || statusVal === 'revoked';
         const displayStatus = isRevoked ? 'REVOKED' : 'ACTIVE';
@@ -773,7 +774,7 @@ function renderApiKeysHTMLOnly() {
             <tr>
               <td style="font-weight:600;">${nameVal}</td>
               <td class="mono" style="font-size: 13px;">${maskToken(tokVal)}</td>
-              <td><span class="action-tag" style="background:var(--accent-subtle);color:var(--accent);">${typeVal} Token</span></td>
+              <td><span class="action-tag" style="background:var(--accent-subtle);color:var(--accent);">${permissionVal}</span></td>
               <td><span class="status-tag ${displayStatus === 'ACTIVE' ? 'success' : 'error'}">${displayStatus}</span></td>
               <td>
                 ${displayStatus === 'ACTIVE' ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger); border-color:var(--danger-subtle);" onclick="revokeKey('${k.key_id || index}', ${index})">Revoke</button>` : `<span class="faint" style="font-size:12px;color:var(--fg-subtle)">Revoked</span>`}
@@ -795,6 +796,22 @@ async function renderApiKeys() {
     const token = localStorage.getItem('thinkdome_token');
     try {
         if (!window.API || !token) throw new Error("Offline");
+        const permissionsResult = await window.API.getPermissions(token);
+        const permissionPicker = document.getElementById('keyPermissions');
+        if (permissionPicker && !permissionsResult.error) {
+            permissionPicker.replaceChildren();
+            (permissionsResult.data || []).forEach(permission => {
+                const label = document.createElement('label');
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = permission.id;
+                const title = document.createElement('span');
+                title.textContent = `${permission.module}:${permission.resource}:${permission.action}`;
+                label.append(checkbox, title);
+                permissionPicker.appendChild(label);
+            });
+            if (!permissionPicker.childElementCount) permissionPicker.textContent = 'Create workspace permissions before issuing API keys.';
+        }
         const { data, error } = await window.API.getApiKeys(token);
         if (error) throw new Error(error);
 
@@ -803,6 +820,7 @@ async function renderApiKeys() {
                 name: k.display_name,
                 token: k.masked_token || k.token,
                 type: k.token_type,
+                permissions: k.permissions || [],
                 status: k.status,
                 key_id: k.key_id
             }));
@@ -816,12 +834,15 @@ async function renderApiKeys() {
 async function generateNewKey(e) {
     e.preventDefault();
     const nameInput = document.getElementById('keyName');
-    const typeInput = document.getElementById('keyType');
-    if (!nameInput || !typeInput) return;
+    if (!nameInput) return;
 
     const name = nameInput.value.trim();
-    const type = typeInput.value;
+    const permissionIds = Array.from(document.querySelectorAll('#keyPermissions input:checked')).map(input => input.value);
     if (!name) return;
+    if (!permissionIds.length) {
+        await showCustomAlert('Permissions required', 'Select at least one workspace permission for this API key.');
+        return;
+    }
 
     const btn = e.target.querySelector('button[type="submit"]');
     const originalBtn = btn ? btn.innerText : '';
@@ -835,7 +856,7 @@ async function generateNewKey(e) {
         if (!window.API || !token) throw new Error("API Offline");
         const { data, error } = await window.API.createApiKey({
             display_name: name,
-            token_type: type,
+            permission_ids: permissionIds,
             expires_at: null
         }, token);
 

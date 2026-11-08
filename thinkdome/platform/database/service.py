@@ -546,7 +546,10 @@ class DatabaseService:
             sid = d.get("id")
             d["sandbox_id"] = sid
             if hasattr(self, "_sandbox_meta") and sid in self._sandbox_meta:
-                d.update(self._sandbox_meta[sid])
+                meta = dict(self._sandbox_meta[sid])
+                meta.pop("status", None)
+                meta.pop("expires_at", None)
+                d.update(meta)
             return d
         return None
 
@@ -564,25 +567,43 @@ class DatabaseService:
             sid = d.get("id")
             d["sandbox_id"] = sid
             if hasattr(self, "_sandbox_meta") and sid in self._sandbox_meta:
-                d.update(self._sandbox_meta[sid])
+                meta = dict(self._sandbox_meta[sid])
+                meta.pop("status", None)
+                meta.pop("expires_at", None)
+                d.update(meta)
             results.append(d)
         return results
 
-    def update_sandbox_status(self, sandbox_id: str, status: str) -> bool:
-        """Update active status."""
+    def update_sandbox_status(self, sandbox_id: str, status: str, expires_at: Optional[float] = None) -> bool:
+        """Update active status and optionally refresh expiration."""
         from thinkdome.apps.sandbox.models import Sandbox
         sandbox = Sandbox.query().filter(id=sandbox_id).first()
         if not sandbox:
+            sandbox = Sandbox.query().filter(name=sandbox_id).first()
+        if not sandbox:
             return False
         status_map = {"active": "Running", "running": "Running", "stopped": "Stopped", "paused": "Paused"}
-        sandbox._values["status"] = status_map.get(str(status).lower(), status)
+        norm_status = status_map.get(str(status).lower(), status)
+        sandbox._values["status"] = norm_status
+        if expires_at is not None:
+            sandbox._values["expires_at"] = float(expires_at)
         sandbox.save()
+        if hasattr(self, "_sandbox_meta") and sandbox_id in self._sandbox_meta:
+            self._sandbox_meta[sandbox_id]["status"] = norm_status
+            if expires_at is not None:
+                self._sandbox_meta[sandbox_id]["expires_at"] = float(expires_at)
         return True
 
     def delete_sandbox(self, sandbox_id: str) -> bool:
         """Remove a sandbox record."""
         from thinkdome.apps.sandbox.models import Sandbox
         sandbox = Sandbox.query().filter(id=sandbox_id).first()
+        if not sandbox:
+            sandbox = Sandbox.query().filter(name=sandbox_id).first()
+        if hasattr(self, "_sandbox_meta"):
+            self._sandbox_meta.pop(sandbox_id, None)
+            if sandbox:
+                self._sandbox_meta.pop(sandbox.id, None)
         if not sandbox:
             return False
         sandbox.delete(soft=False)

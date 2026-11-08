@@ -21,7 +21,7 @@ class SandboxReaper:
         lifecycle_service: SandboxLifecycleService,
         db_service=None,
         check_interval_sec: float = 15.0,
-        default_idle_timeout_sec: float = 600.0,  # 10m idle timeout default
+        default_idle_timeout_sec: float = 180.0,  # 3m idle timeout default for short-life sandboxes
     ) -> None:
         self.lifecycle_service = lifecycle_service
         self.db_service = db_service

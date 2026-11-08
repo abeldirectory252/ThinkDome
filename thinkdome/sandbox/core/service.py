@@ -32,8 +32,13 @@ class ExecutionService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._executors: dict[str, BaseExecutor] = {}
+        self.lifecycle_service = None
         from thinkdome.sandbox.snapshots.service import SnapshotService
         self.snapshot_service = SnapshotService(settings)
+
+    def set_lifecycle_service(self, lifecycle_service) -> None:
+        """Inject lifecycle service for coordinating post-task sandbox deactivation."""
+        self.lifecycle_service = lifecycle_service
 
     async def initialize(self) -> None:
         """Initialize default executor.
@@ -111,9 +116,45 @@ class ExecutionService:
             else:
                 raise
 
+    def _handle_post_task_sandbox_lifecycle(self, sandbox_id: str) -> None:
+        """Deactivate sandbox after task completion and mark for short-life cleanup unless manually set long-lived."""
+        try:
+            from thinkdome.apps.sandbox.models import Sandbox
+            sb = Sandbox.query().filter(id=sandbox_id).first()
+            if not sb:
+                sb = Sandbox.query().filter(name=sandbox_id).first()
+            if sb:
+                is_long_lived = getattr(sb, "is_long_lived", False) or bool(sb._values.get("is_long_lived", False))
+                if not is_long_lived:
+                    now = time.time()
+                    sb.status = "Inactive"
+                    sb.expires_at = min(float(sb._values.get("expires_at") or (now + 120)), now + 120)
+                    sb.save()
+                    logger.info("Sandbox %s deactivated post-task; short-life expiration set to 120s", sandbox_id)
+        except Exception as exc:
+            logger.debug("ORM post-task sandbox deactivation note: %s", exc)
+
+        if self.lifecycle_service:
+            try:
+                self.lifecycle_service.deactivate_sandbox(sandbox_id, short_life_seconds=120)
+            except Exception as exc:
+                logger.debug("Lifecycle service post-task deactivation note: %s", exc)
+
     async def execute(self, request: ExecuteRequest) -> ExecuteResponse:
         """Execute a single code request."""
-        executor = await self._ensure_executor(request.language)
+        try:
+            executor = await self._ensure_executor(request.language)
+        except Exception as exc:
+            logger.warning("Failed to initialize executor for %s: %s", request.language, exc)
+            return ExecuteResponse(
+                stdout="",
+                stderr=f"⚠️ Executor unavailable: {exc}\n",
+                exit_code=1,
+                timed_out=False,
+                duration_ms=0.0,
+                files=[],
+                error_code="DOCKER_NOT_AVAILABLE" if "Docker" in str(exc) else "EXECUTOR_UNAVAILABLE",
+            )
 
         # Prepare code
         code = request.code
@@ -128,9 +169,10 @@ class ExecutionService:
                 files[f.path] = content
 
         # Enforce limits: cap at MAX_EXEC_TIMEOUT_MS unless sandbox limits are active or user is admin
-        is_admin_caller = UserIdentity.from_dict({"role": request.caller_role}).is_admin() if request.caller_role else False
-        caller_role = (request.caller_role or "").upper()
-        can_customize_resources = is_admin_caller or caller_role in {"ORCH", "IDE"}
+        caller_identity = UserIdentity.from_dict({"role": request.caller_role, "permissions": request.workspace_permissions})
+        is_admin_caller = caller_identity.is_admin()
+        from thinkdome.security.identity.core import RolePolicyEngine
+        can_customize_resources = is_admin_caller or RolePolicyEngine.has_permission(caller_identity, "sandbox:resources:customize")
         if can_customize_resources:
             timeout_ms = request.timeout_ms
         else:
@@ -148,12 +190,16 @@ class ExecutionService:
             security_profile=request.security_profile,
             env_vars=request.env_vars,
             caller_role=request.caller_role,
-            allow_network=request.allow_network,
+            allow_network=request.allow_network and RolePolicyEngine.has_permission(caller_identity, "sandbox:network:enable"),
             cpu_cores=request.cpu_cores if can_customize_resources else None,
             username=request.username,
         )
 
-        result = await executor.execute(exec_req)
+        try:
+            result = await executor.execute(exec_req)
+        finally:
+            if request.sandbox_id:
+                self._handle_post_task_sandbox_lifecycle(request.sandbox_id)
 
         # Convert output files
         output_files = [
@@ -203,7 +249,13 @@ class ExecutionService:
 
         yield {"data": json.dumps({'event': 'start', 'language': request.language})}
 
-        executor = await self._ensure_executor(request.language)
+        try:
+            executor = await self._ensure_executor(request.language)
+        except Exception as exc:
+            logger.warning("Failed to initialize executor for %s: %s", request.language, exc)
+            yield {"data": json.dumps({'event': 'error', 'data': f"⚠️ Executor unavailable: {exc}\n"})}
+            yield {"data": json.dumps({'event': 'done', 'exit_code': 1, 'duration_ms': 0.0, 'timed_out': False})}
+            return
 
         # Prepare code
         code = request.code
@@ -218,9 +270,10 @@ class ExecutionService:
                 files[f.path] = content
 
         # Enforce limits
-        is_admin_caller = UserIdentity.from_dict({"role": request.caller_role}).is_admin() if request.caller_role else False
-        caller_role = (request.caller_role or "").upper()
-        can_customize_resources = is_admin_caller or caller_role in {"ORCH", "IDE"}
+        caller_identity = UserIdentity.from_dict({"role": request.caller_role, "permissions": request.workspace_permissions})
+        is_admin_caller = caller_identity.is_admin()
+        from thinkdome.security.identity.core import RolePolicyEngine
+        can_customize_resources = is_admin_caller or RolePolicyEngine.has_permission(caller_identity, "sandbox:resources:customize")
         if can_customize_resources:
             timeout_ms = request.timeout_ms
         else:
@@ -238,7 +291,7 @@ class ExecutionService:
             security_profile=request.security_profile,
             env_vars=request.env_vars,
             caller_role=request.caller_role,
-            allow_network=request.allow_network,
+            allow_network=request.allow_network and RolePolicyEngine.has_permission(caller_identity, "sandbox:network:enable"),
             cpu_cores=request.cpu_cores if can_customize_resources else None,
             username=request.username,
         )
@@ -253,6 +306,9 @@ class ExecutionService:
         except Exception as e:
             yield {"data": json.dumps({'event': 'stderr', 'data': f'Streaming error: {e}'})}
             yield {"data": json.dumps({'event': 'done', 'exit_code': -1, 'duration_ms': 0.0, 'timed_out': False})}
+        finally:
+            if request.sandbox_id:
+                self._handle_post_task_sandbox_lifecycle(request.sandbox_id)
 
     def _resolve_file(self, f: FileInput) -> Optional[bytes]:
         """Resolve file content from base64 or file_id."""

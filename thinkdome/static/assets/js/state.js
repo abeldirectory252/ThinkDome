@@ -13,8 +13,14 @@ const state = {
     // Sandbox Nodes empty initial state
     sandboxes: {},
 
-    // Workspace Projects empty initial state
+    // Workspace Projects initial state
     projects: {
+        filebox: {
+            name: 'Agent Filebox (Persistent)',
+            files: {},
+            activeFile: null,
+            openTabs: []
+        },
         demo: {
             name: 'Demo Sandbox Agent',
             files: {},
@@ -22,7 +28,7 @@ const state = {
             openTabs: []
         }
     },
-    activeProject: 'demo',
+    activeProject: 'filebox',
     terminalCwd: '.',
 
     // Logs collection

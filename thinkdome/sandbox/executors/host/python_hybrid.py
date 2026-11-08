@@ -40,7 +40,8 @@ class PythonHybridExecutor(BaseExecutor):
     async def execute(self, request: ExecRequest) -> ExecResult:
         """Route task to correct executor based on memory limits and roles."""
         use_k8s = False
-        if request.caller_role in ("ADMIN", "ORCH", "IDE"):
+        from thinkdome.security.identity.core import is_admin_role
+        if is_admin_role(request.caller_role):
             use_k8s = True
         if request.memory_limit_mb and request.memory_limit_mb > 512:
             use_k8s = True
@@ -52,7 +53,8 @@ class PythonHybridExecutor(BaseExecutor):
     async def execute_stream(self, request: ExecRequest) -> AsyncGenerator[tuple[str, str], None]:
         """Route streaming task to correct executor."""
         use_k8s = False
-        if request.caller_role in ("ADMIN", "ORCH", "IDE"):
+        from thinkdome.security.identity.core import is_admin_role
+        if is_admin_role(request.caller_role):
             use_k8s = True
         if request.memory_limit_mb and request.memory_limit_mb > 512:
             use_k8s = True

@@ -19,6 +19,9 @@ function invalidateClientSession() {
         window.location.assign("/login.html?reason=session-expired");
     }
 }
+if (typeof window !== "undefined") {
+    window.invalidateClientSession = invalidateClientSession;
+}
 
 function showServerErrorPopup() {
     const id = "thinkdome-server-error-popup";
@@ -248,10 +251,10 @@ export async function login(username, password) {
  * Register a new user account with an assigned enterprise role.
  * @returns {Promise<{ data: any, error }>}
  */
-export async function register(username, password, role = "AGENT_STANDARD") {
+export async function register(account) {
     return apiFetch("/v1/auth/register", {
         method: "POST",
-        body: JSON.stringify({ username, password, role }),
+        body: JSON.stringify(account),
     });
 }
 
@@ -422,6 +425,109 @@ export async function putFileBox(filename, content, token, permanent = true) {
 }
 
 // ─────────────────────────────────────────────
+// Modern AI Agent Filebox Browse & Management API
+// ─────────────────────────────────────────────
+
+export async function fileboxGetUsers(token) {
+    return apiFetch("/v1/filebox/browse/users", { method: "GET" }, token);
+}
+
+export async function fileboxGetTree(path = "", depth = 4, owner = null, token) {
+    let url = `/v1/filebox/browse/tree?depth=${encodeURIComponent(depth)}`;
+    if (path) url += `&path=${encodeURIComponent(path)}`;
+    if (owner) url += `&owner=${encodeURIComponent(owner)}`;
+    return apiFetch(url, { method: "GET" }, token);
+}
+
+export async function fileboxListDir(path = "", owner = null, token) {
+    let url = "/v1/filebox/browse/list";
+    const params = [];
+    if (path) params.push(`path=${encodeURIComponent(path)}`);
+    if (owner) params.push(`owner=${encodeURIComponent(owner)}`);
+    if (params.length) url += `?${params.join("&")}`;
+    return apiFetch(url, { method: "GET" }, token);
+}
+
+export async function fileboxReadFile(path, owner = null, token) {
+    let url = `/v1/filebox/browse/read?path=${encodeURIComponent(path)}`;
+    if (owner) url += `&owner=${encodeURIComponent(owner)}`;
+    return apiFetch(url, { method: "GET" }, token);
+}
+
+export async function fileboxWriteFile(path, content, reason = "", owner = null, token) {
+    return apiFetch("/v1/filebox/browse/write", {
+        method: "POST",
+        body: JSON.stringify({ path, content, reason, target_owner: owner })
+    }, token);
+}
+
+export async function fileboxWriteBinary(path, contentBase64, reason = "", owner = null, token) {
+    return apiFetch("/v1/filebox/browse/write-binary", {
+        method: "POST",
+        body: JSON.stringify({ path, content_base64: contentBase64, reason, target_owner: owner })
+    }, token);
+}
+
+export async function fileboxMkdir(path, owner = null, token) {
+    return apiFetch("/v1/filebox/browse/mkdir", {
+        method: "POST",
+        body: JSON.stringify({ path, target_owner: owner })
+    }, token);
+}
+
+export async function fileboxMove(src, dst, reason = "", owner = null, token) {
+    return apiFetch("/v1/filebox/browse/move", {
+        method: "POST",
+        body: JSON.stringify({ src, dst, reason, target_owner: owner })
+    }, token);
+}
+
+export async function fileboxDelete(path, reason = "", owner = null, token) {
+    return apiFetch("/v1/filebox/browse/delete", {
+        method: "POST",
+        body: JSON.stringify({ path, reason, target_owner: owner })
+    }, token);
+}
+
+export async function fileboxSearch(query, path = "", limit = 50, owner = null, token) {
+    return apiFetch("/v1/filebox/browse/search", {
+        method: "POST",
+        body: JSON.stringify({ query, path, limit, target_owner: owner })
+    }, token);
+}
+
+export async function fileboxIndex(force = false, owner = null, token) {
+    let url = `/v1/filebox/browse/index?force=${force}`;
+    if (owner) url += `&owner=${encodeURIComponent(owner)}`;
+    return apiFetch(url, { method: "POST" }, token);
+}
+
+export async function fileboxGetAudit(limit = 50, owner = null, token) {
+    let url = `/v1/filebox/browse/audit?limit=${encodeURIComponent(limit)}`;
+    if (owner) url += `&owner=${encodeURIComponent(owner)}`;
+    return apiFetch(url, { method: "GET" }, token);
+}
+
+export async function fileboxGetStatus(owner = null, token) {
+    let url = "/v1/filebox/browse/status";
+    if (owner) url += `?owner=${encodeURIComponent(owner)}`;
+    return apiFetch(url, { method: "GET" }, token);
+}
+
+export async function fileboxInit(owner = null, token) {
+    let url = "/v1/filebox/browse/init";
+    if (owner) url += `?owner=${encodeURIComponent(owner)}`;
+    return apiFetch(url, { method: "POST" }, token);
+}
+
+export async function fileboxMigrate(payload, token) {
+    return apiFetch("/v1/filebox/browse/migrate", {
+        method: "POST",
+        body: JSON.stringify(payload)
+    }, token);
+}
+
+// ─────────────────────────────────────────────
 // API Key Management
 // ─────────────────────────────────────────────
 
@@ -433,9 +539,13 @@ export async function getApiKeys(token) {
     return apiFetch("/v1/admin/keys", { method: "GET" }, token);
 }
 
+export async function getPermissions(token) {
+    return apiFetch("/v1/permissions", { method: "GET" }, token);
+}
+
 /**
  * Create a new API key.
- * @param {{ display_name: string, token_type: string, expires_at: string|null }} keyData
+ * @param {{ display_name: string, permission_ids: string[], expires_at: string|null }} keyData
  * @returns {Promise<{ data: { token, key_id, ... }, error }>}
  */
 export async function createApiKey(keyData, token) {

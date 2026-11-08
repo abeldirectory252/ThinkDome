@@ -40,8 +40,20 @@
         const excType = json.exc_type || "RPCError";
         console.error(`[ThinkDome RPC Error] ${excType}: ${errorMsg}`, json);
 
-        if (response.status === 401 && typeof global.invalidateClientSession === "function") {
-          global.invalidateClientSession();
+        if (response.status === 401) {
+          if (typeof global.invalidateClientSession === "function") {
+            global.invalidateClientSession();
+          } else if (global.API && typeof global.API.invalidateClientSession === "function") {
+            global.API.invalidateClientSession();
+          } else {
+            localStorage.removeItem("thinkdome_token");
+            localStorage.removeItem("thinkdome_logged_in");
+            localStorage.removeItem("thinkdome_username");
+            localStorage.removeItem("thinkdome_user_role");
+            if (typeof window !== "undefined" && !window.location.pathname.endsWith("login.html")) {
+              window.location.assign("/login.html?reason=session-expired");
+            }
+          }
         }
 
         throw new Error(`[${excType}] ${errorMsg}`);

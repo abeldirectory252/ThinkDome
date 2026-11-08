@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🧠 thinkdome starting..."
+echo "🧠 ThinkDome starting..."
 
-# Build executor image if it doesn't exist
-if ! docker image inspect thinkdome-executor:latest >/dev/null 2>&1; then
-    echo "📦 Building executor image..."
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    # The executor Dockerfile is bundled at build time
-    if [ -d "/opt/thinkdome/docker/executor" ]; then
-        docker build -t thinkdome-executor:latest /opt/thinkdome/docker/executor
-    else
-        echo "⚠️  Executor Dockerfile not found. Build it manually:"
-        echo "    docker build -t thinkdome-executor:latest docker/executor/"
-    fi
+# If command arguments are provided to the container, execute them directly
+if [ "$#" -gt 0 ]; then
+    exec "$@"
 fi
 
 echo "🚀 Starting API server..."

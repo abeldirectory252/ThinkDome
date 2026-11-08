@@ -38,8 +38,8 @@ def _resolve_storage_dir() -> Path:
 
 
 def _is_admin(user: dict[str, Any]) -> bool:
-    roles = user.get("roles") or [user.get("role", "")]
-    return any(is_admin_role(str(r)) for r in roles)
+    from thinkdome.security.identity.core import UserIdentity
+    return UserIdentity.from_dict(user).is_admin()
 
 
 def _filebox_root_for(user: dict[str, Any], target_owner: Optional[str] = None) -> Path:

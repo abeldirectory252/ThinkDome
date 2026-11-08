@@ -92,10 +92,44 @@ class DockerContainerPolicy:
 class DockerExecutionPolicy:
     """Reusable request-boundary policy shared by every Docker executor path."""
 
-    NETWORK_AUTHORIZED_ROLES = frozenset({"ADMIN", "ORCH", "IDE", "WEB", "SDK", "CURL"})
-    RESOURCE_CUSTOMIZATION_ROLES = frozenset({"ADMIN", "ORCH", "IDE"})
     PROXY_VARIABLES = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"})
     SAFE_PATH = "/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+    @classmethod
+    def can_customize_resources(cls, role: str) -> bool:
+        """Check if caller role dynamically holds resource customization authority via RBAC."""
+        if not role:
+            return False
+        try:
+            from thinkdome.security.identity.core import is_admin_role
+            if is_admin_role(role):
+                return True
+            from thinkdome.security.rbac.protocol import dynamic_role_protocol
+            if dynamic_role_protocol.has_document_permission("Console", role, "update"):
+                return True
+            if dynamic_role_protocol.has_document_permission("Sandbox", role, "update"):
+                return True
+        except Exception:
+            pass
+        return False
+
+    @classmethod
+    def can_access_network(cls, role: str) -> bool:
+        """Check if caller role dynamically holds network egress privilege via RBAC."""
+        if not role:
+            return False
+        try:
+            from thinkdome.security.identity.core import is_admin_role
+            if is_admin_role(role):
+                return True
+            from thinkdome.security.rbac.protocol import dynamic_role_protocol
+            if dynamic_role_protocol.has_document_permission("NetworkEgress", role, "connect"):
+                return True
+            if dynamic_role_protocol.has_document_permission("NetworkEgress", role, "read"):
+                return True
+        except Exception:
+            pass
+        return False
 
     @classmethod
     def sanitize_environment(cls, values: dict[str, str] | None) -> dict[str, str]:

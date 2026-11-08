@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { background: #0f172a; color: #f8fafc; font-family: sans-serif; display: flex; gap: 30px; padding: 40px; }
+.box { text-align: center; width: 100px; }
+.visual { width: 78px; height: 60px; margin: 0 auto 10px; }
+svg { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+
+<div class="box">
+  <div class="visual">
+    <svg viewBox="0 0 78 60" fill="none">
+      <defs>
+        <linearGradient id="back_gold" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#f59e0b" />
+          <stop offset="100%" stop-color="#b45309" />
+        </linearGradient>
+        <linearGradient id="front_gold" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#fcd34d" />
+          <stop offset="25%" stop-color="#fbbf24" />
+          <stop offset="100%" stop-color="#d97706" />
+        </linearGradient>
+        <linearGradient id="paperGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#ffffff" />
+          <stop offset="100%" stop-color="#e2e8f0" />
+        </linearGradient>
+        <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="130%">
+          <feDropShadow dx="0" dy="2.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.3" />
+        </filter>
+        <filter id="flapShadow" x="-10%" y="-10%" width="120%" height="130%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.22" />
+        </filter>
+      </defs>
+
+      <!-- Back tab & body -->
+      <path d="M6 12C6 9 8.5 7 11.5 7H28C30.2 7 32.2 8.2 33.3 10.1L35.8 14.5C36.7 16 38.3 17 40.2 17H67C70 17 72.5 19.5 72.5 22.5V49C72.5 52 70 54.5 67 54.5H11.5C8.5 54.5 6 52 6 49V12Z" fill="url(#back_gold)" filter="url(#dropShadow)" />
+      <path d="M11.5 8H27.8C29.7 8 31.4 9 32.4 10.6L34.9 15C35.9 16.6 37.6 17.6 39.5 17.6H67" stroke="rgba(255,255,255,0.4)" stroke-width="1" stroke-linecap="round" fill="none" />
+
+      <!-- Paper Sheets inside -->
+      <rect x="18" y="10" width="42" height="18" rx="2" fill="#cbd5e1" opacity="0.8" />
+      <rect x="14" y="7" width="50" height="22" rx="2" fill="url(#paperGrad)" stroke="#cbd5e1" stroke-width="0.8" />
+      <line x1="20" y1="12" x2="32" y2="12" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" />
+      <line x1="20" y1="16" x2="52" y2="16" stroke="#cbd5e1" stroke-width="1.5" stroke-linecap="round" />
+
+      <!-- Front flap -->
+      <path d="M6 20C6 17.2 8.2 15 11 15H67.5C70.3 15 72.5 17.2 72.5 20V49C72.5 52 70 54.5 67 54.5H11.5C8.5 54.5 6 52 6 49V20Z" fill="url(#front_gold)" filter="url(#flapShadow)" />
+      <!-- Specular top highlight -->
+      <path d="M7 16.2H71.5" stroke="rgba(255,255,255,0.6)" stroke-width="1.2" stroke-linecap="round" />
+      
+      <!-- Optional subtle etched icon -->
+      <g transform="translate(39, 37)">
+        <text x="0" y="0" font-size="18" text-anchor="middle" dominant-baseline="central" style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));">🧠</text>
+      </g>
+    </svg>
+  </div>
+  <div>models</div>
+</div>
+
+<div class="box">
+  <div class="visual">
+    <svg viewBox="0 0 78 60" fill="none">
+      <defs>
+        <linearGradient id="back_blue" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#0284c7" />
+          <stop offset="100%" stop-color="#0369a1" />
+        </linearGradient>
+        <linearGradient id="front_blue" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#60a5fa" />
+          <stop offset="25%" stop-color="#38bdf8" />
+          <stop offset="100%" stop-color="#0284c7" />
+        </linearGradient>
+      </defs>
+
+      <!-- Back tab & body -->
+      <path d="M6 12C6 9 8.5 7 11.5 7H28C30.2 7 32.2 8.2 33.3 10.1L35.8 14.5C36.7 16 38.3 17 40.2 17H67C70 17 72.5 19.5 72.5 22.5V49C72.5 52 70 54.5 67 54.5H11.5C8.5 54.5 6 52 6 49V12Z" fill="url(#back_blue)" filter="url(#dropShadow)" />
+      <path d="M11.5 8H27.8C29.7 8 31.4 9 32.4 10.6L34.9 15C35.9 16.6 37.6 17.6 39.5 17.6H67" stroke="rgba(255,255,255,0.4)" stroke-width="1" stroke-linecap="round" fill="none" />
+
+      <!-- Paper Sheets inside -->
+      <rect x="18" y="10" width="42" height="18" rx="2" fill="#cbd5e1" opacity="0.8" />
+      <rect x="14" y="7" width="50" height="22" rx="2" fill="url(#paperGrad)" stroke="#cbd5e1" stroke-width="0.8" />
+      <line x1="20" y1="12" x2="32" y2="12" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" />
+      <line x1="20" y1="16" x2="52" y2="16" stroke="#cbd5e1" stroke-width="1.5" stroke-linecap="round" />
+
+      <!-- Front flap -->
+      <path d="M6 20C6 17.2 8.2 15 11 15H67.5C70.3 15 72.5 17.2 72.5 20V49C72.5 52 70 54.5 67 54.5H11.5C8.5 54.5 6 52 6 49V20Z" fill="url(#front_blue)" filter="url(#flapShadow)" />
+      <!-- Specular top highlight -->
+      <path d="M7 16.2H71.5" stroke="rgba(255,255,255,0.6)" stroke-width="1.2" stroke-linecap="round" />
+
+      <!-- Optional subtle etched icon -->
+      <g transform="translate(39, 37)">
+        <text x="0" y="0" font-size="18" text-anchor="middle" dominant-baseline="central" style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));">📐</text>
+      </g>
+    </svg>
+  </div>
+  <div>designs</div>
+</div>
+
+<div class="box">
+  <div class="visual">
+    <svg viewBox="0 0 78 60" fill="none">
+      <!-- Back tab & body -->
+      <path d="M6 12C6 9 8.5 7 11.5 7H28C30.2 7 32.2 8.2 33.3 10.1L35.8 14.5C36.7 16 38.3 17 40.2 17H67C70 17 72.5 19.5 72.5 22.5V49C72.5 52 70 54.5 67 54.5H11.5C8.5 54.5 6 52 6 49V12Z" fill="url(#back_blue)" filter="url(#dropShadow)" />
+      <path d="M11.5 8H27.8C29.7 8 31.4 9 32.4 10.6L34.9 15C35.9 16.6 37.6 17.6 39.5 17.6H67" stroke="rgba(255,255,255,0.4)" stroke-width="1" stroke-linecap="round" fill="none" />
+
+      <!-- Paper Sheets inside -->
+      <rect x="18" y="10" width="42" height="18" rx="2" fill="#cbd5e1" opacity="0.8" />
+      <rect x="14" y="7" width="50" height="22" rx="2" fill="url(#paperGrad)" stroke="#cbd5e1" stroke-width="0.8" />
+      <line x1="20" y1="12" x2="32" y2="12" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" />
+      <line x1="20" y1="16" x2="52" y2="16" stroke="#cbd5e1" stroke-width="1.5" stroke-linecap="round" />
+
+      <!-- Front flap -->
+      <path d="M6 20C6 17.2 8.2 15 11 15H67.5C70.3 15 72.5 17.2 72.5 20V49C72.5 52 70 54.5 67 54.5H11.5C8.5 54.5 6 52 6 49V20Z" fill="url(#front_blue)" filter="url(#flapShadow)" />
+      <!-- Specular top highlight -->
+      <path d="M7 16.2H71.5" stroke="rgba(255,255,255,0.6)" stroke-width="1.2" stroke-linecap="round" />
+      <!-- Pure clean folder with no icon -->
+    </svg>
+  </div>
+  <div>generic folder</div>
+</div>
+
+</body>
+</html>

@@ -9,7 +9,6 @@ Pages declaratively using framework decorators or config files:
         name="developer",
         label="AI & Dev Engineering",
         icon="🚀",
-        allowed_roles=["AGENT_STANDARD", "SUPER_ADMIN"]
     )
     class DeveloperWorkspace:
         items = [
@@ -20,7 +19,6 @@ Pages declaratively using framework decorators or config files:
     @thinkdome.ui.page(
         name="sandboxes",
         title="Sandboxes Studio",
-        allowed_roles=["AGENT_STANDARD", "SUPER_ADMIN"]
     )
     class SandboxesPage:
         layout = [
@@ -111,7 +109,7 @@ def workspace(
             "sequence": sequence,
             "icon": icon,
             "description": description,
-            "allowed_roles": allowed_roles or ["SUPER_ADMIN", "AGENT_STANDARD"],
+            "allowed_roles": allowed_roles or [],
             "items": items or getattr(cls_or_dict, "items", []),
             "shortcuts": shortcuts or getattr(cls_or_dict, "shortcuts", []),
             "number_cards": number_cards or getattr(cls_or_dict, "number_cards", []),
@@ -140,7 +138,7 @@ def page(
     def decorator(cls_or_dict: Union[Type, Dict[str, Any]]) -> Any:
         cfg = {
             "title": title or (cls_or_dict.__name__ if hasattr(cls_or_dict, "__name__") else name.title()),
-            "allowed_roles": allowed_roles or ["SUPER_ADMIN", "AGENT_STANDARD"],
+            "allowed_roles": allowed_roles or [],
             "layout": layout or getattr(cls_or_dict, "layout", []),
         }
         FrameworkUIRegistry.get_instance().register_page(name, cfg)

@@ -20,15 +20,14 @@ router = APIRouter(
 
 class CreateApiKeyRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100, description="Display name for the API key")
-    token_type: str = Field("SDK", description="Scope / Client type: LLM, WEB, SDK, CURL, ORCH, IDE")
-    rate_limit_tier: Optional[str] = Field("standard", description="Rate limit tier: free, standard, premium")
+    permission_ids: List[str] = Field(..., min_length=1, description="Workspace permission catalog IDs granted to this key")
     expires_at: Optional[str] = Field(None, description="Expiration timestamp ISO format (optional)")
 
 
 class ApiKeyResponse(BaseModel):
     key_id: str
     display_name: str
-    token_type: str
+    permissions: List[str] = Field(default_factory=list)
     created_at: str
     expires_at: Optional[str] = None
     status: str
@@ -48,19 +47,22 @@ async def create_api_key(
     actor = current_user.get("username", "admin")
     client_ip = request.client.host if request.client else "unknown"
     
-    key_info = auth_svc.create_api_key(
-        display_name=req.display_name,
-        token_type=req.token_type,
-        expires_at=req.expires_at,
-        creator=actor,
-        actor_ip=client_ip
-    )
+    try:
+        key_info = auth_svc.create_api_key(
+            display_name=req.display_name,
+            permissions=req.permission_ids,
+            expires_at=req.expires_at,
+            creator=actor,
+            actor_ip=client_ip
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     
     masked = f"{key_info['token'][:8]}••••••••{key_info['token'][-4:]}"
     return ApiKeyResponse(
         key_id=key_info["key_id"],
         display_name=key_info["display_name"],
-        token_type=key_info["token_type"],
+        permissions=key_info["permissions"],
         created_at=key_info["created_at"],
         expires_at=key_info.get("expires_at"),
         status=key_info["status"],
@@ -81,7 +83,7 @@ async def list_api_keys(
         ApiKeyResponse(
             key_id=str(k.get("key_id", "")),
             display_name=str(k.get("display_name", "")),
-            token_type=str(k.get("token_type", "LLM")),
+            permissions=k.get("permissions", []),
             created_at=str(k.get("created_at", "")),
             expires_at=str(k.get("expires_at")) if k.get("expires_at") is not None else None,
             status=str(k.get("status", "active")),

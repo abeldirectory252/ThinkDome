@@ -90,6 +90,8 @@ class PermissionChecker:
         operation: str,
         *,
         system: bool = False,
+        caller_role: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> bool:
         """Return ``True`` if *operation* is allowed on *relative_path*.
 
@@ -102,7 +104,24 @@ class PermissionChecker:
         system:
             If ``True`` the caller is a system/bootstrap process, which is
             allowed to write ``system-only`` paths.
+        caller_role:
+            Optional role of the calling identity.
+        user_id:
+            Optional identifier of the calling user.
         """
+        if caller_role:
+            from thinkdome.security.rbac.protocol import dynamic_role_protocol
+            action_map = {"read": "read", "write": "write", "delete": "delete", "append": "write"}
+            action = action_map.get(operation, "file_related")
+            if not dynamic_role_protocol.has_document_permission(
+                roles={caller_role.upper()},
+                document_type="Filebox",
+                action=action,
+                doc_name=relative_path,
+                user_id=user_id,
+            ):
+                return False
+
         access = self.access_for(relative_path)
 
         if operation == "read":

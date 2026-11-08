@@ -24,13 +24,45 @@ class RoleRepository(BaseRepository[Role]):
         return self.find_one_by(name=name)
 
     def get_user_roles(self, user_id: str) -> List[Role]:
-        """Fetch all active Role entities assigned to a user."""
+        """Fetch all active Role entities assigned to a user directly or via Role Profile."""
+        role_ids = set()
         mappings = UserRole.query().filter(user_id=user_id).all()
-        role_ids = [m.role_id for m in mappings]
+        for m in mappings:
+            role_ids.add(m.role_id)
+
+        # Incorporate low-level role names collected by assigned Role Profile(s)
+        try:
+            import json
+            from thinkdome.security.rbac.models import User, UserRoleProfile, RoleProfile
+            user = User.get(user_id)
+            if user:
+                profile_ids = set()
+                if getattr(user, "role_profile_id", None):
+                    profile_ids.add(user.role_profile_id)
+                if getattr(user, "role_profile_name", None):
+                    prof_by_name = RoleProfile.query().filter(name=user.role_profile_name).first()
+                    if prof_by_name:
+                        profile_ids.add(prof_by_name.id)
+
+                for urp in UserRoleProfile.query().filter(user_id=user_id).all():
+                    profile_ids.add(urp.profile_id)
+
+                for pid in profile_ids:
+                    p = RoleProfile.get(pid)
+                    if p and p.is_active:
+                        for rid in json.loads(p.role_ids_json or "[]"):
+                            role_ids.add(rid)
+                        for rname in json.loads(getattr(p, "role_names_json", "[]") or "[]"):
+                            r_obj = Role.query().filter(name=str(rname).upper()).first()
+                            if r_obj:
+                                role_ids.add(r_obj.id)
+        except Exception:
+            pass
+
         if not role_ids:
             return []
         # One set-based ORM query replaces an N+1 role lookup sequence.
-        return [role for role in Role.query().filter(id__in=role_ids).all() if role.is_active]
+        return [role for role in Role.query().filter(id__in=list(role_ids)).all() if role.is_active]
 
     def assign_role_to_user(self, user_id: str, role_id: str) -> UserRole:
         """Create mapping linking user to role."""

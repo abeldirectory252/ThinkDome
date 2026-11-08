@@ -78,6 +78,16 @@ def check_privilege(caller_role: str, operation: str) -> bool:
     Raises:
         PrivilegeError: If the caller lacks privilege.
     """
+    from thinkdome.security.rbac.protocol import dynamic_role_protocol
+    if dynamic_role_protocol.is_admin_role(caller_role):
+        return True
+    if dynamic_role_protocol.has_document_permission(
+        roles={caller_role.upper()},
+        document_type="Document",
+        action=operation,
+    ):
+        return True
+
     privileges = _load_privilege_config()
     allowed_roles = privileges.get(operation, [])
 

@@ -21,6 +21,7 @@ class DockerSandboxPolicy:
     """Resolve an approved Docker network; never silently fall back to bridge."""
 
     PROXY_NETWORK = "thinkbox-egress"
+    UPSTREAM_NETWORK = "thinkbox-upstream"
     PROXY_NETWORK_LABEL = "thinkdome.network"
     PROXY_NETWORK_ROLE = "egress-proxy"
     PROXY_HOST = "thinkbox-proxy"

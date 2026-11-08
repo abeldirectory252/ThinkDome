@@ -58,34 +58,27 @@ class RequestLogService:
         logs_file = self.storage_dir / "request_logs.json"
         if logs_file.exists():
             try:
+                from thinkdome.platform.observability.models import RequestLog
                 logs_data = json.loads(logs_file.read_text(encoding="utf-8"))
                 for log in reversed(logs_data): # Insert oldest first to maintain ordering
-                    # Check if already exists in DB
-                    exists = self.db_service.fetch_one(
-                        "SELECT 1 FROM request_logs WHERE request_id = ? AND timestamp = ?",
-                        (log.get("request_id", ""), log.get("timestamp", ""))
-                    )
+                    # Check if already exists in DB via ORM
+                    exists = RequestLog.query().filter(
+                        request_id=log.get("request_id", ""),
+                        timestamp=log.get("timestamp", ""),
+                    ).first()
                     if not exists:
-                        self.db_service.execute(
-                            """
-                            INSERT INTO request_logs (
-                                request_id, timestamp, display_name, role, client_ip, 
-                                tool_name, request_payload, response_payload, status, duration_ms
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                log.get("request_id", "unknown"),
-                                log.get("timestamp", datetime.utcnow().isoformat()),
-                                log.get("display_name", "Anonymous"),
-                                log.get("role", "LLM"),
-                                log.get("client_ip", "127.0.0.1"),
-                                log.get("tool_name", "unknown"),
-                                json.dumps(log.get("request_payload", {})),
-                                json.dumps(log.get("response_payload", "")),
-                                log.get("status", "success"),
-                                log.get("duration_ms", 0.0)
-                            )
-                        )
+                        RequestLog(
+                            request_id=log.get("request_id", "unknown"),
+                            timestamp=log.get("timestamp", datetime.utcnow().isoformat()),
+                            display_name=log.get("display_name", "Anonymous"),
+                            role=log.get("role", "LLM"),
+                            client_ip=log.get("client_ip", "127.0.0.1"),
+                            tool_name=log.get("tool_name", "unknown"),
+                            request_payload=json.dumps(log.get("request_payload", {})),
+                            response_payload=json.dumps(log.get("response_payload", "")),
+                            status=log.get("status", "success"),
+                            duration_ms=log.get("duration_ms", 0.0),
+                        ).save()
                 logger.info("Migrated old request logs from JSON to SQLite database.")
                 logs_file.rename(logs_file.with_suffix(".json.migrated"))
             except Exception as e:
@@ -100,8 +93,9 @@ class RequestLogService:
         duration_ms: float,
         sandbox_id: Optional[str] = None
     ) -> None:
-        """Record an execution request and persist it into the database."""
+        """Record an execution request and persist it into the database via ORM."""
         try:
+            from thinkdome.platform.observability.models import RequestLog
             request_id = tool_use.get("id", "unknown")
             timestamp = datetime.utcnow().isoformat()
             display_name = user_info.get("display_name", "Anonymous")
@@ -119,18 +113,19 @@ class RequestLogService:
             status = "error" if tool_result.get("is_error", False) else "success"
             duration = round(duration_ms, 2)
 
-            self.db_service.execute(
-                """
-                INSERT INTO request_logs (
-                    request_id, timestamp, display_name, role, client_ip, 
-                    tool_name, request_payload, response_payload, status, duration_ms, sandbox_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    request_id, timestamp, display_name, role, client_ip,
-                    tool_name, request_payload, response_payload, status, duration, sandbox_id
-                )
-            )
+            RequestLog(
+                request_id=request_id,
+                timestamp=timestamp,
+                display_name=display_name,
+                role=role,
+                client_ip=client_ip,
+                tool_name=tool_name,
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status=status,
+                duration_ms=duration,
+                sandbox_id=sandbox_id,
+            ).save()
             
             # Prune old logs to avoid database bloat
             self._prune_old_logs()
@@ -138,19 +133,15 @@ class RequestLogService:
             logger.error(f"Failed to log request in database: {e}")
 
     def _prune_old_logs(self) -> None:
-        """Limit the request logs size to max_logs."""
+        """Limit the request logs size to max_logs using ORM query aggregation and deletion."""
         try:
-            row = self.db_service.fetch_one("SELECT COUNT(*) as count FROM request_logs")
-            if row and row["count"] > self.max_logs:
-                # Find the boundary ID
-                offset = row["count"] - self.max_logs
-                boundary_row = self.db_service.fetch_one(
-                    f"SELECT id FROM request_logs ORDER BY id ASC LIMIT 1 OFFSET {offset}"
-                )
-                if boundary_row:
-                    self.db_service.execute(
-                        "DELETE FROM request_logs WHERE id < ?", (boundary_row["id"],)
-                    )
+            from thinkdome.platform.observability.models import RequestLog
+            total = RequestLog.query().count()
+            if total > self.max_logs:
+                excess = total - self.max_logs
+                oldest_logs = RequestLog.query().order_by("id", "asc").limit(excess).all()
+                for old_log in oldest_logs:
+                    old_log.delete(soft=False)
         except Exception as e:
             logger.error(f"Failed to prune old request logs: {e}")
 
@@ -232,9 +223,10 @@ class RequestLogService:
         return self._decode_log(candidates[0][1].to_dict())
 
     def clear_logs(self, actor: str = "admin", actor_ip: str = "unknown") -> None:
-        """Clear all request logs and record the action in audit logs."""
+        """Clear all request logs via ORM and record the action in audit logs."""
         try:
-            self.db_service.execute("DELETE FROM request_logs")
+            from thinkdome.platform.observability.models import RequestLog
+            RequestLog.query().delete(soft=False)
             self.db_service.log_audit(
                 actor=actor,
                 action="clear_logs",

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from thinkdome.core.kernel.kernel import Kernel
 from thinkdome.core.metadata.metadata import get_doctype_model
 from thinkdome.core.dependencies import get_current_user
+from thinkdome.security.identity.core import is_admin_user
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def list_records(
     # Permission check: standard user can only list their own resources
     query = model_class.query().limit(limit).offset(offset)
     owner = user.get("workspace_id", user.get("username"))
-    if user.get("role") != "ADMIN" and "owner" in model_class._fields:
+    if not is_admin_user(user) and "owner" in model_class._fields:
         query = query.filter(owner=owner)
 
     records = query.all()
@@ -113,7 +114,7 @@ async def get_record(
 
     # Owner permission enforcement
     owner = user.get("workspace_id", user.get("username"))
-    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != owner:
+    if not is_admin_user(user) and getattr(record, "owner", None) != owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to requested resource",
@@ -146,7 +147,7 @@ async def update_record(
         )
 
     owner = user.get("workspace_id", user.get("username"))
-    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != owner:
+    if not is_admin_user(user) and getattr(record, "owner", None) != owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied to edit record",
@@ -157,7 +158,7 @@ async def update_record(
         for k, v in payload.items():
             # Ownership is immutable for ordinary users; otherwise a caller
             # could update a record they own and transfer it to another user.
-            if k == "owner" and user.get("role") != "ADMIN":
+            if k == "owner" and not is_admin_user(user):
                 continue
             if k in record._fields:
                 record._values[k] = v
@@ -193,7 +194,7 @@ async def delete_record(
         )
 
     owner = user.get("workspace_id", user.get("username"))
-    if user.get("role") != "ADMIN" and getattr(record, "owner", None) != owner:
+    if not is_admin_user(user) and getattr(record, "owner", None) != owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied to delete record",

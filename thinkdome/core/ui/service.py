@@ -21,6 +21,7 @@ from thinkdome.core.ui.components import ComponentRegistry
 from thinkdome.core.ui.validator import UIValidator
 from thinkdome.core.ui.cache import UICacheManager
 from thinkdome.core.ui.policy import can_view, normalize_roles
+from thinkdome.security.rbac.protocol import dynamic_role_protocol
 
 
 class UIManagerError(Exception):
@@ -42,26 +43,11 @@ class UIManager:
         return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
 
     def _validate_entity_config(self, config: Dict[str, Any], expected_type: Optional[str] = None) -> None:
-        """Validate the bounded identity and authorization fields of one UI entity."""
-        if not isinstance(config, dict):
-            raise UIManagerError("UI entity configuration must be an object")
-        name = config.get("name")
-        if not isinstance(name, str) or not name.strip() or len(name) > 255:
-            raise UIManagerError("UI entity name must be a non-empty string of at most 255 characters")
-        if re.search(r"[\x00-\x1f\x7f]", name):
-            raise UIManagerError("UI entity name contains control characters")
-        if expected_type and config.get("entity_type", expected_type) != expected_type:
-            raise UIManagerError(f"UI entity type must be {expected_type}")
-        roles = config.get("allowed_roles", config.get("roles", []))
-        if isinstance(roles, str) or not isinstance(roles, (list, tuple, set)):
-            raise UIManagerError("allowed_roles must be a list of role names")
-        if len(roles) > 100 or any(not isinstance(role, str) or not role.strip() or len(role) > 100 for role in roles):
-            raise UIManagerError("allowed_roles contains an invalid or excessive role list")
+        """Validate the bounded identity and authorization fields of one UI entity via declarative pipeline."""
         try:
-            if len(json.dumps(config, ensure_ascii=False)) > 1_000_000:
-                raise UIManagerError("UI entity configuration exceeds the 1 MB limit")
-        except (TypeError, ValueError) as exc:
-            raise UIManagerError("UI entity configuration must contain JSON-compatible values") from exc
+            self.validator.validate_entity(config, expected_type)
+        except ValueError as exc:
+            raise UIManagerError(str(exc)) from exc
 
     # ──────────────────────────────────────────────────────────────────────────
     # Developer Setup & Synchronization (Idempotent)
@@ -369,9 +355,10 @@ class UIManager:
 
         for record in dev_configs:
             cfg = record.get_config()
-            if record.entity_type == "workspace":
+            doc_type = dynamic_role_protocol.resolve_document_type(record)
+            if doc_type == "Sidebar":
                 workspaces_raw.append(cfg)
-            elif record.entity_type == "page":
+            else:
                 pages_raw.append(cfg)
 
         # Sort developer defaults by sequence/name
@@ -390,10 +377,10 @@ class UIManager:
 
         # 3. Layer Role / Permission Filtering
         if user_roles is not None:
-            workspaces = [ws for ws in workspaces if can_view(ws, user_roles)]
-            pages = [p for p in pages if can_view(p, user_roles)]
+            workspaces = [ws for ws in workspaces if can_view(ws, user_roles, user_id=user_id)]
+            pages = [p for p in pages if can_view(p, user_roles, user_id=user_id)]
             for ws in workspaces:
-                ws["items"] = self._filter_menu_items(ws.get("items", []), user_roles)
+                ws["items"] = self._filter_menu_items(ws.get("items", []), user_roles, user_id=user_id)
             # Component privileges are applied inside already-visible pages.
             # A denied UI part is omitted from the server manifest entirely.
             for page in pages:
@@ -404,7 +391,7 @@ class UIManager:
                     component_name = block.get("name") if isinstance(block, dict) else None
                     component_name = component_name or f"{page.get('name')}:block:{index}"
                     component = UIDeveloperConfig.query().filter(name=f"component:{component_name}").first()
-                    if component and not can_view(component.get_config(), user_roles):
+                    if component and not can_view(component.get_config(), user_roles, user_id=user_id):
                         continue
                     visible_blocks.append(block)
                 page[blocks_key] = visible_blocks
@@ -475,17 +462,17 @@ class UIManager:
         """Check if user holds required roles."""
         return can_view({"allowed_roles": required_roles}, user_roles)
 
-    def _filter_menu_items(self, items: Any, user_roles: set) -> List[Dict[str, Any]]:
+    def _filter_menu_items(self, items: Any, user_roles: set, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Filter nested menu trees without exposing unauthorized descendants."""
         if not isinstance(items, list):
             return []
         visible = []
         for item in items:
-            if not isinstance(item, dict) or not can_view(item, user_roles):
+            if not isinstance(item, dict) or not can_view(item, user_roles, user_id=user_id):
                 continue
             item_copy = copy.deepcopy(item)
             if item_copy.get("type") == "group":
-                item_copy["items"] = self._filter_menu_items(item_copy.get("items", []), user_roles)
+                item_copy["items"] = self._filter_menu_items(item_copy.get("items", []), user_roles, user_id=user_id)
                 if not item_copy["items"]:
                     continue
             visible.append(item_copy)
@@ -766,9 +753,13 @@ class UIManager:
         """Return cross-cutting matrix of Pages/Modules/Processes mapped to roles."""
         self._ensure_page_components_registered()
         from thinkdome.security.rbac.models import Role
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        dynamic_role_protocol.ensure_initialized()
+
         roles_list = [r.name for r in Role.query().all()]
-        if not roles_list:
-            roles_list = ["SUPER_ADMIN", "ADMIN", "ENTERPRISE_ADMIN", "AGENT_STANDARD", "GUEST"]
+        for r in dynamic_role_protocol.get_registered_roles():
+            if r not in roles_list:
+                roles_list.append(r)
 
         dev_configs = UIDeveloperConfig.query().all()
         pages_matrix = []
@@ -786,29 +777,26 @@ class UIManager:
                 "allowed_roles": sorted(roles_allowed),
                 "role_access": {role: (not roles_allowed or bool(normalize_roles([role]).intersection(roles_allowed))) for role in roles_list}
             }
-            if rec.entity_type == "page":
-                pages_matrix.append(item_entry)
-            elif rec.entity_type == "workspace":
-                modules_matrix.append(item_entry)
-            elif rec.entity_type == "component":
-                components_matrix.append(item_entry)
+            doc_type = dynamic_role_protocol.resolve_document_type(rec)
+            target_matrix = {
+                "Page": pages_matrix,
+                "Sidebar": modules_matrix,
+                "UICustomizer": components_matrix,
+            }.get(doc_type, components_matrix)
+            target_matrix.append(item_entry)
 
-        # Standard Process Privileges catalog
-        processes = [
-            {"name": "sandbox_create", "title": "Create Sandboxes", "category": "process", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"]},
-            {"name": "sandbox_execute", "title": "Execute Code & Commands", "category": "process", "allowed_roles": ["SUPER_ADMIN", "ADMIN", "AGENT_STANDARD"]},
-            {"name": "network_egress_manage", "title": "Manage Egress Rules", "category": "process", "allowed_roles": ["SUPER_ADMIN", "ENTERPRISE_ADMIN"]},
-            {"name": "ui_customizer_publish", "title": "Publish UI Customizations", "category": "process", "allowed_roles": ["SUPER_ADMIN", "ADMIN"]},
-            {"name": "user_role_assign", "title": "Assign User Roles", "category": "process", "allowed_roles": ["SUPER_ADMIN"]},
-        ]
-        for proc in processes:
-            roles_allowed = normalize_roles(proc["allowed_roles"])
+        # Dynamic protocol subsystems matrix
+        protocol_matrix = dynamic_role_protocol.get_role_permission_matrix()
+        for doc_item in protocol_matrix.get("matrix", []):
+            dt = doc_item["document_type"]
             processes_matrix.append({
-                "name": proc["name"],
-                "title": proc["title"],
+                "name": dt.lower(),
+                "title": doc_item["description"],
                 "entity_type": "process",
-                "allowed_roles": sorted(roles_allowed),
-                "role_access": {role: (not roles_allowed or bool(normalize_roles([role]).intersection(roles_allowed))) for role in roles_list}
+                "document_type": dt,
+                "allowed_roles": [r for r, perms in doc_item.get("roles", {}).items() if any(perms.values())],
+                "role_access": {r: any(perms.values()) for r, perms in doc_item.get("roles", {}).items()},
+                "permissions": doc_item.get("roles", {}),
             })
 
         return {
@@ -817,7 +805,148 @@ class UIManager:
             "modules": modules_matrix,
             "processes": processes_matrix,
             "ui_parts": components_matrix,
+            "protocol_matrix": protocol_matrix,
         }
+
+    def allocate_privilege(
+        self,
+        document_type: str,
+        role: str,
+        permissions: Any,
+        level: int = 0,
+        user_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        is_denial: bool = False,
+    ) -> Dict[str, Any]:
+        """Workspace Manager privilege allocator."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        res = dynamic_role_protocol.allocate_privilege(
+            document_type=document_type,
+            role=role,
+            permissions=permissions,
+            level=level,
+            user_id=user_id or "",
+            workspace_id=workspace_id or "",
+            is_denial=is_denial,
+        )
+        self.cache.clear()
+        return res
+
+    def grant_privilege(
+        self,
+        document_type: str,
+        role: str,
+        permissions: Any,
+        level: int = 0,
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Workspace Manager dynamic privilege granter."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        res = dynamic_role_protocol.grant_privilege(
+            document_type=document_type,
+            role=role,
+            permissions=permissions,
+            level=level,
+            user_id=user_id or "",
+        )
+        self.cache.clear()
+        return res
+
+    def deny_privilege(
+        self,
+        document_type: str,
+        role: str,
+        permissions: Any,
+        level: int = 0,
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Workspace Manager dynamic privilege denial (takes strict precedence)."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        res = dynamic_role_protocol.deny_privilege(
+            document_type=document_type,
+            role=role,
+            permissions=permissions,
+            level=level,
+            user_id=user_id or "",
+        )
+        self.cache.clear()
+        return res
+
+    def customize_exemption(
+        self,
+        target_name_or_doc_type: str,
+        exempt: bool = True,
+    ) -> bool:
+        """Workspace Manager user customization: intentionally exempt a function or document."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        dynamic_role_protocol.customize_exemption(target_name_or_doc_type, exempt=exempt)
+        self.cache.clear()
+        return True
+
+    def override_privilege(
+        self,
+        workspace_id: str,
+        document_type: str,
+        role: str,
+        permissions: Any,
+        is_denial: bool = False,
+        is_custom_exempt: bool = False,
+        level: int = 0,
+        user_id: Optional[str] = None,
+        actor: str = "workspace_manager",
+    ) -> Dict[str, Any]:
+        """Workspace Manager custom privilege override for a specific workspace."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        res = dynamic_role_protocol.override_privilege(
+            workspace_id=workspace_id,
+            document_type=document_type,
+            role=role,
+            permissions=permissions,
+            is_denial=is_denial,
+            is_custom_exempt=is_custom_exempt,
+            level=level,
+            user_id=user_id,
+            actor=actor,
+        )
+        self.cache.clear()
+        return res
+
+    def bulk_override_privileges(
+        self,
+        workspace_id: str,
+        overrides: List[Dict[str, Any]],
+        actor: str = "workspace_manager",
+    ) -> List[Dict[str, Any]]:
+        """Workspace Manager bulk privilege overrides for a workspace."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        res = dynamic_role_protocol.bulk_override_privileges(
+            workspace_id=workspace_id,
+            overrides=overrides,
+            actor=actor,
+        )
+        self.cache.clear()
+        return res
+
+    def reset_privileges_to_defaults(
+        self,
+        workspace_id: str,
+        document_type: Optional[str] = None,
+        actor: str = "workspace_manager",
+    ) -> int:
+        """Reset workspace privilege overrides back to defaults."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        count = dynamic_role_protocol.reset_privileges_to_defaults(
+            workspace_id=workspace_id,
+            document_type=document_type,
+            actor=actor,
+        )
+        self.cache.clear()
+        return count
+
+    def get_privilege_overrides(self, workspace_id: str) -> List[Dict[str, Any]]:
+        """Fetch all privilege overrides configured for a workspace."""
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        return dynamic_role_protocol.get_privilege_overrides(workspace_id)
 
     def register_entity(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """The Boss: Register any workspace, page, component, or menu item here first."""
@@ -831,15 +960,13 @@ class UIManager:
         if not name:
             raise UIManagerError("Entity name is required for registration.")
 
-        if entity_type == "workspace":
-            return self.create_workspace(config)
-        elif entity_type == "page":
-            return self.create_page(config)
-        elif entity_type == "menu_item":
-            ws_name = config.get("workspace")
-            if not ws_name:
-                raise UIManagerError("Workspace name required for menu_item registration.")
-            return self.add_menu_item(ws_name, config)
+        dispatch_map = {
+            "workspace": self.create_workspace,
+            "page": self.create_page,
+            "menu_item": lambda c: self.add_menu_item(c["workspace"], c) if c.get("workspace") else (_ for _ in ()).throw(UIManagerError("Workspace name required for menu_item registration.")),
+        }
+        if entity_type in dispatch_map:
+            return dispatch_map[entity_type](config)
         else:
             # Custom component / block registration
             key = f"component:{name}"
@@ -911,6 +1038,15 @@ class UIManager:
             raise UIManagerError("Provide between 1 and 100 privilege targets")
         if any(not isinstance(name, str) or not name.strip() or len(name) > 255 for name in target_names):
             raise UIManagerError("Privilege targets must be non-empty names")
+        from thinkdome.security.rbac.protocol import dynamic_role_protocol
+        doc_type_map = {
+            "page": "Page",
+            "workspace": "Sidebar",
+            "component": "UICustomizer",
+            "process": "Function",
+        }
+        target_doc = doc_type_map.get(entity_type, entity_type.capitalize())
+
         for name in target_names:
             key = f"{entity_type}:{name}"
             rec = UIDeveloperConfig.query().filter(name=key).first()
@@ -925,6 +1061,11 @@ class UIManager:
                 rec.set_config(cfg)
                 rec.version_hash = self._hash_config(cfg)
                 rec.save()
+
+            if action == "grant":
+                dynamic_role_protocol.grant_privilege(target_doc, role, ["select", "read"])
+            else:
+                dynamic_role_protocol.deny_privilege(target_doc, role, ["select", "read"])
         self.cache.clear()
         return True
 
